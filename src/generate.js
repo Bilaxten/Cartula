@@ -621,7 +621,9 @@
         e[vri] = Math.max(e[vri], rimE - (vt * vt) * coneDrop);
         grid.biome[vri] = B.volcanic;
         if (vdist <= craterRad) {
-          e[vri] = Math.min(e[vri], rimE - 0.055);   // sunken crater floor
+          // crater floor sits a clear voxel step below the rim, so the lava
+          // reads as pooled inside the summit rather than capping it
+          e[vri] = Math.min(e[vri], rimE - Math.max(0.11, landSpan * 0.16));
           grid.water[vri] = 0; grid.lava[vri] = 1; grid.biome[vri] = B.lava;
         }
       }

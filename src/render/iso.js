@@ -99,17 +99,16 @@
       }
     }
 
-    // near-black border voxel — its top follows the relief of the map edge it
-    // hugs, dropping full side faces to the floor, drawn in painter's order
-    // with the terrain so it occludes and is occluded correctly.
-    // dark charcoal — reads as a black frame but stays visible against both the
-    // terrain and the page background behind the map
+    // dark charcoal border voxel — its top matches the height of the map edge
+    // it hugs (never rising above it), bottoming out at the sea plane so water
+    // edges get a flush waterline kerb rather than a wall. Side faces drop to
+    // the floor for the map's base. Drawn in painter's order with the terrain.
     var BORD = [32, 36, 44];
     function borderTop(bx, by) {
       var cxx = bx < 0 ? 0 : (bx >= W ? W - 1 : bx);
       var cyy = by < 0 ? 0 : (by >= H ? H - 1 : by);
       var bl = level[cyy * W + cxx];
-      return bl < 2 ? 2 : bl;
+      return bl < 0 ? 0 : bl;
     }
 
     for (var y = -MB; y < H + MB; y++) {
