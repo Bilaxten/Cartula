@@ -32,6 +32,7 @@
 
   function renderIso(canvas, grid, opts) {
     var o = Object.assign({ tile: 26, levelHeight: 20 }, opts || {});
+    var sun = o.sun || { dx: -1, dy: 0, rise: 0.62, strength: 0.34 };
     var W = grid.width, H = grid.height;
     var TW = o.tile, LH = o.levelHeight;
 
@@ -74,12 +75,13 @@
     }
 
     // --- directional shadow pre-pass ---
-    // Sun low in the grid-west / grid-south, so relief throws a shadow toward
-    // the grid-north-east. For each tile, march toward the sun; if a taller
-    // voxel breaks the light ray, the tile sits in shade. Soft edge by depth.
-    var SUN_DX = -1, SUN_DY = 0;        // march toward the light — screen upper-left
-    var SUN_RISE = 0.62;               // ray climbs this many levels per tile
-    var SUN_STEPS = 10;
+    // March each tile toward the light; if a taller voxel breaks the ray, the
+    // tile sits in shade. Direction / ray-climb / darkness come from the sun
+    // (time-of-day slider) — low sun casts long, dark shadows.
+    var SUN_DX = sun.dx, SUN_DY = sun.dy;
+    var SUN_RISE = Math.max(0.12, sun.rise);
+    var STR = sun.strength;
+    var SUN_STEPS = 12;
     var shadow = new Float32Array(W * H); // 0 = lit, up to 1 = fully shaded
     for (var sy = 0; sy < H; sy++) {
       for (var sx = 0; sx < W; sx++) {
@@ -87,9 +89,8 @@
         if (level[si] <= floorLevel) continue;
         var base = level[si], sh = 0;
         for (var st = 1; st <= SUN_STEPS; st++) {
-          var ol = lvl(sx + SUN_DX * st, sy + SUN_DY * st);
-          var ray = base + SUN_RISE * st;
-          var over = ol - ray;
+          var ol = lvl(Math.round(sx + SUN_DX * st), Math.round(sy + SUN_DY * st));
+          var over = ol - (base + SUN_RISE * st);
           if (over > 0) {
             var contrib = Math.min(1, over / 2.2) * (1 - (st - 1) / SUN_STEPS);
             if (contrib > sh) sh = contrib;
@@ -142,8 +143,8 @@
         var cy = originY + (x + y) * TH2 - L * LH;
         var c = rgb[grid.biome[i]];
         var sv = SM.biomeShade(grid, i);
-        var shf = 1 - 0.34 * shadow[i];      // top-face darkening from cast shadow
-        var shSide = 1 - 0.18 * shadow[i];   // sides take a lighter hit
+        var shf = 1 - STR * shadow[i];         // top-face darkening from cast shadow
+        var shSide = 1 - STR * 0.55 * shadow[i]; // sides take a lighter hit
 
         // left face — down to the (x, y+1) neighbour (or the floor at the edge)
         var leftDrop = L - lvl(x, y + 1);

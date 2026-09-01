@@ -41,8 +41,48 @@
     tbias: { label: 'tbiasVal', fmt: signed },
     mbias: { label: 'mbiasVal', fmt: signed },
     rivers: { label: 'riversVal', fmt: function (v) { return (+v).toFixed(2); } },
-    isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } }
+    isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } },
+    sun: { label: 'sunVal', fmt: function (v) {
+      var h = Math.floor(v), m = Math.round((v - h) * 60);
+      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+    } }
   };
+
+  // Time of day -> shadow direction for the iso bake, plus a colour wash and a
+  // canvas filter for the live look. Daylight is 6:00-18:00; outside that the
+  // sun is below the horizon (night).
+  function sunModel(hour) {
+    var day = (hour - 6) / 12;                    // 0 sunrise .. 1 sunset
+    var up = day > 0 && day < 1;
+    var elev = up ? Math.sin(day * Math.PI) : 0;  // 0 horizon .. 1 noon
+    var iso = {
+      dx: up ? Math.cos(day * Math.PI) : -0.6,    // light swings east -> west
+      dy: -0.35 - 0.45 * elev,                    // always a bit from the north
+      rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
+      strength: up ? (0.16 + 0.26 * elev) : 0.05
+    };
+    var overlay, filter;
+    if (!up) {                                    // night — deep blue, dim
+      var nd = Math.min(1, (hour < 6 ? (6 - hour) : (hour - 18)) / 3); // dusk->deep
+      overlay = 'rgba(34,50,102,' + (0.4 + 0.24 * nd).toFixed(2) + ')';
+      filter = 'brightness(' + (0.78 - 0.16 * nd).toFixed(2) + ') saturate(0.82)';
+    } else if (elev < 0.55) {                      // golden hour — warm
+      var w = 1 - elev / 0.55;                     // 1 at horizon, 0 mid-morning
+      overlay = 'rgba(255,' + Math.round(178 - 40 * w) + ',' + Math.round(120 - 30 * w) + ',' + (0.05 + 0.26 * w).toFixed(2) + ')';
+      filter = 'brightness(' + (0.98 - 0.14 * w).toFixed(2) + ') saturate(' + (1 + 0.14 * w).toFixed(2) + ')';
+    } else {                                       // midday — clear
+      overlay = 'rgba(255,250,235,0)';
+      filter = 'brightness(1.02) saturate(1)';
+    }
+    return { iso: iso, overlay: overlay, filter: filter };
+  }
+
+  function applyDayNight() {
+    var s = sunModel(parseFloat($('sun').value));
+    $('daynight').style.background = s.overlay;
+    map.style.filter = s.filter;
+    $('riverfx').style.filter = s.filter;
+  }
 
   function readConfig() {
     var size = parseInt($('size').value, 10);
@@ -218,7 +258,8 @@
     if (view === 'iso') {
       content = SM.renderIso(map, grid, {
         tile: ISO_TILE,
-        levelHeight: ISO_BASE_LH * isoExag()
+        levelHeight: ISO_BASE_LH * isoExag(),
+        sun: sunModel(parseFloat($('sun').value)).iso
       });
     } else {
       // shrink the tile for very large maps so the canvas stays GPU-friendly
@@ -350,7 +391,7 @@
   }
 
   var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
-    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag'];
+    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun'];
 
   function applyQueryString() {
     if (!location.search) return;
@@ -407,6 +448,11 @@
   ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias', 'rivers']
     .forEach(function (id) { $(id).addEventListener('change', regenerate); });
   $('isoexag').addEventListener('change', function () { refresh(true); });
+  $('sun').addEventListener('input', applyDayNight);
+  $('sun').addEventListener('change', function () {
+    if (view === 'iso') refresh(false);   // re-bake the shadows
+    applyDayNight();
+  });
 
   $('regen').addEventListener('click', regenerate);
   $('seed').addEventListener('change', regenerate);
@@ -437,4 +483,5 @@
   });
   buildLegend();
   regenerate();
+  applyDayNight();
 })(window.SM = window.SM || {});

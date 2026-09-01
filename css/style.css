@@ -301,6 +301,17 @@ details.group .body { padding: 2px 18px 16px; }
 }
 #riverfx { pointer-events: none; }
 
+/* time-of-day wash over the whole stage */
+#daynight {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  background: transparent;
+  transition: background 0.25s linear;
+}
+
 #isohint {
   position: absolute;
   bottom: 12px;

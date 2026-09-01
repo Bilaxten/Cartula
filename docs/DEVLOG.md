@@ -1,5 +1,31 @@
 # DEVLOG
 
+## 2026-09-02 — Konik yanardağ + anim layer fix + gün-döngüsü slider'ı
+
+**Yanardağ:** silindir → konik. `coneDrop = vRad·(landSpan/levels)·0.9`
+(~1 kademe/tile), `pow(vt, 0.8)` profil, tepeden tabana iniyor, araziye
+karışıyor. Krater rim'in 1.6 kademe altında (içine göllenmiş).
+
+**Animasyon layer sıkıntısı:** per-tile `clearRect` overlap yüzünden kümeli
+tile'lar (krater lav gölü) birbirini kırpıyordu. Artık tüm animasyonlu
+tile'ları kapsayan tek bounding-box temizlik + painter's order (gx+gy)
+yeniden çizim. Ortak `prism()` helper'ı. Lav voxel'leri hareketsiz, sadece
+glow nabzı.
+
+**Gün-döngüsü slider'ı (`#sun`, 0-24, vars. 14:00):**
+- `sunModel(hour)` → iso gölge yönü/uzunluğu/gücü + ekran rengi wash + canvas
+  filtresi. Gündüz 6:00-18:00.
+- İso gölge ön-geçişi artık `sun.dx/dy/rise/strength` alıyor: alçak güneş =
+  uzun koyu gölge, güneş doğu→batı süpürüyor. `change`'de yeniden bake.
+- `#daynight` div (`mix-blend-mode: multiply`) + `#map` CSS filtresi:
+  gece koyu mavi, şafak/gün batımı sıcak turuncu, öğlen nötr. `input`'ta
+  canlı (yeniden render yok), `change`'de gölge yeniden bake.
+- Volkan lav'ı gece dramatik parlıyor.
+
+**Doğrulama:** headless determinism OK, 0 kule; tarayıcıda gece/şafak/öğlen
+denendi, overlay+filter+shadow doğru, konsol temiz. Volkan konisi seed 12'de
+net (rim→taban 8→0). Animasyon hareketi otomasyonda gözlenemez.
+
 ## 2026-09-02 — UI makeover (rafine cila) + PNG export + paylaşım linki
 
 Uğur: "ui makeover yapacağız bir de güzel gözüksün" + border/lav/krater
