@@ -31,8 +31,11 @@ bu aynı modelin projeksiyonudur — ayrı harita değil.
 
 - [x] **M1 — Üretim + üstten görünüm.** Grid modeli, noise, biyom ataması,
   Canvas top-down render, parametre paneli, yeniden üret.
-- [ ] **M2 — İzometrik voxel projeksiyon.** Prizma çizimi, statik bake,
-  kamera pan/zoom.
+- [x] **M2 — İzometrik voxel projeksiyon.** `src/render/iso.js` — her tile bir
+  prizma sütunu (üst diamond + 2 yan yüz), painter's algorithm, ayrık
+  yükseklik kademeleri. Tüm arazi bir kez offscreen canvas'a bake edilir;
+  ekran onu pan/zoom transform'uyla blit eder. Panel'de Üstten/İzometrik
+  toggle, sürükle-pan, tekerlek-zoom (imlece doğru).
 - [ ] **M3 — Düzenleme.** Fırça araçları: biyom boya, terrain yükselt/alçalt,
   nehir çiz. Kısmi yeniden hesap.
 - [ ] **M4 — Animasyon.** Nehir dalgası (voxel yüksekliği sinüs), uçan kuşlar.

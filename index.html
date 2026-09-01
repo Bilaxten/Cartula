@@ -10,7 +10,12 @@
 <div id="app">
   <aside id="panel">
     <h1>StilizedMaps</h1>
-    <p class="muted">M1 — üretim + üstten görünüm</p>
+    <p class="muted">M2 — üstten + izometrik görünüm</p>
+
+    <div class="viewtoggle">
+      <button id="viewTop" type="button" class="active">Üstten</button>
+      <button id="viewIso" type="button">İzometrik</button>
+    </div>
 
     <div class="group">
       <h2>Dünya</h2>
@@ -68,6 +73,7 @@
 
   <main id="stage">
     <div id="hover"></div>
+    <div id="isohint">sürükle · tekerlek yakınlaştır</div>
     <canvas id="map"></canvas>
   </main>
 </div>
@@ -77,6 +83,7 @@
 <script src="src/grid.js"></script>
 <script src="src/generate.js"></script>
 <script src="src/render/topdown.js"></script>
+<script src="src/render/iso.js"></script>
 <script src="src/main.js"></script>
 </body>
 </html>

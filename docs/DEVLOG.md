@@ -1,5 +1,39 @@
 # DEVLOG
 
+## 2026-09-01 — M2: izometrik voxel projeksiyon
+
+**Ne yapıldı:** İzometrik görünüm eklendi. Panel'e Üstten/İzometrik toggle,
+sürükle-pan, tekerlek-zoom (imlece doğru yakınlaşma). Grid aynı kaldı —
+iso yalnızca ikinci bir projeksiyon.
+
+**Hangi dosyalar değişti:** `src/render/iso.js` (yeni), `index.html`
+(toggle + iso.js + isohint), `src/main.js` (view mode state, iso pan/zoom,
+render routing), `css/style.css` (viewtoggle, `body.iso` modu).
+
+**Neden bu yaklaşım:** Her tile 3 dörtgen (üst diamond 2:1 iso + W ve E yan
+yüzleri, `1-|noise|` değil sabit gölge çarpanı 0.70/0.52 — low-poly ışık
+hissi). Painter's algorithm = satır-major (y sonra x) döngü, standart iso
+oryantasyonda arkadan öne doğru sıralıyor. Yükseklik = `grid.level + 1`
+(su 0'da, kara en az 1 kademe yukarıda → her kıyıda 1 basamak uçurum).
+**Statik bake:** tüm arazi bir kez offscreen `<canvas>`'a çizilir (~96²'de
+tek seferlik maliyet), ekran `drawImage` ile pan/scale uygulayıp blit eder
+— pan/zoom sırasında yeniden çizim yok, sadece blit. `regenerate` bake'i
+geçersiz kılıyor (`iso = null`). Zoom drawImage ölçeğiyle (yeniden bake
+yok); 64px tile'da bake, çoğunlukla downscale → keskin kalıyor.
+
+**Doğrulama:** `node --check` tüm dosyalarda temiz. Tarayıcıda (Chrome,
+localhost): top→iso toggle, iso render (voxel diorama, kar tepeleri, yan
+yüz gölgeleri), sürükle-pan, tekerlek-zoom, top'a dönüş, iso'dayken random
+seed → yeni harita re-bake — hepsi çalışıyor, konsol hatasız. Ekran
+görüntüleriyle doğrulandı.
+
+**Açık işler:** iso'da hover ile biyom okuma (ters projeksiyon gerekir),
+kamera döndürme (4 yön), M3 fırça düzenleme, M4 animasyon.
+
+**Sonraki adım:** M3 (fırça düzenleme) ya da iso görünümüne cila
+(hover/döndürme) — Uğur seçecek.
+
+
 ## 2026-09-01 — M1 playtest geri bildirimi: kategorili panel + hover + dağlılık/deniz düzeltmesi
 
 **Ne yapıldı:** Uğur M1'i denedi, üç istek geldi: paneli kategorilere ayır +
