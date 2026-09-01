@@ -82,32 +82,70 @@
     if (fx.width) fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
   }
 
-  // River flow runs on a SEPARATE overlay canvas (#riverfx) so the big terrain
-  // canvas is never touched after the bake — the compositor keeps it cached and
-  // pan/zoom stay free. Each river tile is a little water cube; a wave travels
-  // downhill (phase driven by elevation) raising and lowering the cubes. Only
-  // the per-tile dirty rects are cleared each frame. Capped ~30 fps.
+  // Animation runs on a SEPARATE overlay canvas (#riverfx) so the big terrain
+  // canvas is never touched after the bake. Each frame clears ONE bounding box
+  // covering every animated tile, then repaints them all in painter order
+  // (back-to-front) — so clustered tiles (a crater lava lake, a wide river
+  // mouth) composite cleanly instead of clipping each other. Capped ~30 fps.
   function startRiverAnim() {
     stopAnim();
-    var r = content.rivers || [];
-    var lv = content.lavas || [];
-    if ((r.length + lv.length) === 0 || (r.length + lv.length) > 1400 ||
+    var r = (content.rivers || []).slice();
+    var lv = (content.lavas || []).slice();
+    if ((r.length + lv.length) === 0 || (r.length + lv.length) > 1600 ||
         map.width * map.height > 16e6) return;
+
+    var iso = view === 'iso';
+    var d = content.diamond, ts = content.tile, lh = content.lh || 20;
+    var pad = iso ? (Math.min(4.5, lh * 0.26) + lh * 0.5 + d.h2 + 3) : (ts + 2);
+    if (iso) {
+      var ord = function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); };
+      r.sort(ord); lv.sort(ord);
+    }
+    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, all = r.concat(lv), j;
+    for (j = 0; j < all.length; j++) {
+      var ax = iso ? all[j].cx : all[j].x, ay = iso ? all[j].cy : all[j].y;
+      if (ax < minX) minX = ax; if (ax > maxX) maxX = ax;
+      if (ay < minY) minY = ay; if (ay > maxY) maxY = ay;
+    }
+    var box = {
+      x: Math.floor(minX - pad), y: Math.floor(minY - pad),
+      w: Math.ceil(maxX - minX + pad * 2), h: Math.ceil(maxY - minY + pad * 2)
+    };
+
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
     fx.style.transform = map.style.transform;
     anim = {
-      raf: 0, mode: view, rivers: r, lavas: lv,
+      raf: 0, mode: view, rivers: r, lavas: lv, box: box,
       rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
-      d: content.diamond, tile: content.tile,
-      lh: content.lh || 20, t0: performance.now(), last: 0
+      d: d, tile: ts, lh: lh, t0: performance.now(), last: 0
     };
     tick();
   }
 
   function shade(rgb, f) {
     return 'rgb(' + Math.round(rgb[0] * f) + ',' + Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
+  }
+
+  // one iso prism (top diamond + two front faces) at column cx, top at topY,
+  // faces down to botY
+  function prism(ctx, cx, topY, botY, w2, h2, topC, leftC, rightC) {
+    ctx.fillStyle = leftC;
+    ctx.beginPath();
+    ctx.moveTo(cx - w2, topY); ctx.lineTo(cx, topY + h2);
+    ctx.lineTo(cx, botY + h2); ctx.lineTo(cx - w2, botY);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = rightC;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY + h2); ctx.lineTo(cx + w2, topY);
+    ctx.lineTo(cx + w2, botY); ctx.lineTo(cx, botY + h2);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = topC;
+    ctx.beginPath();
+    ctx.moveTo(cx, topY - h2); ctx.lineTo(cx + w2, topY);
+    ctx.lineTo(cx, topY + h2); ctx.lineTo(cx - w2, topY);
+    ctx.closePath(); ctx.fill();
   }
 
   function tick() {
@@ -117,6 +155,8 @@
     if (now - anim.last < 32) return;
     anim.last = now;
     var ctx = $('riverfx').getContext('2d');
+    var b = anim.box;
+    ctx.clearRect(b.x, b.y, b.w, b.h);
     if (anim.mode === 'iso') tickIso(now, ctx);
     else tickTop(now, ctx);
   }
@@ -124,19 +164,16 @@
   // top-down: a moving sheen slides downstream over the baked river tiles; lava
   // tiles pulse orange. The overlay only tints — the terrain canvas is untouched.
   function tickTop(now, ctx) {
-    var ts = anim.tile;
-    var rivers = anim.rivers, lavas = anim.lavas || [];
+    var ts = anim.tile, rivers = anim.rivers, lavas = anim.lavas;
     var t = (now - anim.t0) / 1000;
     for (var k = 0; k < rivers.length; k++) {
       var r = rivers[k];
-      ctx.clearRect(r.x, r.y, ts, ts);
       var s = 0.5 + 0.5 * Math.sin(t * 3.0 - r.phase * 0.55);
       ctx.fillStyle = 'rgba(206,232,255,' + (0.06 + 0.20 * s).toFixed(3) + ')';
       ctx.fillRect(r.x, r.y, ts, ts);
     }
     for (var li = 0; li < lavas.length; li++) {
       var lv = lavas[li];
-      ctx.clearRect(lv.x, lv.y, ts, ts);
       var g = 0.5 + 0.5 * Math.sin(t * 1.6 - lv.phase);
       ctx.fillStyle = 'rgba(255,150,40,' + (0.12 + 0.42 * g).toFixed(3) + ')';
       ctx.fillRect(lv.x, lv.y, ts, ts);
@@ -146,60 +183,33 @@
   function tickIso(now, ctx) {
     var d = anim.d, w2 = d.w2, h2 = d.h2;
     var rivers = anim.rivers, rgb = anim.rgb;
-    var slab = anim.lh * 0.42;                 // visible water body under the surface
-    var AMP = Math.min(4.5, anim.lh * 0.26);   // wave height
-    var K = 90, SPEED = 3.4;                   // downhill wave: crest moves to lower elevation
+    var slab = anim.lh * 0.42;
+    var AMP = Math.min(4.5, anim.lh * 0.26);
+    var K = 90, SPEED = 3.4;                   // crest travels toward lower ground
     var t = (now - anim.t0) / 1000 * SPEED;
-    var padTop = AMP + h2 + 1, padBot = slab + h2 + 1;
 
     for (var k = 0; k < rivers.length; k++) {
       var r = rivers[k];
-      ctx.clearRect(r.cx - w2 - 1, r.cy - padTop, w2 * 2 + 2, padTop + padBot);
       var wave = Math.sin(t - r.elev * K);
-      var lift = wave * AMP;
-      var cy = r.cy - lift;
-      var botL = r.cy + slab;                   // cube bottom holds still
       var sh = 0.86 + 0.26 * (0.5 + 0.5 * wave);
-
-      // left face
-      ctx.fillStyle = shade(rgb, 0.68);
-      ctx.beginPath();
-      ctx.moveTo(r.cx - w2, cy); ctx.lineTo(r.cx, cy + h2);
-      ctx.lineTo(r.cx, botL + h2); ctx.lineTo(r.cx - w2, botL);
-      ctx.closePath(); ctx.fill();
-      // right face
-      ctx.fillStyle = shade(rgb, 0.5);
-      ctx.beginPath();
-      ctx.moveTo(r.cx, cy + h2); ctx.lineTo(r.cx + w2, cy);
-      ctx.lineTo(r.cx + w2, botL); ctx.lineTo(r.cx, botL + h2);
-      ctx.closePath(); ctx.fill();
-      // top
-      ctx.fillStyle = shade(rgb, sh);
-      ctx.beginPath();
-      ctx.moveTo(r.cx, cy - h2); ctx.lineTo(r.cx + w2, cy);
-      ctx.lineTo(r.cx, cy + h2); ctx.lineTo(r.cx - w2, cy);
-      ctx.closePath(); ctx.fill();
+      prism(ctx, r.cx, r.cy - wave * AMP, r.cy + slab, w2, h2,
+        shade(rgb, sh), shade(rgb, 0.68), shade(rgb, 0.5));
     }
 
-    // --- lava: the voxels hold still and only pulse in brightness — a slow
-    // glow sweeping along the flow (phase by elevation), crest to white-hot ---
-    var lavas = anim.lavas || [];
-    var lrgb = anim.lavaRgb;
-    var LK = 70, LSPEED = 2.0;
+    // lava: cubes hold still, only the glow pulses (phase by elevation so heat
+    // sweeps along a flow); crest lerps toward white-hot
+    var lrgb = anim.lavaRgb, lavas = anim.lavas;
+    var LK = 70, LSPEED = 2.0, lslab = anim.lh * 0.5;
     var lt = (now - anim.t0) / 1000 * LSPEED;
     for (var li = 0; li < lavas.length; li++) {
       var lv = lavas[li];
-      // only the top face changes — redraw just that diamond
-      ctx.clearRect(lv.cx - w2 - 1, lv.cy - h2 - 1, w2 * 2 + 2, h2 * 2 + 2);
       var glow = 0.5 + 0.5 * Math.sin(lt - lv.elev * LK);
       var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
       var tg = Math.round(lrgb[1] + (240 - lrgb[1]) * glow);
       var tb = Math.round(lrgb[2] + (150 - lrgb[2]) * glow * 0.7);
-      ctx.fillStyle = 'rgb(' + tr + ',' + tg + ',' + tb + ')';
-      ctx.beginPath();
-      ctx.moveTo(lv.cx, lv.cy - h2); ctx.lineTo(lv.cx + w2, lv.cy);
-      ctx.lineTo(lv.cx, lv.cy + h2); ctx.lineTo(lv.cx - w2, lv.cy);
-      ctx.closePath(); ctx.fill();
+      prism(ctx, lv.cx, lv.cy, lv.cy + lslab, w2, h2,
+        'rgb(' + tr + ',' + tg + ',' + tb + ')',
+        shade(lrgb, 0.32 + 0.14 * glow), shade(lrgb, 0.22 + 0.1 * glow));
     }
   }
 

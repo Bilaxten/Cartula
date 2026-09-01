@@ -606,10 +606,12 @@
     var volcanoWant = volcanoCandidates.length ? 1 + (volcanoRnd() * 2 | 0) : 0;
     for (var vv = 0; vv < volcanoWant && vv < volcanoCandidates.length; vv++) {
       var vci = volcanoCandidates[Math.min(volcanoCandidates.length - 1, vv * 4)], vcx = vci % w, vcy = (vci / w) | 0;
-      // real-world scale: wide base, steep upper cone, deep crater
-      var vRad = 8 + (volcanoRnd() * 7 | 0), craterRad = 2 + (volcanoRnd() * 3 | 0);
-      var rimE = e[vci] + 0.13;
-      var coneDrop = 0.13 + volcanoRnd() * 0.05;
+      // a real cone: sharp peak, flanks that descend a full level or so per tile
+      // and blend into the surrounding terrain — never a flat-topped drum.
+      var vRad = 6 + (volcanoRnd() * 5 | 0), craterRad = 1 + (volcanoRnd() * 2 | 0);
+      var rimE = e[vci] + 0.16;
+      var lvUnit = landSpan / (cfg.levels || 10);   // elevation of one voxel step
+      var coneDrop = vRad * lvUnit * 0.9;           // ~1 level per tile of radius
       for (var vry = -vRad; vry <= vRad; vry++) for (var vrx = -vRad; vrx <= vRad; vrx++) {
         var vdist = Math.sqrt(vrx * vrx + vry * vry);
         if (vdist > vRad) continue;
@@ -618,12 +620,12 @@
         var vri = vny0 * w + vnx0;
         if (grid.water[vri]) continue;
         var vt = vdist / vRad;                       // 0 centre .. 1 base
-        e[vri] = Math.max(e[vri], rimE - (vt * vt) * coneDrop);
+        e[vri] = Math.max(e[vri], rimE - Math.pow(vt, 0.8) * coneDrop);
         grid.biome[vri] = B.volcanic;
         if (vdist <= craterRad) {
-          // crater floor sits a clear voxel step below the rim, so the lava
-          // reads as pooled inside the summit rather than capping it
-          e[vri] = Math.min(e[vri], rimE - Math.max(0.11, landSpan * 0.16));
+          // crater floor sits ~1.5 voxel steps below the rim — lava pooled in
+          // the summit, not capping it
+          e[vri] = Math.min(e[vri], rimE - lvUnit * 1.6);
           grid.water[vri] = 0; grid.lava[vri] = 1; grid.biome[vri] = B.lava;
         }
       }
