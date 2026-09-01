@@ -82,8 +82,8 @@
   }
 
   var DEFAULTS = {
-    width: 160,
-    height: 160,
+    width: 256,
+    height: 256,
     seed: 1337,
     seaLevel: 0.42,        // ~fraction of the reference area that is water
     elevationScale: 2.5,   // world-space noise frequency
@@ -153,6 +153,21 @@
 
     var rfield = makeRidgeField(cfg);
 
+    // sea level first — an absolute threshold from a fixed reference sample
+    // (no island falloff) so it doesn't depend on map size.
+    var refCfg0 = Object.assign({}, cfg, { islandFalloff: 0 });
+    var RS = 96, ref = new Float32Array(RS * RS), rk = 0;
+    for (y = 0; y < RS; y++) {
+      for (x = 0; x < RS; x++) {
+        ref[rk++] = heightAt(baseN, ridgeN, warpN, rfield,
+          (x - RS / 2) / (RS / 1.8), (y - RS / 2) / (RS / 1.8), refCfg0);
+      }
+    }
+    ref.sort();
+    var seaThresh = ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))];
+    var refPeak = ref[ref.length - 1];
+    var beachThresh = seaThresh + 0.02;
+
     // --- 1+2: sample world-space height into the grid ---
     var e = new Float32Array(n);
     var x, y, i;
@@ -188,24 +203,43 @@
       }
       e.set(tmp);
     }
-    for (i = 0; i < n; i++) grid.elevation[i] = e[i];
-
-    // --- 4: sea level — absolute threshold from a fixed reference sample.
-    // The reference is sampled WITHOUT island falloff so the threshold reflects
-    // the natural land/water split; falloff then sinks the map's edges cleanly. ---
-    var refCfg = Object.assign({}, cfg, { islandFalloff: 0 });
-    var RS = 96, ref = new Float32Array(RS * RS), k = 0;
-    for (y = 0; y < RS; y++) {
-      for (x = 0; x < RS; x++) {
-        var rwx = (x - RS / 2) / (RS / (2 * 0.9));
-        var rwy = (y - RS / 2) / (RS / (2 * 0.9));
-        ref[k++] = heightAt(baseN, ridgeN, warpN, rfield, rwx, rwy, refCfg);
+    // --- 3b: peak prominence — a tall summit pulls down rival peaks nearby so a
+    // big mountain stands alone, not in a clump. Tallest peaks are processed
+    // first and claim a dominance radius; near-equal ground inside it is lowered
+    // into shoulders and saddles. ---
+    var peaks = [];
+    for (y = 3; y < h - 3; y++) {
+      for (x = 3; x < w - 3; x++) {
+        i = y * w + x;
+        var pv = e[i];
+        if (pv < seaThresh + 0.16) continue;
+        if (pv >= e[i - 1] && pv >= e[i + 1] && pv >= e[i - w] && pv >= e[i + w] &&
+            pv >= e[i - w - 1] && pv >= e[i - w + 1] && pv >= e[i + w - 1] && pv >= e[i + w + 1]) {
+          peaks.push({ x: x, y: y, v: pv });
+        }
       }
     }
-    ref.sort();
-    var seaThresh = ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))];
-    var refPeak = ref[ref.length - 1];
-    var beachThresh = seaThresh + 0.02;
+    peaks.sort(function (a, b) { return b.v - a.v; });
+    var DOM_R = 13, claimed = new Uint8Array(n);
+    for (var pp = 0; pp < peaks.length; pp++) {
+      var pk = peaks[pp], pkI = pk.y * w + pk.x;
+      if (claimed[pkI]) continue;
+      for (var ddy = -DOM_R; ddy <= DOM_R; ddy++) {
+        var ny2 = pk.y + ddy; if (ny2 < 0 || ny2 >= h) continue;
+        for (var ddx = -DOM_R; ddx <= DOM_R; ddx++) {
+          var nx2 = pk.x + ddx; if (nx2 < 0 || nx2 >= w) continue;
+          var dd = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (dd > DOM_R) continue;
+          var ci = ny2 * w + nx2;
+          claimed[ci] = 1;
+          if (ci === pkI) continue;
+          // force a downslope away from the dominant summit — rivals become shoulders
+          var cap = pk.v - 0.045 - dd * 0.0135;
+          if (e[ci] > cap) e[ci] = e[ci] * 0.18 + cap * 0.82;
+        }
+      }
+    }
+    for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
     var mapMax = 0;
     for (i = 0; i < n; i++) if (e[i] > mapMax) mapMax = e[i];
@@ -484,10 +518,27 @@
         steps++;
       }
     }
+    // widen the channel — banks become river too, and further downstream (a
+    // higher flowStep) the river spreads wider, so it grows toward the mouth.
+    var wide = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      if (!river[i]) continue;
+      var rx = i % w, ry = (i / w) | 0;
+      var span = fstep[i] > 26 ? 2 : 1;
+      for (var oy = -span; oy <= span; oy++) {
+        var wy2 = ry + oy; if (wy2 < 0 || wy2 >= h) continue;
+        for (var ox = -span; ox <= span; ox++) {
+          var wx2 = rx + ox; if (wx2 < 0 || wx2 >= w) continue;
+          if (ox * ox + oy * oy > span * span) continue;
+          var wi = wy2 * w + wx2;
+          if (!grid.water[wi] && e[wi] <= e[i] + 0.03) wide[wi] = 1;
+        }
+      }
+    }
     grid.flow = new Int8Array(n);
     grid.flowStep = new Int16Array(n);
     for (i = 0; i < n; i++) {
-      if (river[i] && !grid.water[i]) {
+      if ((river[i] || wide[i]) && !grid.water[i]) {
         grid.water[i] = 1;
         grid.biome[i] = B.river;
         grid._shoreDist[i] = 2;
