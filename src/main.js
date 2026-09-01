@@ -132,24 +132,31 @@
     return (n % 10000) / 10000;
   }
 
-  function makeWaterfallState(waterfalls, lh) {
-    var out = [];
-    for (var i = 0; i < waterfalls.length; i++) {
-      var w = waterfalls[i], streaks = [], mist = [];
-      var ns = 2 + Math.floor(Math.random() * 3);
-      var nm = 3 + Math.floor(Math.random() * 4);
-      for (var s = 0; s < ns; s++) streaks.push({
-        x: (Math.random() - 0.5) * 5, phase: Math.random(),
-        len: 0.12 + Math.random() * 0.22, speed: 0.75 + Math.random() * 0.65
+  // Drifting clouds with a rain curtain and a shadow cast onto the surface.
+  // Screen-space (drawn on the overlay, which shares the map's CSS transform),
+  // so a shadow blob at (x, y) darkens whatever terrain is under that point.
+  function makeWeather(vw, vh) {
+    var clouds = [], n = 3 + Math.floor(Math.random() * 3);
+    var drift = 9 + Math.random() * 9;                  // px/s, all clouds same way
+    var dirY = (Math.random() - 0.5) * 3;
+    for (var i = 0; i < n; i++) {
+      var puffs = [], np = 4 + Math.floor(Math.random() * 4);
+      var scale = 24 + Math.random() * 28;
+      for (var p = 0; p < np; p++) puffs.push({
+        dx: (Math.random() - 0.5) * scale * 2.4,
+        dy: (Math.random() - 0.5) * scale * 0.8,
+        r: scale * (0.55 + Math.random() * 0.7)
       });
-      for (var m = 0; m < nm; m++) mist.push({
-        x: (Math.random() - 0.5) * 9, phase: Math.random(),
-        rise: 4 + Math.random() * Math.max(5, lh * 0.45), r: 1 + Math.random() * 2
+      clouds.push({
+        x: Math.random() * (vw + 400) - 200,
+        y: vh * (-0.04 + Math.random() * 0.28),          // up in the sky
+        vx: drift, vy: dirY,
+        puffs: puffs, span: scale * 3,
+        rain: Math.random() < 0.5,
+        seed: Math.random() * 100
       });
-      out.push({ tile: w, streaks: streaks, mist: mist,
-        height: Math.max(lh, (w.drop || 1) * lh) });
     }
-    return out;
+    return { clouds: clouds, w: vw, h: vh };
   }
 
   function makeSmokeState(lavas) {
@@ -219,24 +226,22 @@
       raf: 0, mode: view, rivers: r, lavas: lv,
       rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
       d: d, tile: ts, lh: lh, t0: performance.now(), last: 0,
-      waterfalls: iso ? makeWaterfallState(content.waterfalls || [], lh) : [],
       foam: iso ? (content.foam || []).slice(0, 800) : [],
       smoke: iso ? makeSmokeState(lv) : [],
       flocks: iso ? makeFlocks(content.width, content.height) : [],
+      weather: makeWeather(content.width, content.height),
       moveLast: 0, terrain: []
     };
     if (iso) {
       for (j = 0; j < r.length; j++) anim.terrain.push({ kind: 0, tile: r[j] });
       for (j = 0; j < lv.length; j++) anim.terrain.push({ kind: 1, tile: lv[j] });
       for (j = 0; j < anim.foam.length; j++) anim.terrain.push({ kind: 2, tile: anim.foam[j] });
-      for (j = 0; j < anim.waterfalls.length; j++) anim.terrain.push({ kind: 3, tile: anim.waterfalls[j].tile, state: anim.waterfalls[j] });
       for (j = 0; j < anim.smoke.length; j++) anim.terrain.push({ kind: 4, tile: anim.smoke[j].vent, state: anim.smoke[j] });
       anim.terrain.sort(function (a, b) {
         var depth = (a.tile.gx + a.tile.gy) - (b.tile.gx + b.tile.gy);
         return depth || (a.kind - b.kind);
       });
     }
-    if (!iso && (r.length + lv.length) === 0) { anim = null; return; }
     tick();
   }
 
@@ -271,9 +276,14 @@
     if (now - anim.last < 32) return;
     anim.last = now;
     var ctx = $('riverfx').getContext('2d');
+    var seconds = (now - anim.t0) / 1000;
+    var sun = sunModel(parseFloat($('sun').value)).iso;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    stepWeather(now);
+    drawCloudShadows(ctx, sun);
     if (anim.mode === 'iso') tickIso(now, ctx);
     else tickTop(now, ctx);
+    drawClouds(ctx, seconds);
   }
 
   // top-down: a moving sheen slides downstream over the baked river tiles; lava
@@ -325,30 +335,70 @@
     }
   }
 
-  function drawWaterfall(ctx, state, seconds) {
-    var w = state.tile, height = state.height;
-    ctx.lineCap = 'round';
-    for (var i = 0; i < state.streaks.length; i++) {
-      var s = state.streaks[i];
-      var p = (s.phase + seconds * s.speed) % 1;
-      var y0 = w.cy + p * height, len = Math.max(3, s.len * height);
-      var y1 = Math.min(w.cy + height, y0 + len);
-      ctx.strokeStyle = 'rgba(235,245,255,' + (0.35 + 0.38 * (1 - p)).toFixed(3) + ')';
-      ctx.lineWidth = 1 + (i % 2);
-      ctx.beginPath(); ctx.moveTo(w.cx + s.x, y0); ctx.lineTo(w.cx + s.x * 0.65, y1); ctx.stroke();
-      if (y0 + len > w.cy + height) {
-        y1 = w.cy + (y0 + len - (w.cy + height));
-        ctx.beginPath(); ctx.moveTo(w.cx + s.x, w.cy); ctx.lineTo(w.cx + s.x * 0.8, y1); ctx.stroke();
+  // advance cloud positions; wrap around the map's bounding rect
+  function stepWeather(now) {
+    var wx = anim.weather, dt = anim.wLast ? Math.min(0.1, (now - anim.wLast) / 1000) : 0;
+    anim.wLast = now;
+    for (var i = 0; i < wx.clouds.length; i++) {
+      var c = wx.clouds[i];
+      c.x += c.vx * dt; c.y += c.vy * dt;
+      if (c.x - c.span > wx.w + 200) {
+        c.x = -c.span - 200;
+        c.y = wx.h * (-0.04 + Math.random() * 0.28);
+      }
+      if (c.y < wx.h * -0.12) c.y = wx.h * 0.24;
+      if (c.y > wx.h * 0.42) c.y = wx.h * -0.04;
+    }
+  }
+
+  function drawCloudShadows(ctx, sun) {
+    var wx = anim.weather;
+    var drop = 150 + 220 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
+    var skew = sun.dx * 120;
+    ctx.fillStyle = 'rgba(14,17,28,0.20)';
+    for (var i = 0; i < wx.clouds.length; i++) {
+      var c = wx.clouds[i];
+      for (var p = 0; p < c.puffs.length; p++) {
+        var pf = c.puffs[p];
+        ctx.beginPath();
+        ctx.ellipse(c.x + pf.dx + skew, c.y + pf.dy + drop, pf.r * 1.2, pf.r * 0.72, 0, 0, 6.283);
+        ctx.fill();
       }
     }
-    for (var m = 0; m < state.mist.length; m++) {
-      var mist = state.mist[m];
-      var mp = (mist.phase + seconds * 0.65) % 1;
-      ctx.fillStyle = 'rgba(235,245,255,' + (0.28 * (1 - mp)).toFixed(3) + ')';
-      ctx.beginPath();
-      ctx.arc(w.cx + mist.x + Math.sin(seconds * 2 + m) * 1.5,
-        w.cy + height - mp * mist.rise, mist.r * (0.65 + mp * 0.8), 0, 6.283);
-      ctx.fill();
+  }
+
+  function drawClouds(ctx, seconds) {
+    var wx = anim.weather;
+    for (var i = 0; i < wx.clouds.length; i++) {
+      var c = wx.clouds[i];
+      // rain curtain first, so the cloud body sits on top of it
+      if (c.rain) {
+        var x0 = c.x - c.span * 0.7, x1 = c.x + c.span * 0.7;
+        var top = c.y + 6, bot = c.y + 190;
+        ctx.strokeStyle = 'rgba(150,175,210,0.22)';
+        ctx.lineWidth = 1;
+        for (var d = 0; d < 34; d++) {
+          var rx = x0 + (x1 - x0) * ((d * 0.618 + c.seed) % 1);
+          var fall = ((seconds * 260 + d * 40 + c.seed * 100) % (bot - top));
+          var ry = top + fall;
+          ctx.beginPath();
+          ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 11);
+          ctx.stroke();
+        }
+      }
+      for (var p = 0; p < c.puffs.length; p++) {
+        var pf = c.puffs[p];
+        var wob = Math.sin(seconds * 0.6 + c.seed + p) * 2;
+        var grd = ctx.createRadialGradient(c.x + pf.dx, c.y + pf.dy + wob, 0,
+          c.x + pf.dx, c.y + pf.dy + wob, pf.r);
+        grd.addColorStop(0, 'rgba(246,248,252,0.62)');
+        grd.addColorStop(0.6, 'rgba(232,238,246,0.34)');
+        grd.addColorStop(1, 'rgba(214,222,234,0)');
+        ctx.fillStyle = grd;
+        ctx.beginPath();
+        ctx.arc(c.x + pf.dx, c.y + pf.dy + wob, pf.r, 0, 6.283);
+        ctx.fill();
+      }
     }
   }
 
@@ -434,7 +484,6 @@
           'rgb(' + tr + ',' + tg + ',' + tb + ')',
           shade(lrgb, 0.32 + 0.14 * glow), shade(lrgb, 0.22 + 0.1 * glow));
       } else if (item.kind === 2) drawFoam(ctx, tile, seconds);
-      else if (item.kind === 3) drawWaterfall(ctx, item.state, seconds);
       else drawSmokeGroup(ctx, item.state, seconds, true);
     }
     for (i = 0; i < anim.smoke.length; i++) drawSmokeGroup(ctx, anim.smoke[i], seconds, false);
