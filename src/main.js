@@ -15,6 +15,9 @@
   var cam = { scale: 1, x: 0, y: 0 };
   var lastW = 0, lastH = 0;         // content dims of the previous render
   var drag = null;
+  var editStroke = null;
+  var undoStack = [], redoStack = [];
+  var statsBase = '';
 
   var TOP_TILE = 9;
   var ISO_TILE = 24;
@@ -41,6 +44,8 @@
     tbias: { label: 'tbiasVal', fmt: signed },
     mbias: { label: 'mbiasVal', fmt: signed },
     rivers: { label: 'riversVal', fmt: function (v) { return (+v).toFixed(2); } },
+    brushSize: { label: 'brushSizeVal', fmt: function (v) { return v; } },
+    brushStrength: { label: 'brushStrengthVal', fmt: function (v) { return (+v).toFixed(1); } },
     isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } },
     sun: { label: 'sunVal', fmt: function (v) {
       var h = Math.floor(v), m = Math.round((v - h) * 60);
@@ -290,12 +295,16 @@
     var t0 = performance.now();
     grid = SM.generate(cfg);
     var dt = performance.now() - t0;
+    undoStack = [];
+    redoStack = [];
+    updateUndoButtons();
     refresh(false);
 
     var s = SM.summarize(grid);
-    $('stats').textContent =
+    statsBase =
       cfg.width + '×' + cfg.height + ' · ' +
       dt.toFixed(1) + ' ms · land ' + s.landPct + '%';
+    $('stats').textContent = statsBase;
   }
 
   function setView(mode) {
@@ -306,6 +315,8 @@
     $('viewIso').classList.toggle('active', mode === 'iso');
     document.body.classList.toggle('iso', mode === 'iso');
     hoverEl.hidden = true;
+    hideBrushCursor();
+    updateStageCursor();
     refresh(true);
   }
 
@@ -324,19 +335,268 @@
     });
   }
 
-  function onHover(ev) {
-    if (view !== 'top' || !grid || drag || !content || !content.tile) return;
+  function buildBiomeSelect() {
+    var select = $('editBiome');
+    select.innerHTML = '';
+    SM.BIOME_LIST.forEach(function (b, i) {
+      var option = document.createElement('option');
+      option.value = i;
+      option.textContent = b.label;
+      select.appendChild(option);
+    });
+    select.value = SM.BIOME_IDX.grassland;
+  }
+
+  function syncEditControls() {
+    var tool = $('editTool').value;
+    $('brushStrength').disabled = tool !== 'raise' && tool !== 'lower' && tool !== 'smooth';
+    $('editBiome').disabled = tool !== 'biome';
+    updateStageCursor();
+    hideBrushCursor();
+  }
+
+  // --- top-down brush editing ---
+  function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+
+  function isWaterBiome(biome) {
+    return biome === SM.BIOME_IDX.deep_water || biome === SM.BIOME_IDX.shallow_water ||
+      biome === SM.BIOME_IDX.river || biome === SM.BIOME_IDX.lake;
+  }
+
+  function updateStageCursor() {
+    stage.classList.toggle('editing', view === 'top' && $('editTool').value !== 'pan');
+  }
+
+  function updateUndoButtons() {
+    $('editUndo').disabled = undoStack.length === 0;
+    $('editRedo').disabled = redoStack.length === 0;
+  }
+
+  function updateEditedStats() {
+    $('stats').textContent = statsBase + (undoStack.length ? ' · (edited)' : '');
+  }
+
+  function makeEditRecord() {
+    return {
+      indices: [], elevation: [], level: [], water: [], biome: [], seen: {},
+      minX: grid.width, minY: grid.height, maxX: -1, maxY: -1
+    };
+  }
+
+  function captureTile(record, i) {
+    var key = String(i);
+    if (record.seen[key] != null) return;
+    record.seen[key] = record.indices.length;
+    record.indices.push(i);
+    record.elevation.push(grid.elevation[i]);
+    record.level.push(grid.level[i]);
+    record.water.push(grid.water[i]);
+    record.biome.push(grid.biome[i]);
+    var x = i % grid.width, y = (i / grid.width) | 0;
+    if (x < record.minX) record.minX = x;
+    if (x > record.maxX) record.maxX = x;
+    if (y < record.minY) record.minY = y;
+    if (y > record.maxY) record.maxY = y;
+  }
+
+  function snapshotCurrent(indices) {
+    var record = makeEditRecord();
+    for (var k = 0; k < indices.length; k++) captureTile(record, indices[k]);
+    return record;
+  }
+
+  function restoreRecord(record) {
+    var inverse = snapshotCurrent(record.indices);
+    for (var k = 0; k < record.indices.length; k++) {
+      var i = record.indices[k];
+      grid.elevation[i] = record.elevation[k];
+      grid.level[i] = record.level[k];
+      grid.water[i] = record.water[k];
+      grid.biome[i] = record.biome[k];
+    }
+    return inverse;
+  }
+
+  function deriveTile(i, waterFromElevation) {
+    if (waterFromElevation) {
+      var wasWater = !!grid.water[i];
+      grid.water[i] = grid.elevation[i] <= grid.seaThresh ? 1 : 0;
+      if (!!grid.water[i] !== wasWater) {
+        if (grid.water[i]) grid.biome[i] = SM.BIOME_IDX.shallow_water;
+        else {
+          var crossedLf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
+          grid.biome[i] = SM.classifyBiome(crossedLf, grid.moisture[i], grid.temperature[i]);
+        }
+      }
+    }
+    if (grid.water[i]) grid.level[i] = 0;
+    else {
+      var levels = (grid.config && grid.config.levels) || 10;
+      var lf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
+      grid.level[i] = Math.round(Math.pow(lf, 0.82) * levels) + 1;
+    }
+  }
+
+  function brushWeight(distance, radius) {
+    var t = clamp01(1 - distance / radius);
+    return t * t * (3 - 2 * t);
+  }
+
+  function applyBrushAt(tx, ty) {
+    if (!editStroke) return;
+    var tool = $('editTool').value;
+    var radius = parseInt($('brushSize').value, 10);
+    var strength = parseFloat($('brushStrength').value);
+    var targets = [], x, y, dx, dy, distance, weight, i;
+    var minX = Math.max(0, tx - radius), maxX = Math.min(grid.width - 1, tx + radius);
+    var minY = Math.max(0, ty - radius), maxY = Math.min(grid.height - 1, ty + radius);
+    for (y = minY; y <= maxY; y++) for (x = minX; x <= maxX; x++) {
+      dx = x - tx; dy = y - ty; distance = Math.sqrt(dx * dx + dy * dy);
+      if (distance > radius) continue;
+      weight = brushWeight(distance, radius);
+      if (weight <= 0) continue;
+      targets.push({ i: y * grid.width + x, weight: weight });
+    }
+
+    var smoothValues = null;
+    if (tool === 'smooth') {
+      smoothValues = [];
+      for (var sk = 0; sk < targets.length; sk++) {
+        i = targets[sk].i;
+        x = i % grid.width; y = (i / grid.width) | 0;
+        var sum = 0, count = 0;
+        for (dy = -1; dy <= 1; dy++) for (dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          var nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) continue;
+          sum += grid.elevation[ny * grid.width + nx]; count++;
+        }
+        smoothValues.push(count ? sum / count : grid.elevation[i]);
+      }
+    }
+
+    for (var k = 0; k < targets.length; k++) {
+      i = targets[k].i; weight = targets[k].weight;
+      captureTile(editStroke.record, i);
+      if (tool === 'raise' || tool === 'lower') {
+        var sign = tool === 'raise' ? 1 : -1;
+        grid.elevation[i] = clamp01(grid.elevation[i] + sign * strength * 0.04 * weight);
+        deriveTile(i, true);
+      } else if (tool === 'smooth') {
+        grid.elevation[i] += (smoothValues[k] - grid.elevation[i]) * strength * weight;
+        deriveTile(i, true);
+      } else if (tool === 'water') {
+        var oldBiome = grid.biome[i], oldWater = grid.water[i];
+        grid.water[i] = 1;
+        grid.elevation[i] = Math.min(grid.elevation[i], grid.seaThresh - 0.02);
+        if (!oldWater || (oldBiome !== SM.BIOME_IDX.deep_water &&
+            oldBiome !== SM.BIOME_IDX.shallow_water && oldBiome !== SM.BIOME_IDX.river)) {
+          grid.biome[i] = SM.BIOME_IDX.shallow_water;
+        }
+        deriveTile(i, false);
+      } else if (tool === 'land') {
+        grid.water[i] = 0;
+        grid.elevation[i] = Math.max(grid.elevation[i], grid.seaThresh + 0.02);
+        var landLf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
+        grid.biome[i] = SM.classifyBiome(landLf, grid.moisture[i], grid.temperature[i]);
+        deriveTile(i, false);
+      } else if (tool === 'biome') {
+        grid.biome[i] = parseInt($('editBiome').value, 10);
+        grid.water[i] = isWaterBiome(grid.biome[i]) ? 1 : 0;
+        deriveTile(i, false);
+      }
+    }
+    editStroke.lastX = tx;
+    editStroke.lastY = ty;
+  }
+
+  function clampEditedTowers(record) {
+    if (!record.indices.length) return;
+    var w = grid.width, h = grid.height;
+    var minX = Math.max(0, record.minX - 1), maxX = Math.min(w - 1, record.maxX + 1);
+    var minY = Math.max(0, record.minY - 1), maxY = Math.min(h - 1, record.maxY + 1);
+    for (var pass = 0; pass < 5; pass++) {
+      var changes = [];
+      for (var y = minY; y <= maxY; y++) for (var x = minX; x <= maxX; x++) {
+        var i = y * w + x, cur = grid.level[i];
+        if (grid.water[i] || cur <= 1) continue;
+        var left = x > 0 ? grid.level[i - 1] : -9;
+        var right = x < w - 1 ? grid.level[i + 1] : -9;
+        var up = y > 0 ? grid.level[i - w] : -9;
+        var down = y < h - 1 ? grid.level[i + w] : -9;
+        var tallest = Math.max(left, right, up, down);
+        if (cur > tallest + 1) changes.push({ i: i, level: tallest + 1 });
+      }
+      if (!changes.length) break;
+      for (var k = 0; k < changes.length; k++) {
+        captureTile(record, changes[k].i);
+        grid.level[changes[k].i] = changes[k].level;
+      }
+    }
+  }
+
+  function finishEditStroke() {
+    if (!editStroke) return;
+    var record = editStroke.record;
+    editStroke = null;
+    clampEditedTowers(record);
+    if (record.indices.length) {
+      delete record.seen;
+      undoStack.push(record);
+      if (undoStack.length > 40) undoStack.shift();
+      redoStack = [];
+      updateUndoButtons();
+      updateEditedStats();
+      refresh(false);
+    }
+  }
+
+  function undoEdit() {
+    if (!undoStack.length || !grid) return;
+    var record = undoStack.pop();
+    redoStack.push(restoreRecord(record));
+    updateUndoButtons(); updateEditedStats(); refresh(false);
+  }
+
+  function redoEdit() {
+    if (!redoStack.length || !grid) return;
+    var record = redoStack.pop();
+    undoStack.push(restoreRecord(record));
+    updateUndoButtons(); updateEditedStats(); refresh(false);
+  }
+
+  function eventTile(ev) {
+    if (!content || !content.tile) return null;
     var rect = stage.getBoundingClientRect();
-    var mx = ev.clientX - rect.left;
-    var my = ev.clientY - rect.top;
-    var px = (mx - cam.x) / cam.scale;
-    var py = (my - cam.y) / cam.scale;
-    var tx = Math.floor(px / content.tile);
-    var ty = Math.floor(py / content.tile);
-    if (!(tx >= 0 && ty >= 0 && tx < grid.width && ty < grid.height)) {
+    var px = (ev.clientX - rect.left - cam.x) / cam.scale;
+    var py = (ev.clientY - rect.top - cam.y) / cam.scale;
+    var tx = Math.floor(px / content.tile), ty = Math.floor(py / content.tile);
+    if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return null;
+    return { x: tx, y: ty };
+  }
+
+  function hideBrushCursor() { $('brushCursor').hidden = true; }
+
+  function showBrushCursor(tile) {
+    if (!tile || view !== 'top' || $('editTool').value === 'pan') { hideBrushCursor(); return; }
+    var radius = parseInt($('brushSize').value, 10), ts = content.tile * cam.scale;
+    var cursor = $('brushCursor');
+    cursor.style.left = (cam.x + (tile.x + 0.5 - radius) * ts) + 'px';
+    cursor.style.top = (cam.y + (tile.y + 0.5 - radius) * ts) + 'px';
+    cursor.style.width = (radius * 2 * ts) + 'px';
+    cursor.style.height = (radius * 2 * ts) + 'px';
+    cursor.hidden = false;
+  }
+
+  function onHover(ev) {
+    if (view !== 'top' || !grid || drag || editStroke || !content || !content.tile) return;
+    var tile = eventTile(ev);
+    showBrushCursor(tile);
+    if (!tile) {
       hoverEl.hidden = true;
       return;
     }
+    var tx = tile.x, ty = tile.y;
     var i = grid.index(tx, ty);
     var b = SM.BIOME_LIST[grid.biome[i]];
     if (!b) { hoverEl.hidden = true; return; }
@@ -352,11 +612,36 @@
 
   // --- camera drag / wheel (both views) ---
   function onDown(ev) {
+    if (ev.button === 0 && view === 'top' && grid && $('editTool').value !== 'pan') {
+      var tile = eventTile(ev);
+      if (!tile) return;
+      ev.preventDefault();
+      editStroke = { record: makeEditRecord(), lastX: tile.x, lastY: tile.y };
+      applyBrushAt(tile.x, tile.y);
+      hoverEl.hidden = true;
+      showBrushCursor(tile);
+      return;
+    }
     drag = { x: ev.clientX, y: ev.clientY };
     stage.classList.add('dragging');
     hoverEl.hidden = true;
+    hideBrushCursor();
   }
   function onMove(ev) {
+    if (editStroke) {
+      var tile = eventTile(ev);
+      showBrushCursor(tile);
+      if (!tile) return;
+      var dx = tile.x - editStroke.lastX, dy = tile.y - editStroke.lastY;
+      var distance = Math.sqrt(dx * dx + dy * dy);
+      var step = Math.max(0.5, parseInt($('brushSize').value, 10) * 0.5);
+      var samples = Math.max(1, Math.ceil(distance / step));
+      var fromX = editStroke.lastX, fromY = editStroke.lastY;
+      for (var s = 1; s <= samples; s++) {
+        applyBrushAt(Math.round(fromX + dx * s / samples), Math.round(fromY + dy * s / samples));
+      }
+      return;
+    }
     if (!drag) return;
     cam.x += ev.clientX - drag.x;
     cam.y += ev.clientY - drag.y;
@@ -365,6 +650,7 @@
     applyCam();
   }
   function onUp() {
+    if (editStroke) finishEditStroke();
     drag = null;
     stage.classList.remove('dragging');
   }
@@ -381,6 +667,7 @@
     cam.y = my - (my - cam.y) * k;
     cam.scale = next;
     applyCam();
+    hideBrushCursor();
   }
 
   // paint the accent-fill portion of a range track (webkit needs a gradient)
@@ -462,6 +749,11 @@
   });
   $('showGrid').addEventListener('change', function () { refresh(false); });
   $('showShade').addEventListener('change', function () { refresh(false); });
+  $('editTool').addEventListener('change', syncEditControls);
+  $('brushSize').addEventListener('input', hideBrushCursor);
+  $('editUndo').addEventListener('click', undoEdit);
+  $('editRedo').addEventListener('click', redoEdit);
+  $('editReset').addEventListener('click', regenerate);
   $('viewTop').addEventListener('click', function () { setView('top'); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
   $('exportPng').addEventListener('click', exportPng);
@@ -469,10 +761,23 @@
   window.addEventListener('resize', function () { if (grid) applyCam(); });
 
   map.addEventListener('mousemove', onHover);
-  stage.addEventListener('mouseleave', function () { if (view === 'top') hoverEl.hidden = true; });
+  stage.addEventListener('mouseleave', function () {
+    if (view === 'top') hoverEl.hidden = true;
+    hideBrushCursor();
+  });
   map.addEventListener('mousedown', onDown);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
+  window.addEventListener('keydown', function (ev) {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    var key = (ev.key || '').toLowerCase();
+    if (key === 'z') {
+      ev.preventDefault();
+      if (ev.shiftKey) redoEdit(); else undoEdit();
+    } else if (key === 'y') {
+      ev.preventDefault(); redoEdit();
+    }
+  });
   stage.addEventListener('wheel', onWheel, { passive: false });
 
   hoverEl.hidden = true;
@@ -482,6 +787,9 @@
     if (input.type === 'range') { paintRange(input); $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value); }
   });
   buildLegend();
+  buildBiomeSelect();
+  syncEditControls();
+  updateUndoButtons();
   regenerate();
   applyDayNight();
 })(window.SM = window.SM || {});

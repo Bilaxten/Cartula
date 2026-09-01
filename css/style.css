@@ -160,6 +160,16 @@ details.group .body { padding: 2px 18px 16px; }
   outline: none;
   border-color: var(--accent);
 }
+#panel select {
+  width: 100%;
+  padding: 7px 28px 7px 9px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 6px;
+  font: inherit;
+}
+#panel select:focus { outline: none; border-color: var(--accent); }
 #panel input[type=checkbox] { accent-color: var(--accent); }
 
 /* range sliders — custom track with an accent fill on the filled portion */
@@ -232,6 +242,24 @@ details.group .body { padding: 2px 18px 16px; }
   letter-spacing: 0.02em;
 }
 #panel button.primary:hover { background: var(--accent-press); filter: none; }
+#panel button:disabled {
+  cursor: default;
+  opacity: 0.42;
+  filter: none;
+}
+
+.edit-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 14px;
+}
+.edit-actions #editReset { grid-column: 1 / -1; }
+#panel .edit-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
 
 /* legend */
 #legend {
@@ -292,6 +320,7 @@ details.group .body { padding: 2px 18px 16px; }
     radial-gradient(120% 120% at 50% 0%, #14181e 0%, var(--bg) 70%);
 }
 #stage.dragging { cursor: grabbing; }
+#stage.editing { cursor: crosshair; }
 #map, #riverfx {
   position: absolute;
   left: 0;
@@ -322,6 +351,18 @@ details.group .body { padding: 2px 18px 16px; }
   pointer-events: none;
 }
 body.iso #hover { display: none; }
+
+#brushCursor {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  border: 2px solid rgba(235, 161, 74, 0.9);
+  border-radius: 50%;
+  background: rgba(235, 161, 74, 0.10);
+  box-shadow: 0 0 0 1px rgba(15, 18, 22, 0.45),
+              0 0 14px rgba(235, 161, 74, 0.16);
+}
+#brushCursor[hidden], body.iso #brushCursor { display: none; }
 
 #hover {
   position: absolute;

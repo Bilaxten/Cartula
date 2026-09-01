@@ -91,6 +91,38 @@
         </div>
       </details>
 
+      <details class="group" id="editGroup" open>
+        <summary>Edit</summary>
+        <div class="body">
+          <label for="editTool">Tool</label>
+          <select id="editTool">
+            <option value="pan">Pan</option>
+            <option value="raise">Raise</option>
+            <option value="lower">Lower</option>
+            <option value="smooth">Smooth</option>
+            <option value="water">Water</option>
+            <option value="land">Land</option>
+            <option value="biome">Paint biome</option>
+          </select>
+
+          <label for="brushSize">Brush size <span id="brushSizeVal">4</span></label>
+          <input type="range" id="brushSize" min="1" max="12" step="1" value="4">
+
+          <label for="brushStrength">Strength <span id="brushStrengthVal">0.5</span></label>
+          <input type="range" id="brushStrength" min="0.1" max="1" step="0.1" value="0.5">
+
+          <label for="editBiome">Biome</label>
+          <select id="editBiome"></select>
+
+          <div class="edit-actions">
+            <button id="editUndo" type="button" disabled>Undo</button>
+            <button id="editRedo" type="button" disabled>Redo</button>
+            <button id="editReset" type="button">Reset to generated</button>
+          </div>
+          <p class="edit-note">Brushes work in top-down view.</p>
+        </div>
+      </details>
+
       <details class="group" id="legendGroup" open>
         <summary>Biomes</summary>
         <div class="body" id="legend"></div>
@@ -110,6 +142,7 @@
 
   <main id="stage">
     <div id="hover"></div>
+    <div id="brushCursor" hidden></div>
     <div id="isohint">drag to pan &middot; scroll to zoom</div>
     <canvas id="map"></canvas>
     <canvas id="riverfx"></canvas>
