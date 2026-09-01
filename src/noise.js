@@ -89,7 +89,24 @@
     return sum / norm;
   }
 
+  // Ridged fBm: folds noise around zero so ridges form where it crosses zero.
+  // Each octave is already in [0, 1], so the weighted sum stays in [0, 1] —
+  // no min/max normalization needed downstream.
+  function fbmRidged(noise, x, y, octaves, lacunarity, gain) {
+    var amp = 1, freq = 1, sum = 0, norm = 0;
+    for (var o = 0; o < octaves; o++) {
+      var n = 1 - Math.abs(noise(x * freq, y * freq));
+      n = n * n;
+      sum += amp * n;
+      norm += amp;
+      amp *= gain;
+      freq *= lacunarity;
+    }
+    return sum / norm;
+  }
+
   SM.mulberry32 = mulberry32;
   SM.makeNoise2D = makeNoise2D;
   SM.fbm = fbm;
+  SM.fbmRidged = fbmRidged;
 })(window.SM = window.SM || {});

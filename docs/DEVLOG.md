@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-09-01 — M1 playtest geri bildirimi: kategorili panel + hover + dağlılık/deniz düzeltmesi
+
+**Ne yapıldı:** Uğur M1'i denedi, üç istek geldi: paneli kategorilere ayır +
+daha fazla parametre ekle, mouse map üzerindeyken biyomu göster, dağlılık ve
+deniz seviyesi birbirinden ayırt edilemiyor — düzelt. Panel dört gruba ayrıldı
+(Dünya/Yükseklik/İklim/Görünüm), beş yeni slider eklendi (Detay/octaves,
+Sıcaklık eğilimi, Nem eğilimi — Dağlılık ve Deniz seviyesi zaten vardı ama
+davranışları değişti). Canvas üzerinde mouse hover ile biyom/koordinat/
+yükseklik/nem/sıcaklık okuma eklendi.
+
+**Hangi dosyalar değişti:** `src/generate.js` (üretim hattı yeniden yazıldı),
+`src/biome.js` (classify imzası landFrac'e geçti), `src/noise.js` (+`fbmRidged`),
+`index.html`, `css/style.css`, `src/main.js`.
+
+**Neden bu yaklaşım — asıl düzeltme iki gerçek bug'dı:**
+1. **Deniz seviyesi artık yüzde tabanlı (percentile threshold).** Eskiden
+   ham (min-max normalize) yükseklik değeriyle karşılaştırılıyordu; fBm
+   toplamının dağılımı ortada yığılan bir çan eğrisi olduğu için slider'ın
+   uçlarında (çok düşük/yüksek deniz seviyesi) görünür etkisi azdı. Artık
+   slider DOĞRUDAN "haritanın yüzde kaçı su olsun" — üretilen haritada
+   ölçülen kara% her zaman slider'la birebir eşleşiyor (test: sea=0.20 →
+   %80 kara, sea=0.60 → %40 kara, tam isabet).
+2. **Dağlılık artık ridged-noise karışımı, üstel değil.** Eski `mountainy`
+   üssü normalize edilmiş yüksekliğe uygulanıyordu — deniz seviyesiyle aynı
+   eksende çakışıyordu, ayırt edilemiyordu. Yeni `ruggedness` parametresi
+   ikinci bir ridged fBm katmanını (`1-|noise|` katlanmış, sivri sırt
+   görünümü) taban araziyle karıştırıyor. **Bulunan ikinci bug:** landFrac
+   (dağ/kaya/kar eşiği) teorik maksimum 1'e göre normalize ediliyordu, ama
+   ridge karışımı arttıkça haritanın GERÇEK tepe noktası hiç 1'e ulaşmıyordu
+   (rugged=1.0'da gerçek max ~0.86) — yani dağlılık arttıkça kar/kaya sınıfı
+   sessizce geriliyordu, tam tersi beklenenin. Düzeltme: landFrac artık
+   haritanın gerçek ölçülen tepe noktasına göre normalize ediliyor.
+
+**Doğrulama:** Node'da headless — sea level yüzdesi tam isabetli (3 değer
+test edildi), determinism ve aralık kontrolü geçti. Tarayıcıda (Chrome,
+localhost sunucu üzerinden): kategoriler render oluyor, hover okuması
+doğru biyom/koordinat basıyor, dağlılığı 0.35→1.00 çekince harita görünür
+biçimde parçalanıp sivrileşiyor (ekran görüntüsüyle doğrulandı), konsol
+hatasız.
+
+**Açık işler:** M2 (izometrik voxel), M3 (fırça düzenleme), M4 (animasyon).
+
+**Sonraki adım:** M2 — izometrik voxel projeksiyon.
+
+
 ## 2026-09-01 — Proje başlangıcı + M1: üretim + üstten görünüm
 
 **Ne yapıldı:** Repo sıfırdan kuruldu. Vanilla HTML/CSS/JS, framework/build yok.

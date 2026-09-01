@@ -28,6 +28,20 @@ body {
 #panel label.check { margin-top: 10px; }
 #panel label span { color: #d7dde4; font-variant-numeric: tabular-nums; }
 
+#panel .group {
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid #232a34;
+}
+#panel .group:first-of-type { padding-top: 0; margin-top: 0; border-top: none; }
+#panel .group h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #6f9ac9;
+  margin: 0 0 2px;
+}
+
 #panel .row { display: flex; gap: 6px; }
 #panel input[type=number] {
   flex: 1;
@@ -87,6 +101,7 @@ body {
 }
 
 #stage {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: center;
@@ -98,4 +113,30 @@ body {
   image-rendering: pixelated;
   box-shadow: 0 8px 44px rgba(0, 0, 0, 0.55);
   border-radius: 2px;
+}
+
+#hover {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  background: rgba(18, 21, 26, 0.9);
+  border: 1px solid #2c3542;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #d7dde4;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+#hover[hidden] { display: none; }
+#hover .sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }

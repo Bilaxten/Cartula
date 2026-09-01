@@ -19,14 +19,15 @@
   var IDX = {};
   BIOME_LIST.forEach(function (b, i) { IDX[b.id] = i; });
 
-  /* Classify from normalized elevation/moisture/temperature (each 0..1). */
-  function classify(elev, moist, temp, seaLevel) {
-    if (elev < seaLevel - 0.06) return IDX.deep_water;
-    if (elev < seaLevel) return IDX.shallow_water;
-    if (elev < seaLevel + 0.015) return IDX.beach;
-
-    if (elev > 0.80) return temp < 0.5 ? IDX.snow : IDX.rock;
-    if (elev > 0.68) return temp < 0.3 ? IDX.snow : IDX.rock;
+  /* Classify a LAND cell. landFrac is elevation above sea level, normalized
+   * 0..1 against the map's own peak — 0 at the coast, 1 at the highest point.
+   * Using a relative fraction (not an absolute elevation) keeps the mountain/
+   * snow line correctly proportioned no matter where the sea-level slider
+   * puts the coastline. moist/temp are each 0..1. Water/beach are decided
+   * by the caller before this runs. */
+  function classify(landFrac, moist, temp) {
+    if (landFrac > 0.78) return temp < 0.5 ? IDX.snow : IDX.rock;
+    if (landFrac > 0.55) return temp < 0.3 ? IDX.snow : IDX.rock;
 
     if (temp < 0.30) return IDX.tundra;
 

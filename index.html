@@ -12,32 +12,53 @@
     <h1>StilizedMaps</h1>
     <p class="muted">M1 — üretim + üstten görünüm</p>
 
-    <label for="seed">Seed</label>
-    <div class="row">
-      <input type="number" id="seed" value="1337">
-      <button id="randomSeed" type="button" title="Rastgele seed">🎲</button>
+    <div class="group">
+      <h2>Dünya</h2>
+      <label for="seed">Seed</label>
+      <div class="row">
+        <input type="number" id="seed" value="1337">
+        <button id="randomSeed" type="button" title="Rastgele seed">🎲</button>
+      </div>
+
+      <label for="size">Boyut — <span id="sizeVal">96</span>²</label>
+      <input type="range" id="size" min="32" max="192" step="16" value="96">
     </div>
 
-    <label for="size">Boyut — <span id="sizeVal">96</span>²</label>
-    <input type="range" id="size" min="32" max="192" step="16" value="96">
+    <div class="group">
+      <h2>Yükseklik</h2>
+      <label for="sea">Deniz seviyesi — kara <span id="seaVal">60%</span></label>
+      <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.40">
 
-    <label for="sea">Deniz seviyesi — <span id="seaVal">0.40</span></label>
-    <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.40">
+      <label for="rugged">Dağlılık — <span id="ruggedVal">0.35</span></label>
+      <input type="range" id="rugged" min="0" max="1" step="0.05" value="0.35">
 
-    <label for="escale">Arazi ölçeği — <span id="escaleVal">2.5</span></label>
-    <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
+      <label for="escale">Arazi ölçeği — <span id="escaleVal">2.5</span></label>
+      <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
 
-    <label for="mtn">Dağlılık — <span id="mtnVal">1.0</span></label>
-    <input type="range" id="mtn" min="0.5" max="3" step="0.1" value="1.0">
+      <label for="octaves">Detay — <span id="octavesVal">5</span></label>
+      <input type="range" id="octaves" min="2" max="7" step="1" value="5">
 
-    <label for="mscale">Nem ölçeği — <span id="mscaleVal">3.0</span></label>
-    <input type="range" id="mscale" min="1" max="6" step="0.1" value="3.0">
+      <label for="island">Ada falloff — <span id="islandVal">0.00</span></label>
+      <input type="range" id="island" min="0" max="1" step="0.05" value="0">
+    </div>
 
-    <label for="island">Ada falloff — <span id="islandVal">0.00</span></label>
-    <input type="range" id="island" min="0" max="1" step="0.05" value="0">
+    <div class="group">
+      <h2>İklim</h2>
+      <label for="mscale">Nem ölçeği — <span id="mscaleVal">3.0</span></label>
+      <input type="range" id="mscale" min="1" max="6" step="0.1" value="3.0">
 
-    <label class="check"><input type="checkbox" id="showGrid"> Izgara çizgileri</label>
-    <label class="check"><input type="checkbox" id="showShade" checked> Tepe gölgesi</label>
+      <label for="tbias">Sıcaklık eğilimi — <span id="tbiasVal">+0.00</span></label>
+      <input type="range" id="tbias" min="-0.3" max="0.3" step="0.02" value="0">
+
+      <label for="mbias">Nem eğilimi — <span id="mbiasVal">+0.00</span></label>
+      <input type="range" id="mbias" min="-0.3" max="0.3" step="0.02" value="0">
+    </div>
+
+    <div class="group">
+      <h2>Görünüm</h2>
+      <label class="check"><input type="checkbox" id="showGrid"> Izgara çizgileri</label>
+      <label class="check"><input type="checkbox" id="showShade" checked> Tepe gölgesi</label>
+    </div>
 
     <button id="regen" type="button" class="primary">↻ Yeniden üret</button>
 
@@ -46,6 +67,7 @@
   </aside>
 
   <main id="stage">
+    <div id="hover"></div>
     <canvas id="map"></canvas>
   </main>
 </div>
