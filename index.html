@@ -26,16 +26,19 @@
       </div>
 
       <label for="size">Boyut — <span id="sizeVal">160</span>²</label>
-      <input type="range" id="size" min="128" max="176" step="16" value="160">
+      <input type="range" id="size" min="128" max="512" step="16" value="160">
     </div>
 
     <div class="group">
       <h2>Yükseklik</h2>
-      <label for="sea">Deniz seviyesi — kara <span id="seaVal">60%</span></label>
-      <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.40">
+      <label for="sea">Deniz seviyesi — kara <span id="seaVal">58%</span></label>
+      <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.42">
 
       <label for="rugged">Dağlılık — <span id="ruggedVal">0.35</span></label>
       <input type="range" id="rugged" min="0" max="1" step="0.05" value="0.35">
+
+      <label for="warp">Kıvrım — <span id="warpVal">0.18</span></label>
+      <input type="range" id="warp" min="0" max="0.5" step="0.02" value="0.18">
 
       <label for="escale">Arazi ölçeği — <span id="escaleVal">2.5</span></label>
       <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
@@ -57,6 +60,9 @@
 
       <label for="mbias">Nem eğilimi — <span id="mbiasVal">+0.00</span></label>
       <input type="range" id="mbias" min="-0.3" max="0.3" step="0.02" value="0">
+
+      <label for="rivers">Nehir — <span id="riversVal">1.0</span></label>
+      <input type="range" id="rivers" min="0" max="2" step="0.25" value="1">
     </div>
 
     <div class="group">

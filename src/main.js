@@ -31,12 +31,14 @@
     size: { label: 'sizeVal', fmt: function (v) { return v; } },
     sea: { label: 'seaVal', fmt: function (v) { return Math.round((1 - v) * 100) + '%'; } },
     rugged: { label: 'ruggedVal', fmt: function (v) { return (+v).toFixed(2); } },
+    warp: { label: 'warpVal', fmt: function (v) { return (+v).toFixed(2); } },
     escale: { label: 'escaleVal', fmt: function (v) { return (+v).toFixed(1); } },
     octaves: { label: 'octavesVal', fmt: function (v) { return v; } },
     island: { label: 'islandVal', fmt: function (v) { return (+v).toFixed(2); } },
     mscale: { label: 'mscaleVal', fmt: function (v) { return (+v).toFixed(1); } },
     tbias: { label: 'tbiasVal', fmt: signed },
     mbias: { label: 'mbiasVal', fmt: signed },
+    rivers: { label: 'riversVal', fmt: function (v) { return (+v).toFixed(2); } },
     isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } }
   };
 
@@ -48,12 +50,14 @@
       seed: parseInt($('seed').value, 10) || 0,
       seaLevel: parseFloat($('sea').value),
       ruggedness: parseFloat($('rugged').value),
+      warp: parseFloat($('warp').value),
       elevationScale: parseFloat($('escale').value),
       octaves: parseInt($('octaves').value, 10),
       islandFalloff: parseFloat($('island').value),
       moistureScale: parseFloat($('mscale').value),
       temperatureBias: parseFloat($('tbias').value),
-      moistureBias: parseFloat($('mbias').value)
+      moistureBias: parseFloat($('mbias').value),
+      rivers: parseFloat($('rivers').value)
     };
   }
 
@@ -76,8 +80,11 @@
         levelHeight: ISO_BASE_LH * isoExag()
       });
     } else {
+      // shrink the tile for very large maps so the canvas stays GPU-friendly
+      var tt = Math.max(3, Math.min(TOP_TILE,
+        Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
       content = SM.renderTopDown(map, grid, {
-        tile: TOP_TILE,
+        tile: tt,
         grid: $('showGrid').checked,
         shade: $('showShade').checked
       });
@@ -198,7 +205,7 @@
     var out = $(cfg.label);
     input.addEventListener('input', function () { out.textContent = cfg.fmt(input.value); });
   });
-  ['size', 'sea', 'rugged', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias']
+  ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias', 'rivers']
     .forEach(function (id) { $(id).addEventListener('change', regenerate); });
   $('isoexag').addEventListener('change', function () { refresh(true); });
 

@@ -58,7 +58,7 @@
       ctx.stroke();
     }
 
-    return { tile: ts };
+    return { width: canvas.width, height: canvas.height, tile: ts };
   }
 
   SM.renderTopDown = renderTopDown;

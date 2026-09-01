@@ -18,14 +18,20 @@ Tek doğru kaynak: **grid veri modeli** (`src/grid.js`). Her hücre `elevation`,
 `moisture`, `temperature`, `biome`, `water`, `level` taşır. Her iki görünüm de
 bu aynı modelin projeksiyonudur — ayrı harita değil.
 
-Üretim hattı (`src/generate.js`), her adım ayrı test edilebilir:
+Üretim hattı (`src/generate.js`) adlandırılmış pass'ler — tamamen rastgele
+değil, kurallı:
 
-1. Seed'li simplex noise → heightmap (`src/noise.js`, bağımlılık yok)
-2. Deniz seviyesi eşiği → kara / su
-3. İkinci noise → moisture; enlem + rakım → temperature
-4. `(elevation, moisture, temperature)` → biyom tablosu (`src/biome.js`)
-5. Ayrık yükseklik kademesi (`level`) — voxel görünümü için
-6. *(sonra)* nehir izleme, feature serpiştirme
+1. **sample** — dünya-uzayı fBm + domain warp → ham yükseklik. Dünya-uzayı
+   sampling: özellikler sabit boyutta kalır, harita büyüyünce kenardan yeni
+   dünya açılır (ada aynı, okyanus büyür).
+2. **shape** — ridged dağ karışımı, radyal ada falloff, sabit kontrast eğrisi
+3. **repair** — tek-tile diken/çukur klamp (erozyon), hafif yumuşatma → kule yok
+4. **sea level** — sabit referanstan mutlak eşik (boyuttan bağımsız kıyı)
+5. **climate** — moisture + temperature (enlem bandı + noise + rakım)
+6. **classify** — biyom, eğim tabanlı kıyı (yalıyar/kumsal), de-speckle,
+   göl flood-fill
+7. **hydrology** — kıyıdan uzaklıkla düzgün su derinliği, yokuş-aşağı nehirler
+8. **voxelize** — işaretli ayrık kademeler (kara +, su −), kule klamp
 
 ## Milestone'lar
 

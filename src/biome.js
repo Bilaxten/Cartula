@@ -5,6 +5,8 @@
   var BIOME_LIST = [
     { id: 'deep_water',    label: 'Derin deniz',   color: '#1b3a5c' },
     { id: 'shallow_water', label: 'Sığ deniz',     color: '#2f6690' },
+    { id: 'river',         label: 'Nehir',         color: '#3f7fa6' },
+    { id: 'lake',          label: 'Göl',           color: '#356b8f' },
     { id: 'beach',         label: 'Kumsal',        color: '#d9c48f' },
     { id: 'cliff',         label: 'Yalıyar',       color: '#6d6656' },
     { id: 'marsh',         label: 'Bataklık',      color: '#5c6b43' },

@@ -1,5 +1,57 @@
 # DEVLOG
 
+## 2026-09-01 — Kurallı üretim: dünya-uzayı, erozyon, hidroloji, nehirler
+
+**Ne yapıldı:** Uğur "sistem tamamen rastgele olmasın, gerçek coğrafya gibi
+kurallı olsun; tek karelik kuleler oluşmasın; boyut büyüyünce özellikler
+sabit kalıp harita kenardan büyüsün; su bu kadar düzensiz alçalamaz; 2D
+görüntüleme bozuk; boyut max 512" dedi. Üretim hattı adlandırılmış pass'lere
+bölünüp kurallı hale getirildi.
+
+- **Dünya-uzayı noise + domain warp.** `nx = x/w` normalize yerine
+  `wx = (x - merkez) / REF` — özellikler sabit boyutta, harita büyüyünce
+  kenardan yeni dünya açılır (ada aynı kalır, okyanus büyür — data'da
+  doğrulandı: island 128²→18%, 192²→8%, 288²→4% kara, ada ~sabit tile).
+  Domain warp (düşük frekans, `warp` slider'ı) organik kıyılar için.
+- **Sabit kontrast eğrisi** (per-map min/max normalize yok) — boyuttan
+  bağımsız, fBm'in orta yığılmasını açar, net kıtalar.
+- **Deniz seviyesi: sabit referanstan mutlak eşik.** REF bölge (falloff'suz)
+  örneklenip percentile → eşik. Harita büyüse de kıyı sabit (`seaThresh`
+  0.443, tüm boyutlarda aynı).
+- **repair pass'i (erozyon):** SPIKE=0.028 (bir kademenin altında) ile
+  tek-tile diken/çukur klamp + 3x3 hafif yumuşatma. Ayrıca voxelize sonrası
+  5 pass "hiçbir kare komşusundan >1 kademe yüksek olamaz". **Sonuç: 0 kule**
+  (rug 0.35–1.0, tüm seed'lerde).
+- **de-speckle:** 1-tile adalar batar, 1-tile göletler dolar (koşullu).
+- **Su hidrolojisi.** `grid.level` işaretli; su seviyesi kıyıda 0 (deniz
+  düzlemi), kıyıdan uzaklık BFS'iyle dışa doğru kademeli alçalır
+  (komşu su kareleri arası max fark = 1, düzgün). Kıyı land (level 1)
+  artık sadece 1 kademe yukarıda → kule değil.
+- **Nehirler.** Yerel yükseklik maksimumlarından steepest-descent ile
+  denize/göle/kenara iz sürülür, vadilerden akar, `river` biyomu. Sayı
+  harita alanı × `rivers` slider'ıyla ölçekli.
+- **Göller.** Kenardan ocean flood-fill; ulaşılamayan su = `lake` biyomu.
+- **2D bug:** `renderTopDown` canvas boyutu döndürmüyordu → `fitCam` NaN →
+  transform uygulanmıyordu. Düzeltildi.
+- **Boyut:** slider 128–512 (varsayılan 160). Büyük haritalarda top-down
+  tile ve iso canvas budget otomatik küçülür.
+
+**Hangi dosyalar değişti:** `src/generate.js` (yeniden yazıldı),
+`src/biome.js` (+river/+lake), `src/grid.js`, `src/render/topdown.js`,
+`src/render/iso.js`, `src/main.js`, `index.html`.
+
+**Doğrulama:** `node --check` temiz. Headless — determinism 0, 0 kule,
+su fark 1, ada büyüme davranışı, 512² gen ~340ms. Tarayıcıda (Chrome):
+2D fit doğru, iso'da su baseni + nehirler + kademeli derinlik + kuleler
+yok, ada modu 240²'de küçük ada + büyük okyanus (ekran görüntüsü), konsol
+temiz, iso regen ~125ms, pan/zoom 0ms (CSS transform).
+
+**Açık işler:** yakın tepe birleştirme (2 zirveyi tek dağa), nehir
+genişliği/delta, iso hover, kamera döndürme, M3 fırça.
+
+**Sonraki adım:** Uğur'un geri bildirimi.
+
+
 ## 2026-09-01 — M2 cila turu: perf, çeşitlilik, su derinliği, kamera
 
 **Ne yapıldı:** Uğur'un M2 geri bildirimi — iso "kasıyor", 2D'ye de pan/zoom
