@@ -31,7 +31,7 @@
 
   var SLIDERS = {
     size: { label: 'sizeVal', fmt: function (v) { return v; } },
-    sea: { label: 'seaVal', fmt: function (v) { return Math.round((1 - v) * 100) + '%'; } },
+    sea: { label: 'seaVal', fmt: function (v) { return Math.round((1 - v) * 100) + '% land'; } },
     rugged: { label: 'ruggedVal', fmt: function (v) { return (+v).toFixed(2); } },
     warp: { label: 'warpVal', fmt: function (v) { return (+v).toFixed(2); } },
     escale: { label: 'escaleVal', fmt: function (v) { return (+v).toFixed(1); } },
@@ -84,51 +84,71 @@
 
   // River flow runs on a SEPARATE overlay canvas (#riverfx) so the big terrain
   // canvas is never touched after the bake — the compositor keeps it cached and
-  // pan/zoom stay free. Each frame, only the river tiles are cleared+redrawn on
-  // the overlay, with a small bob + shimmer travelling downstream. Capped 30fps.
+  // pan/zoom stay free. Each river tile is a little water cube; a wave travels
+  // downhill (phase driven by elevation) raising and lowering the cubes. Only
+  // the per-tile dirty rects are cleared each frame. Capped ~30 fps.
   function startRiverAnim() {
     stopAnim();
     var r = content.rivers;
-    if (!r || !r.length || r.length > 600 || map.width * map.height > 16e6) return;
+    if (!r || !r.length || r.length > 700 || map.width * map.height > 16e6) return;
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
     fx.style.transform = map.style.transform;
     anim = {
       raf: 0, rivers: r, rgb: content.riverRgb, d: content.diamond,
-      t0: performance.now(), last: 0
+      lh: content.lh || 20, t0: performance.now(), last: 0
     };
     tick();
+  }
+
+  function shade(rgb, f) {
+    return 'rgb(' + Math.round(rgb[0] * f) + ',' + Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
   }
 
   function tick() {
     if (!anim || view !== 'iso') { anim = null; return; }
     anim.raf = requestAnimationFrame(tick);
     var now = performance.now();
-    if (now - anim.last < 32) return;      // ~30 fps
+    if (now - anim.last < 32) return;
     anim.last = now;
 
-    var fx = $('riverfx');
-    var ctx = fx.getContext('2d');
+    var ctx = $('riverfx').getContext('2d');
     var d = anim.d, w2 = d.w2, h2 = d.h2;
-    var BOB = 2.2, SPEED = 2.6, pad = BOB + 3;
-    var ph = (now - anim.t0) / 1000 * SPEED;
     var rivers = anim.rivers, rgb = anim.rgb;
+    var slab = anim.lh * 0.42;                 // visible water body under the surface
+    var AMP = Math.min(4.5, anim.lh * 0.26);   // wave height
+    var K = 90, SPEED = 3.4;                   // downhill wave: crest moves to lower elevation
+    var t = (now - anim.t0) / 1000 * SPEED;
+    var padTop = AMP + h2 + 1, padBot = slab + h2 + 1;
+
     for (var k = 0; k < rivers.length; k++) {
       var r = rivers[k];
-      ctx.clearRect(r.cx - w2 - 1, r.cy - h2 - pad, w2 * 2 + 2, h2 * 2 + pad * 2);
-      var bob = Math.sin(ph - r.phase * 0.6) * BOB;
-      var sh = 0.85 + 0.30 * (0.5 + 0.5 * Math.sin(ph * 1.25 - r.phase * 0.55));
-      var cy = r.cy - bob;
-      ctx.fillStyle = 'rgb(' +
-        Math.round(rgb[0] * sh) + ',' + Math.round(rgb[1] * sh) + ',' + Math.round(rgb[2] * sh) + ')';
+      ctx.clearRect(r.cx - w2 - 1, r.cy - padTop, w2 * 2 + 2, padTop + padBot);
+      var wave = Math.sin(t - r.elev * K);
+      var lift = wave * AMP;
+      var cy = r.cy - lift;
+      var botL = r.cy + slab;                   // cube bottom holds still
+      var sh = 0.86 + 0.26 * (0.5 + 0.5 * wave);
+
+      // left face
+      ctx.fillStyle = shade(rgb, 0.68);
       ctx.beginPath();
-      ctx.moveTo(r.cx, cy - h2);
-      ctx.lineTo(r.cx + w2, cy);
-      ctx.lineTo(r.cx, cy + h2);
-      ctx.lineTo(r.cx - w2, cy);
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(r.cx - w2, cy); ctx.lineTo(r.cx, cy + h2);
+      ctx.lineTo(r.cx, botL + h2); ctx.lineTo(r.cx - w2, botL);
+      ctx.closePath(); ctx.fill();
+      // right face
+      ctx.fillStyle = shade(rgb, 0.5);
+      ctx.beginPath();
+      ctx.moveTo(r.cx, cy + h2); ctx.lineTo(r.cx + w2, cy);
+      ctx.lineTo(r.cx + w2, botL); ctx.lineTo(r.cx, botL + h2);
+      ctx.closePath(); ctx.fill();
+      // top
+      ctx.fillStyle = shade(rgb, sh);
+      ctx.beginPath();
+      ctx.moveTo(r.cx, cy - h2); ctx.lineTo(r.cx + w2, cy);
+      ctx.lineTo(r.cx, cy + h2); ctx.lineTo(r.cx - w2, cy);
+      ctx.closePath(); ctx.fill();
     }
   }
 
@@ -173,7 +193,7 @@
     var s = SM.summarize(grid);
     $('stats').textContent =
       cfg.width + '×' + cfg.height + ' · ' +
-      dt.toFixed(1) + ' ms · kara %' + s.landPct;
+      dt.toFixed(1) + ' ms · land ' + s.landPct + '%';
   }
 
   function setView(mode) {
@@ -189,7 +209,7 @@
 
   function buildLegend() {
     var el = $('legend');
-    el.innerHTML = '<h2>Biyomlar</h2>';
+    el.innerHTML = '<h2>Biomes</h2>';
     SM.BIOME_LIST.forEach(function (b) {
       var row = document.createElement('div');
       row.className = 'legend-row';
@@ -224,8 +244,8 @@
       '<span class="sw" style="background:' + b.color + '"></span>' +
       b.label + ' · (' + tx + ', ' + ty + ')' +
       ' · ' + (m >= 0 ? '+' : '') + m + ' m' +
-      ' · nem ' + grid.moisture[i].toFixed(2) +
-      ' · sıc ' + Math.round(-8 + grid.temperature[i] * 42) + '°';
+      ' · moist ' + grid.moisture[i].toFixed(2) +
+      ' · ' + Math.round(-8 + grid.temperature[i] * 42) + '°C';
   }
 
   // --- camera drag / wheel (both views) ---

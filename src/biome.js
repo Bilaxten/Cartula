@@ -3,26 +3,26 @@
   'use strict';
 
   var BIOME_LIST = [
-    { id: 'deep_water',    label: 'Derin deniz',   color: '#1b3a5c' },
-    { id: 'shallow_water', label: 'Sığ deniz',     color: '#2f6690' },
-    { id: 'river',         label: 'Nehir',         color: '#3f7fa6' },
-    { id: 'lake',          label: 'Göl',           color: '#356b8f' },
-    { id: 'beach',         label: 'Kumsal',        color: '#d9c48f' },
-    { id: 'cliff',         label: 'Yalıyar',       color: '#6d6656' },
-    { id: 'marsh',         label: 'Bataklık',      color: '#5c6b43' },
-    { id: 'grassland',     label: 'Çayır',         color: '#9cbd63' },
-    { id: 'plains',        label: 'Ova',           color: '#8fb563' },
-    { id: 'shrubland',     label: 'Çalılık',       color: '#a6a862' },
-    { id: 'forest',        label: 'Orman',         color: '#4f7f42' },
-    { id: 'taiga',         label: 'Tayga',         color: '#3f5f4c' },
-    { id: 'jungle',        label: 'Yağmur ormanı', color: '#3a6b31' },
-    { id: 'savanna',       label: 'Savan',         color: '#b7ad5f' },
-    { id: 'desert',        label: 'Çöl',           color: '#dcbd6f' },
-    { id: 'mesa',          label: 'Kızıl kaya',    color: '#b06c46' },
+    { id: 'deep_water',    label: 'Deep sea',      color: '#1b3a5c' },
+    { id: 'shallow_water', label: 'Shallow sea',   color: '#2f6690' },
+    { id: 'river',         label: 'River',         color: '#3f7fa6' },
+    { id: 'lake',          label: 'Lake',          color: '#356b8f' },
+    { id: 'beach',         label: 'Beach',         color: '#d9c48f' },
+    { id: 'cliff',         label: 'Cliff',         color: '#6d6656' },
+    { id: 'marsh',         label: 'Marsh',         color: '#5c6b43' },
+    { id: 'grassland',     label: 'Grassland',     color: '#9cbd63' },
+    { id: 'plains',        label: 'Plains',        color: '#8fb563' },
+    { id: 'shrubland',     label: 'Shrubland',     color: '#a6a862' },
+    { id: 'forest',        label: 'Forest',        color: '#4f7f42' },
+    { id: 'taiga',         label: 'Taiga',         color: '#3f5f4c' },
+    { id: 'jungle',        label: 'Rainforest',    color: '#3a6b31' },
+    { id: 'savanna',       label: 'Savanna',       color: '#b7ad5f' },
+    { id: 'desert',        label: 'Desert',        color: '#dcbd6f' },
+    { id: 'mesa',          label: 'Mesa',          color: '#b06c46' },
     { id: 'tundra',        label: 'Tundra',        color: '#9db3a6' },
-    { id: 'bare',          label: 'Çıplak',        color: '#8a7f6c' },
-    { id: 'rock',          label: 'Kaya',          color: '#7c7468' },
-    { id: 'snow',          label: 'Kar',           color: '#e9edf0' }
+    { id: 'bare',          label: 'Bare',          color: '#8a7f6c' },
+    { id: 'rock',          label: 'Rock',          color: '#7c7468' },
+    { id: 'snow',          label: 'Snow',          color: '#e9edf0' }
   ];
 
   var IDX = {};

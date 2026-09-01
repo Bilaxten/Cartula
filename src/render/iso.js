@@ -118,15 +118,34 @@
         ctx.fill();
 
         if (grid.biome[i] === RIVER) {
-          rivers.push({ cx: cx, cy: cy, phase: (grid.flowStep ? grid.flowStep[i] : 0) });
+          rivers.push({ cx: cx, cy: cy, elev: grid.elevation[i] });
         }
       }
     }
+
+    // a single dark line tracing the map's outline at the floor plane
+    var fY = originY - floorLevel * LH;
+    function corner(cxg, cyg) {
+      return [originX + (cxg - cyg) * TW2, fY + (cxg + cyg) * TH2];
+    }
+    var c00 = corner(0, 0), cW0 = corner(W - 1, 0);
+    var cWH = corner(W - 1, H - 1), c0H = corner(0, H - 1);
+    ctx.strokeStyle = '#05070b';
+    ctx.lineWidth = Math.max(1.5, TW * 0.07);
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(c00[0], c00[1] - TH2);
+    ctx.lineTo(cW0[0] + TW2, cW0[1]);
+    ctx.lineTo(cWH[0], cWH[1] + TH2);
+    ctx.lineTo(c0H[0] - TW2, c0H[1]);
+    ctx.closePath();
+    ctx.stroke();
 
     return {
       width: canvas.width, height: canvas.height,
       rivers: rivers,
       riverRgb: rgb[RIVER],
+      lh: LH,
       diamond: { w2: TW2 + E, h2: TH2 + E }
     };
   }

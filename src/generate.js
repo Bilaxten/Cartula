@@ -85,7 +85,7 @@
     width: 192,
     height: 192,
     seed: 1337,
-    seaLevel: 0.42,        // ~fraction of the reference area that is water
+    seaLevel: 0.38,        // ~fraction of the reference area that is water
     elevationScale: 2.5,   // world-space noise frequency
     octaves: 5,
     ruggedness: 0.35,
@@ -322,9 +322,9 @@
         if (x < w - 1) (grid.water[i + 1] ? wc++ : lc++);
         if (y > 0) (grid.water[i - w] ? wc++ : lc++);
         if (y < h - 1) (grid.water[i + w] ? wc++ : lc++);
-        if (!grid.water[i] && lc <= 1 && e[i] < seaThresh + 0.03) {
+        if (!grid.water[i] && lc === 0 && e[i] < seaThresh + 0.015) {
           wbuf[i] = 1;
-        } else if (grid.water[i] && wc === 0 && e[i] > seaThresh - 0.03) {
+        } else if (grid.water[i] && wc <= 1 && e[i] > seaThresh - 0.06) {
           wbuf[i] = 0;
         }
       }
@@ -363,13 +363,14 @@
       if (grid.water[i] && !ocean[i]) grid.biome[i] = B.lake;
     }
 
-    // --- 7: hydrology ---
+    // --- 7: hydrology (also carves river valleys into `e`) ---
     hydrology(grid, e, seaThresh, cfg, B);
+    for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
-    // --- 7b: declutter inland water — the land shouldn't be speckled with
-    // little pools. Keep the ocean, rivers, and lakes that are actually big;
+    // --- 7b: declutter inland water — land shouldn't be speckled with pools.
+    // Keep the ocean, river-connected water, and genuinely big endorheic basins;
     // fill everything else back to land. ---
-    var MIN_LAKE = 10;
+    var BIG_LAKE = 60;
     var seen = new Uint8Array(n);
     for (i = 0; i < n; i++) {
       if (seen[i] || !grid.water[i] || ocean[i] || grid.biome[i] === B.river) continue;
@@ -391,14 +392,58 @@
           }
         }
       }
-      if (body.length >= MIN_LAKE || touchesRiver) continue;
-      for (var bk = 0; bk < body.length; bk++) {
-        var fi = body[bk];
-        grid.water[fi] = 0;
-        e[fi] = Math.max(e[fi], seaThresh + 0.012);
-        var lfF = clamp01((e[fi] - seaThresh) / landSpan);
-        grid.biome[fi] = e[fi] < beachThresh ? B.beach
-          : SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
+      // a landlocked body survives only as a real lake — river-fed, or big
+      // enough to be a genuine basin. Everything else fills back to land.
+      if (!touchesRiver) {
+        for (var bk = 0; bk < body.length; bk++) {
+          var fi = body[bk];
+          grid.water[fi] = 0;
+          e[fi] = Math.max(e[fi], seaThresh + 0.012);
+          var lfF = clamp01((e[fi] - seaThresh) / landSpan);
+          grid.biome[fi] = e[fi] < beachThresh ? B.beach
+            : SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
+        }
+        continue;
+      }
+
+      // --- lake overflow: the lake spills over its lowest shore point and
+      // runs off downhill as a river. ---
+      {
+        var outI = -1, outE = 1e9;
+        for (var lk = 0; lk < body.length; lk++) {
+          var li = body[lk], lx = li % w, ly = (li / w) | 0;
+          var lnb = [
+            lx > 0 ? li - 1 : -1, lx < w - 1 ? li + 1 : -1,
+            ly > 0 ? li - w : -1, ly < h - 1 ? li + w : -1
+          ];
+          for (var lj = 0; lj < 4; lj++) {
+            var lni = lnb[lj];
+            if (lni < 0 || grid.water[lni]) continue;
+            if (e[lni] < outE) { outE = e[lni]; outI = lni; }
+          }
+        }
+        if (outI >= 0) {
+          var oc = outI, ostep = 0;
+          while (ostep++ < w + h) {
+            if (grid.water[oc]) break;
+            grid.water[oc] = 1;
+            grid.biome[oc] = B.river;
+            var ox2 = oc % w, oy2 = (oc / w) | 0;
+            if (ox2 === 0 || oy2 === 0 || ox2 === w - 1 || oy2 === h - 1) break;
+            var ob = -1, obE = e[oc];
+            for (var ody = -1; ody <= 1; ody++) {
+              for (var odx = -1; odx <= 1; odx++) {
+                if (!odx && !ody) continue;
+                var onx = ox2 + odx, ony = oy2 + ody;
+                if (onx < 0 || ony < 0 || onx >= w || ony >= h) continue;
+                var oni = ony * w + onx;
+                if (e[oni] < obE) { obE = e[oni]; ob = oni; }
+              }
+            }
+            if (ob < 0) break;
+            oc = ob;
+          }
+        }
       }
     }
 
@@ -549,13 +594,51 @@
             if (e[ni2] < bestE) { bestE = e[ni2]; best = ni2; }
           }
         }
-        if (best < 0) break;                 // local pit — stop (a small lake)
+        if (best < 0) {
+          // the river runs into a closed basin — it pools into a lake
+          var pv = e[cur], lq = [cur], lhh = 0;
+          while (lhh < lq.length && lq.length < 60) {
+            var pi2 = lq[lhh++];
+            grid.water[pi2] = 1;
+            grid.biome[pi2] = B.lake;
+            var px2 = pi2 % w, py2 = (pi2 / w) | 0;
+            var pnb = [
+              px2 > 0 ? pi2 - 1 : -1, px2 < w - 1 ? pi2 + 1 : -1,
+              py2 > 0 ? pi2 - w : -1, py2 < h - 1 ? pi2 + w : -1
+            ];
+            for (var pj = 0; pj < 4; pj++) {
+              var pni = pnb[pj];
+              if (pni >= 0 && !grid.water[pni] && e[pni] <= pv + 0.02 && lq.indexOf(pni) < 0) {
+                lq.push(pni);
+              }
+            }
+          }
+          break;
+        }
         var bxx = best % w, byy = (best / w) | 0;
         flow[cur] = DIR[(byy - cyy2 + 1) * 3 + (bxx - cxx2 + 1)];
         cur = best;
         steps++;
       }
     }
+    // carve a V-valley — the river and its banks sit in a channel cut into the
+    // terrain, so water flows through valleys instead of sitting on the surface.
+    for (i = 0; i < n; i++) {
+      if (!river[i]) continue;
+      var vx = i % w, vy = (i / w) | 0, ve = e[i];
+      for (var voy = -2; voy <= 2; voy++) {
+        var vny = vy + voy; if (vny < 0 || vny >= h) continue;
+        for (var vox = -2; vox <= 2; vox++) {
+          var vnx = vx + vox; if (vnx < 0 || vnx >= w) continue;
+          var vd = Math.sqrt(vox * vox + voy * voy);
+          if (vd > 2.2) continue;
+          var vi = vny * w + vnx;
+          var tgt = ve + 0.012 + vd * 0.024;
+          if (e[vi] > tgt) e[vi] = e[vi] * 0.35 + tgt * 0.65;
+        }
+      }
+    }
+
     // widen the channel by how much flow it carries — headwaters are a single
     // tile, the trunk near the mouth spreads several tiles wide.
     var wide = new Uint8Array(n);

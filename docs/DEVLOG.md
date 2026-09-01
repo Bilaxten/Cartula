@@ -1,5 +1,45 @@
 # DEVLOG
 
+## 2026-09-01 — Voxel nehir animasyonu, daha az su, vadiler, göl taşması, İngilizce UI
+
+**Ne yapıldı:** Uğur: su kuralı daha strict (daha az su), nehir animasyonu
+"küpler halinde, yüksekten alçağa akan", UI İngilizce, "deniz seviyesi" →
+deniz-kara oranı, harita kenarına siyah border, + sıradaki kurallar.
+
+- **Daha az su:** seaLevel 0.42→0.38. İç su artık YALNIZCA nehir-bağlantılı
+  gövde olarak yaşıyor (BIG_LAKE eşiği kaldırıldı) — açıklanamayan iç deniz
+  yok. Bir nehir kapalı havzaya akarsa orada **göl** oluşuyor (pit→lake
+  flood, ≤60 kare). Sonuç: water% ~38→~30, göller 100-450 kare (gerçek
+  nehir-beslemeli göller).
+- **Voxel nehir animasyonu:** nehir kareleri artık küçük su küpleri.
+  `#riverfx` overlay canvas'ında (terrain canvas'ına dokunulmuyor) her kare
+  bir prizma (üst + 2 yan yüz); yükseklik `sin(t*SPEED - elev*K)` ile
+  salınıyor — dalga tepesi düşük rakıma doğru ilerliyor = yüksekten alçağa
+  akış. Küp tabanı sabit, üstü inip kalkıyor. 30fps, dirty-rect.
+- **Vadi oyma:** nehir izleri `e`'ye V-vadi kazıyor (yarıçap 2, nehir ve
+  yakın kıyı aşağı çekiliyor) — su yüzeyde durmuyor, vadiden akıyor.
+- **Göl taşması:** her göl en alçak kıyı noktasından bir çıkış nehriyle
+  boşalıyor (steepest descent).
+- **UI İngilizce:** tüm etiketler, biyom adları, hover ("+818 m · moist
+  0.53 · 22°C"), stats ("land 62%"). `lang="en"`.
+- **Deniz-kara oranı:** "Deniz seviyesi" → "Sea ↔ land — X% land".
+- **Siyah border:** iso'da haritanın floor düzlemi hattı tek koyu çizgiyle
+  çiziliyor.
+
+**Hangi dosyalar:** `src/generate.js`, `src/main.js`, `src/render/iso.js`,
+`src/biome.js`, `index.html`, `css/style.css`.
+
+**Doğrulama:** headless — determinism 0, 0 kule, water% 29-36, göller
+100-450, gen ~55-106ms. Tarayıcıda — 192² temiz harita, İngilizce UI,
+vadilerde nehirler, siyah border, pan 300 güncelleme 0.6ms (overlay
+izolasyonu çalışıyor), konsol temiz. Animasyon otomasyonda bg-tab rAF
+throttle yüzünden gözlenemedi (kod yolu sağlam, tick atıyor).
+
+**Sonraki tur:** deltalar, fiyortlar, kıyı okları/lagünler, platolar,
+kıstaklar, takımadalar, haliçler, karasallık, riparian yeşillik, üstten
+görünüm nehir animasyonu.
+
+
 ## 2026-09-01 — Perf + iç su temizliği + dendritik nehirler
 
 **Ne yapıldı:** Uğur "kasmaya başladı kontrol edemiyorum" + "deniz/ada
