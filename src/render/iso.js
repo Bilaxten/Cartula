@@ -254,9 +254,15 @@
           drop: grid.waterfallDrop ? grid.waterfallDrop[i] : 0
         });
         if (grid.biome[i] === SM.BIOME_IDX.shallow_water) {
-          var touchLand = (x > 0 && !grid.water[i - 1]) || (x < W - 1 && !grid.water[i + 1]) ||
-            (y > 0 && !grid.water[i - W]) || (y < H - 1 && !grid.water[i + W]);
-          if (touchLand) foam.push({ cx: cx, cy: cy, gx: x, gy: y });
+          // Edge 0..3 is x-, y-, x+, y+ respectively. The live overlay uses
+          // it to keep coastal foam on the diamond side that actually meets
+          // land, rather than drawing a generic ring around the water tile.
+          var foamEdge = -1;
+          if (x > 0 && !grid.water[i - 1]) foamEdge = 0;
+          else if (y > 0 && !grid.water[i - W]) foamEdge = 1;
+          else if (x < W - 1 && !grid.water[i + 1]) foamEdge = 2;
+          else if (y < H - 1 && !grid.water[i + W]) foamEdge = 3;
+          if (foamEdge >= 0) foam.push({ cx: cx, cy: cy, gx: x, gy: y, edge: foamEdge });
         }
       }
     }

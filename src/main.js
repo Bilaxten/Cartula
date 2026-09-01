@@ -23,7 +23,7 @@
   var ISO_TILE = 24;
   var ISO_BASE_LH = 13;
 
-  var anim = null; // river-flow animation state (iso only)
+  var anim = null; // live overlay animation state
 
   function isoExag() { return parseFloat($('isoexag').value); }
 
@@ -127,45 +127,116 @@
     if (fx.width) fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
   }
 
-  // Animation runs on a SEPARATE overlay canvas (#riverfx) so the big terrain
-  // canvas is never touched after the bake. Each frame clears ONE bounding box
-  // covering every animated tile, then repaints them all in painter order
-  // (back-to-front) — so clustered tiles (a crater lava lake, a wide river
-  // mouth) composite cleanly instead of clipping each other. Capped ~30 fps.
+  function animHash(x, y) {
+    var n = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+    return (n % 10000) / 10000;
+  }
+
+  function makeWaterfallState(waterfalls, lh) {
+    var out = [];
+    for (var i = 0; i < waterfalls.length; i++) {
+      var w = waterfalls[i], streaks = [], mist = [];
+      var ns = 2 + Math.floor(Math.random() * 3);
+      var nm = 3 + Math.floor(Math.random() * 4);
+      for (var s = 0; s < ns; s++) streaks.push({
+        x: (Math.random() - 0.5) * 5, phase: Math.random(),
+        len: 0.12 + Math.random() * 0.22, speed: 0.75 + Math.random() * 0.65
+      });
+      for (var m = 0; m < nm; m++) mist.push({
+        x: (Math.random() - 0.5) * 9, phase: Math.random(),
+        rise: 4 + Math.random() * Math.max(5, lh * 0.45), r: 1 + Math.random() * 2
+      });
+      out.push({ tile: w, streaks: streaks, mist: mist,
+        height: Math.max(lh, (w.drop || 1) * lh) });
+    }
+    return out;
+  }
+
+  function makeSmokeState(lavas) {
+    var groups = [], used = [], i, j;
+    for (i = 0; i < lavas.length; i++) {
+      if (used[i]) continue;
+      var queue = [i], members = [];
+      used[i] = true;
+      while (queue.length) {
+        var qi = queue.pop(), q = lavas[qi];
+        members.push(q);
+        for (j = 0; j < lavas.length; j++) {
+          if (used[j]) continue;
+          if (Math.abs(lavas[j].gx - q.gx) <= 4 && Math.abs(lavas[j].gy - q.gy) <= 4) {
+            used[j] = true; queue.push(j);
+          }
+        }
+      }
+      var vent = members[0];
+      for (j = 1; j < members.length; j++) if (members[j].cy < vent.cy) vent = members[j];
+      var particles = [], count = 14 + Math.floor(Math.random() * 11);
+      for (j = 0; j < count; j++) particles.push({
+        offset: Math.random() * 3, life: 2 + Math.random(),
+        jitter: (Math.random() - 0.5) * 5, sway: Math.random() * 6.28,
+        rise: 24 + Math.random() * 22, r: 1.5 + Math.random() * 1.5
+      });
+      groups.push({ vent: vent, wind: 5 + Math.random() * 5, particles: particles });
+    }
+    return groups;
+  }
+
+  function makeFlocks(width, height) {
+    var out = [], count = 2 + Math.floor(Math.random() * 3);
+    for (var i = 0; i < count; i++) {
+      var speed = 15 + Math.random() * 16;
+      out.push({
+        x: Math.random() * width, y: height * (0.12 + Math.random() * 0.58),
+        vx: speed, vy: (Math.random() - 0.5) * 5,
+        count: 3 + Math.floor(Math.random() * 5), phase: Math.random() * 6.28
+      });
+    }
+    return out;
+  }
+
+  // Animation runs on a separate overlay canvas, leaving the terrain bake
+  // untouched. Iso roaming effects can cross any old dirty rectangle, so the
+  // overlay is cleared in full once per capped (~30 fps) frame.
   function startRiverAnim() {
     stopAnim();
     var r = (content.rivers || []).slice();
     var lv = (content.lavas || []).slice();
-    if ((r.length + lv.length) === 0 || (r.length + lv.length) > 1600 ||
-        map.width * map.height > 16e6) return;
+    if ((r.length + lv.length) > 1600 || map.width * map.height > 16e6) return;
 
     var iso = view === 'iso';
     var d = content.diamond, ts = content.tile, lh = content.lh || 20;
-    var pad = iso ? (Math.min(4.5, lh * 0.26) + lh * 0.5 + d.h2 + 3) : (ts + 2);
     if (iso) {
       var ord = function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); };
       r.sort(ord); lv.sort(ord);
     }
-    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, all = r.concat(lv), j;
-    for (j = 0; j < all.length; j++) {
-      var ax = iso ? all[j].cx : all[j].x, ay = iso ? all[j].cy : all[j].y;
-      if (ax < minX) minX = ax; if (ax > maxX) maxX = ax;
-      if (ay < minY) minY = ay; if (ay > maxY) maxY = ay;
-    }
-    var box = {
-      x: Math.floor(minX - pad), y: Math.floor(minY - pad),
-      w: Math.ceil(maxX - minX + pad * 2), h: Math.ceil(maxY - minY + pad * 2)
-    };
+    var j;
 
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
     fx.style.transform = map.style.transform;
     anim = {
-      raf: 0, mode: view, rivers: r, lavas: lv, box: box,
+      raf: 0, mode: view, rivers: r, lavas: lv,
       rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
-      d: d, tile: ts, lh: lh, t0: performance.now(), last: 0
+      d: d, tile: ts, lh: lh, t0: performance.now(), last: 0,
+      waterfalls: iso ? makeWaterfallState(content.waterfalls || [], lh) : [],
+      foam: iso ? (content.foam || []).slice(0, 800) : [],
+      smoke: iso ? makeSmokeState(lv) : [],
+      flocks: iso ? makeFlocks(content.width, content.height) : [],
+      moveLast: 0, terrain: []
     };
+    if (iso) {
+      for (j = 0; j < r.length; j++) anim.terrain.push({ kind: 0, tile: r[j] });
+      for (j = 0; j < lv.length; j++) anim.terrain.push({ kind: 1, tile: lv[j] });
+      for (j = 0; j < anim.foam.length; j++) anim.terrain.push({ kind: 2, tile: anim.foam[j] });
+      for (j = 0; j < anim.waterfalls.length; j++) anim.terrain.push({ kind: 3, tile: anim.waterfalls[j].tile, state: anim.waterfalls[j] });
+      for (j = 0; j < anim.smoke.length; j++) anim.terrain.push({ kind: 4, tile: anim.smoke[j].vent, state: anim.smoke[j] });
+      anim.terrain.sort(function (a, b) {
+        var depth = (a.tile.gx + a.tile.gy) - (b.tile.gx + b.tile.gy);
+        return depth || (a.kind - b.kind);
+      });
+    }
+    if (!iso && (r.length + lv.length) === 0) { anim = null; return; }
     tick();
   }
 
@@ -200,8 +271,7 @@
     if (now - anim.last < 32) return;
     anim.last = now;
     var ctx = $('riverfx').getContext('2d');
-    var b = anim.box;
-    ctx.clearRect(b.x, b.y, b.w, b.h);
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     if (anim.mode === 'iso') tickIso(now, ctx);
     else tickTop(now, ctx);
   }
@@ -225,37 +295,150 @@
     }
   }
 
+  function drawFoam(ctx, f, seconds) {
+    var w2 = anim.d.w2, h2 = anim.d.h2;
+    var verts = [
+      [[f.cx, f.cy - h2], [f.cx - w2, f.cy]],
+      [[f.cx, f.cy - h2], [f.cx + w2, f.cy]],
+      [[f.cx + w2, f.cy], [f.cx, f.cy + h2]],
+      [[f.cx - w2, f.cy], [f.cx, f.cy + h2]]
+    ];
+    var edge = verts[f.edge == null ? 0 : f.edge];
+    var phase = animHash(f.gx, f.gy) * 6.283;
+    var shimmer = 0.5 + 0.5 * Math.sin(seconds * 1.8 + phase);
+    var count = 1 + Math.floor(animHash(f.gy + 17, f.gx + 31) * 3);
+    ctx.lineWidth = 1;
+    ctx.lineCap = 'round';
+    for (var i = 0; i < count; i++) {
+      var u = (i + 0.35 + shimmer * 0.18) / count;
+      var span = 0.12 + 0.08 * shimmer;
+      var u0 = Math.max(0.04, u - span), u1 = Math.min(0.96, u + span);
+      var x0 = edge[0][0] + (edge[1][0] - edge[0][0]) * u0;
+      var y0 = edge[0][1] + (edge[1][1] - edge[0][1]) * u0;
+      var x1 = edge[0][0] + (edge[1][0] - edge[0][0]) * u1;
+      var y1 = edge[0][1] + (edge[1][1] - edge[0][1]) * u1;
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.10 + 0.20 * shimmer).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo((x0 + x1) * 0.5, (y0 + y1) * 0.5 - 1.2, x1, y1);
+      ctx.stroke();
+    }
+  }
+
+  function drawWaterfall(ctx, state, seconds) {
+    var w = state.tile, height = state.height;
+    ctx.lineCap = 'round';
+    for (var i = 0; i < state.streaks.length; i++) {
+      var s = state.streaks[i];
+      var p = (s.phase + seconds * s.speed) % 1;
+      var y0 = w.cy + p * height, len = Math.max(3, s.len * height);
+      var y1 = Math.min(w.cy + height, y0 + len);
+      ctx.strokeStyle = 'rgba(235,245,255,' + (0.35 + 0.38 * (1 - p)).toFixed(3) + ')';
+      ctx.lineWidth = 1 + (i % 2);
+      ctx.beginPath(); ctx.moveTo(w.cx + s.x, y0); ctx.lineTo(w.cx + s.x * 0.65, y1); ctx.stroke();
+      if (y0 + len > w.cy + height) {
+        y1 = w.cy + (y0 + len - (w.cy + height));
+        ctx.beginPath(); ctx.moveTo(w.cx + s.x, w.cy); ctx.lineTo(w.cx + s.x * 0.8, y1); ctx.stroke();
+      }
+    }
+    for (var m = 0; m < state.mist.length; m++) {
+      var mist = state.mist[m];
+      var mp = (mist.phase + seconds * 0.65) % 1;
+      ctx.fillStyle = 'rgba(235,245,255,' + (0.28 * (1 - mp)).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(w.cx + mist.x + Math.sin(seconds * 2 + m) * 1.5,
+        w.cy + height - mp * mist.rise, mist.r * (0.65 + mp * 0.8), 0, 6.283);
+      ctx.fill();
+    }
+  }
+
+  function smokeParticle(p, group, seconds) {
+    var elapsed = (seconds + p.offset) % p.life;
+    var age = elapsed / p.life;
+    return {
+      age: age,
+      x: group.vent.cx + p.jitter + group.wind * elapsed + Math.sin(p.sway + age * 5) * 3,
+      y: group.vent.cy - 2 - p.rise * age,
+      r: p.r * (0.75 + age * 2.5)
+    };
+  }
+
+  function drawSmokeGroup(ctx, group, seconds, low) {
+    for (var i = 0; i < group.particles.length; i++) {
+      var q = smokeParticle(group.particles[i], group, seconds);
+      if ((q.age < 0.23) !== low) continue;
+      if (q.age < 0.13) {
+        ctx.fillStyle = 'rgba(238,105,38,' + (0.11 * (1 - q.age / 0.13)).toFixed(3) + ')';
+        ctx.beginPath(); ctx.arc(q.x, q.y + 1, q.r * 1.15, 0, 6.283); ctx.fill();
+      }
+      var grey = Math.round(90 + q.age * 75);
+      ctx.fillStyle = 'rgba(' + grey + ',' + (grey - 2) + ',' + (grey - 4) + ',' +
+        (0.34 * (1 - q.age)).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill();
+    }
+  }
+
+  function drawBirds(ctx, now, seconds) {
+    var dt = anim.moveLast ? Math.min(0.08, (now - anim.moveLast) / 1000) : 0;
+    anim.moveLast = now;
+    ctx.strokeStyle = 'rgba(40,40,44,0.85)';
+    ctx.lineWidth = 1.15;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (var f = 0; f < anim.flocks.length; f++) {
+      var flock = anim.flocks[f];
+      flock.x += flock.vx * dt; flock.y += flock.vy * dt;
+      if (flock.x > content.width + 30) {
+        flock.x = -25;
+        flock.y = content.height * (0.10 + Math.random() * 0.68);
+      }
+      if (flock.y < 12) flock.y = content.height - 12;
+      if (flock.y > content.height - 12) flock.y = 12;
+      for (var i = 0; i < flock.count; i++) {
+        var rank = Math.ceil(i / 2), side = i % 2 ? -1 : 1;
+        var bx = flock.x - rank * 6 + Math.sin(flock.phase + seconds + i) * 1.2;
+        var by = flock.y + side * rank * 3 + Math.sin(seconds * 2.2 + i) * 1.1;
+        var size = 3 + (i % 3) * 0.7;
+        var flap = Math.sin(seconds * 8 + flock.phase + i * 0.7) * 2;
+        ctx.beginPath();
+        ctx.moveTo(bx - size, by + flap);
+        ctx.lineTo(bx, by);
+        ctx.lineTo(bx + size, by + flap);
+        ctx.stroke();
+      }
+    }
+  }
+
   function tickIso(now, ctx) {
     var d = anim.d, w2 = d.w2, h2 = d.h2;
-    var rivers = anim.rivers, rgb = anim.rgb;
-    var slab = anim.lh * 0.42;
-    var AMP = Math.min(4.5, anim.lh * 0.26);
-    var K = 90, SPEED = 3.4;                   // crest travels toward lower ground
-    var t = (now - anim.t0) / 1000 * SPEED;
+    var seconds = (now - anim.t0) / 1000;
+    var slab = anim.lh * 0.42, AMP = Math.min(4.5, anim.lh * 0.26);
+    var riverT = seconds * 3.4;
+    var lavaT = seconds * 2.0, lrgb = anim.lavaRgb;
 
-    for (var k = 0; k < rivers.length; k++) {
-      var r = rivers[k];
-      var wave = Math.sin(t - r.elev * K);
-      var sh = 0.86 + 0.26 * (0.5 + 0.5 * wave);
-      prism(ctx, r.cx, r.cy - wave * AMP, r.cy + slab, w2, h2,
-        shade(rgb, sh), shade(rgb, 0.68), shade(rgb, 0.5));
+    // One shared painter list keeps surface effects at terrain depth. Smoke is
+    // split: newborn puffs sit with the vent; older puffs rise above the map.
+    for (var i = 0; i < anim.terrain.length; i++) {
+      var item = anim.terrain[i], tile = item.tile;
+      if (item.kind === 0) {
+        var wave = Math.sin(riverT - tile.elev * 90);
+        var sh = 0.86 + 0.26 * (0.5 + 0.5 * wave);
+        prism(ctx, tile.cx, tile.cy - wave * AMP, tile.cy + slab, w2, h2,
+          shade(anim.rgb, sh), shade(anim.rgb, 0.68), shade(anim.rgb, 0.5));
+      } else if (item.kind === 1) {
+        var glow = 0.5 + 0.5 * Math.sin(lavaT - tile.elev * 70);
+        var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
+        var tg = Math.round(lrgb[1] + (240 - lrgb[1]) * glow);
+        var tb = Math.round(lrgb[2] + (150 - lrgb[2]) * glow * 0.7);
+        prism(ctx, tile.cx, tile.cy, tile.cy + anim.lh * 0.5, w2, h2,
+          'rgb(' + tr + ',' + tg + ',' + tb + ')',
+          shade(lrgb, 0.32 + 0.14 * glow), shade(lrgb, 0.22 + 0.1 * glow));
+      } else if (item.kind === 2) drawFoam(ctx, tile, seconds);
+      else if (item.kind === 3) drawWaterfall(ctx, item.state, seconds);
+      else drawSmokeGroup(ctx, item.state, seconds, true);
     }
-
-    // lava: cubes hold still, only the glow pulses (phase by elevation so heat
-    // sweeps along a flow); crest lerps toward white-hot
-    var lrgb = anim.lavaRgb, lavas = anim.lavas;
-    var LK = 70, LSPEED = 2.0, lslab = anim.lh * 0.5;
-    var lt = (now - anim.t0) / 1000 * LSPEED;
-    for (var li = 0; li < lavas.length; li++) {
-      var lv = lavas[li];
-      var glow = 0.5 + 0.5 * Math.sin(lt - lv.elev * LK);
-      var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
-      var tg = Math.round(lrgb[1] + (240 - lrgb[1]) * glow);
-      var tb = Math.round(lrgb[2] + (150 - lrgb[2]) * glow * 0.7);
-      prism(ctx, lv.cx, lv.cy, lv.cy + lslab, w2, h2,
-        'rgb(' + tr + ',' + tg + ',' + tb + ')',
-        shade(lrgb, 0.32 + 0.14 * glow), shade(lrgb, 0.22 + 0.1 * glow));
-    }
+    for (i = 0; i < anim.smoke.length; i++) drawSmokeGroup(ctx, anim.smoke[i], seconds, false);
+    drawBirds(ctx, now, seconds);
   }
 
   function drawContent() {
