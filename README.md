@@ -1,0 +1,45 @@
+# StilizedMaps
+
+Prosedürel, stilize harita üreteci. Dağ / ova / deniz / orman / çöl / tundra
+biyomları noise'dan türetilir; harita hem **üstten** hem **izometrik voxel**
+görünümüyle çizilir. Üretimden önce kurallarla ayarlanır, üretimden sonra
+fırçayla düzenlenir. İzometrik görünümde animasyon (akan nehir, uçan kuşlar).
+
+Vanilla HTML + CSS + JS. Framework yok, build adımı yok. Harita yüzeyi tek
+`<canvas>` üzerinde çizilir; paneller normal DOM.
+
+## Çalıştırma
+
+`index.html` dosyasını tarayıcıda aç (çift tıkla). Yerel sunucu gerekmez.
+
+## Mimari
+
+Tek doğru kaynak: **grid veri modeli** (`src/grid.js`). Her hücre `elevation`,
+`moisture`, `temperature`, `biome`, `water`, `level` taşır. Her iki görünüm de
+bu aynı modelin projeksiyonudur — ayrı harita değil.
+
+Üretim hattı (`src/generate.js`), her adım ayrı test edilebilir:
+
+1. Seed'li simplex noise → heightmap (`src/noise.js`, bağımlılık yok)
+2. Deniz seviyesi eşiği → kara / su
+3. İkinci noise → moisture; enlem + rakım → temperature
+4. `(elevation, moisture, temperature)` → biyom tablosu (`src/biome.js`)
+5. Ayrık yükseklik kademesi (`level`) — voxel görünümü için
+6. *(sonra)* nehir izleme, feature serpiştirme
+
+## Milestone'lar
+
+- [x] **M1 — Üretim + üstten görünüm.** Grid modeli, noise, biyom ataması,
+  Canvas top-down render, parametre paneli, yeniden üret.
+- [ ] **M2 — İzometrik voxel projeksiyon.** Prizma çizimi, statik bake,
+  kamera pan/zoom.
+- [ ] **M3 — Düzenleme.** Fırça araçları: biyom boya, terrain yükselt/alçalt,
+  nehir çiz. Kısmi yeniden hesap.
+- [ ] **M4 — Animasyon.** Nehir dalgası (voxel yüksekliği sinüs), uçan kuşlar.
+  Sonra: gündüz/gece, bulut gölgesi, kamera döndürme.
+
+## Bağlam
+
+Bilaxten technical artist portfolyosunun parçası. Yazımı: her milestone bir
+breakdown notu (`docs/DEVLOG.md`) → sonra bilaxten.art'ta vaka çalışması +
+WebGL/Canvas gömülü demo.

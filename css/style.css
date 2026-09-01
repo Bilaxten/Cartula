@@ -1,0 +1,101 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: #12151a;
+  color: #d7dde4;
+}
+
+#app { display: flex; height: 100vh; }
+
+#panel {
+  width: 300px;
+  flex: none;
+  padding: 16px 18px;
+  background: #1a1f27;
+  border-right: 1px solid #262d38;
+  overflow-y: auto;
+}
+#panel h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: 0.02em; }
+#panel .muted { color: #7c8794; font-size: 12px; margin: 0 0 14px; }
+
+#panel label {
+  display: block;
+  margin: 12px 0 4px;
+  color: #aeb8c4;
+  font-size: 12px;
+}
+#panel label.check { margin-top: 10px; }
+#panel label span { color: #d7dde4; font-variant-numeric: tabular-nums; }
+
+#panel .row { display: flex; gap: 6px; }
+#panel input[type=number] {
+  flex: 1;
+  padding: 6px 8px;
+  background: #12151a;
+  border: 1px solid #2c3542;
+  color: #d7dde4;
+  border-radius: 4px;
+}
+#panel input[type=range] { width: 100%; margin: 2px 0; }
+#panel input[type=checkbox] { vertical-align: -1px; margin-right: 4px; }
+
+#panel button {
+  margin-top: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  background: #262d38;
+  color: #d7dde4;
+  border: 1px solid #333d4a;
+  border-radius: 4px;
+  font: inherit;
+}
+#panel button:hover { filter: brightness(1.18); }
+#panel #randomSeed { flex: none; margin-top: 0; padding: 6px 9px; }
+#panel button.primary {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  background: #3a6ea5;
+  border-color: #4a7fb8;
+  font-weight: 600;
+}
+
+#stats { margin-top: 14px; font-size: 11px; line-height: 1.7; }
+
+#legend { margin-top: 16px; }
+#legend h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7c8794;
+  margin: 0 0 6px;
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  color: #aeb8c4;
+}
+.legend-row .sw {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  flex: none;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+#stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 20px;
+}
+#map {
+  image-rendering: pixelated;
+  box-shadow: 0 8px 44px rgba(0, 0, 0, 0.55);
+  border-radius: 2px;
+}
