@@ -1,5 +1,33 @@
 # DEVLOG
 
+## 2026-09-02 — UI makeover (rafine cila) + PNG export + paylaşım linki
+
+Uğur: "ui makeover yapacağız bir de güzel gözüksün" + border/lav/krater
+düzeltmeleri (ayrı commit).
+
+**UI:** `index.html` + `css/style.css` baştan yazıldı. Aynı layout, rafine:
+- Tasarım token'ları (`:root` — bg/panel/line/accent...). Vurgu: sıcak amber
+  `#eba14a` (lav/güneş çağrışımı, koyu zeminde güçlü).
+- Header (amber mark + tagline), segment kontrol (Top-down / Isometric).
+- Parametre grupları `<details>` — katlanabilir, chevron'lu.
+- Özel range slider: accent dolgu (`--fill` %'si JS'te `input` olayında
+  boyanıyor, webkit gradient track), büyüyen thumb, focus ring.
+- Legend 2 sütun grid. Alt bar: stats + **Export PNG** + **Copy link**.
+- `#stage` radial gradient zemin, hover kartı blur'lu.
+
+**Export PNG:** `map` (+ iso'da `riverfx`) geçici canvas'a kompoze → `toDataURL`
+→ `<a download>`. **Copy link:** tüm parametreler querystring'e, `navigator.
+clipboard`; sayfa açılışında `location.search` okunup input'lara uygulanıyor
+(seed'li harita paylaşımı).
+
+**Not:** `python -m http.server` cache header'ı göndermiyor, Chrome agresif
+cache'liyor — bu oturumdaki "stale screenshot" sorununun kaynağı buydu.
+Tarayıcı testi cache-buster query (`?cb=N`) ile yapıldı.
+
+**Doğrulama:** yeni UI render'landı, segment aktif durumu amber, slider
+dolguları doğru, export toDataURL 304KB PNG üretiyor, share URL 167 char,
+konsol hatasız.
+
 ## 2026-09-02 — Voxel border, daha büyük yanardağlar, voxel lav akışı
 
 Uğur: "lav akışını da border'ı da voxel yapman lazım. yanardağları da daha

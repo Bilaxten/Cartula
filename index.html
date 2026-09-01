@@ -9,80 +9,105 @@
 <body>
 <div id="app">
   <aside id="panel">
-    <h1>StilizedMaps</h1>
-    <p class="muted">M2 — top-down + isometric</p>
-
-    <div class="viewtoggle">
-      <button id="viewTop" type="button" class="active">Top</button>
-      <button id="viewIso" type="button">Iso</button>
-    </div>
-
-    <div class="group">
-      <h2>World</h2>
-      <label for="seed">Seed</label>
-      <div class="row">
-        <input type="number" id="seed" value="1337">
-        <button id="randomSeed" type="button" title="Random seed">🎲</button>
+    <header id="brand">
+      <div class="mark" aria-hidden="true"></div>
+      <div>
+        <h1>StilizedMaps</h1>
+        <p class="tag">procedural stylized world generator</p>
       </div>
+    </header>
 
-      <label for="size">Size — <span id="sizeVal">192</span>²</label>
-      <input type="range" id="size" min="128" max="448" step="32" value="192">
+    <div class="seg" role="tablist">
+      <button id="viewTop" type="button" class="active" role="tab">Top-down</button>
+      <button id="viewIso" type="button" role="tab">Isometric</button>
     </div>
 
-    <div class="group">
-      <h2>Elevation</h2>
-      <label for="sea">Sea ↔ land — <span id="seaVal">62% land</span></label>
-      <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.38">
+    <div class="scroll">
+      <details class="group" open>
+        <summary>World</summary>
+        <div class="body">
+          <label for="seed">Seed</label>
+          <div class="row">
+            <input type="number" id="seed" value="1337">
+            <button id="randomSeed" type="button" title="Random seed">shuffle</button>
+          </div>
 
-      <label for="rugged">Ruggedness — <span id="ruggedVal">0.35</span></label>
-      <input type="range" id="rugged" min="0" max="1" step="0.05" value="0.35">
+          <label for="size">Map size <span id="sizeVal">192²</span></label>
+          <input type="range" id="size" min="128" max="448" step="32" value="192">
+        </div>
+      </details>
 
-      <label for="warp">Distortion — <span id="warpVal">0.18</span></label>
-      <input type="range" id="warp" min="0" max="0.5" step="0.02" value="0.18">
+      <details class="group" open>
+        <summary>Elevation</summary>
+        <div class="body">
+          <label for="sea">Sea &harr; land <span id="seaVal">62% land</span></label>
+          <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.38">
 
-      <label for="escale">Terrain scale — <span id="escaleVal">2.5</span></label>
-      <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
+          <label for="rugged">Ruggedness <span id="ruggedVal">0.35</span></label>
+          <input type="range" id="rugged" min="0" max="1" step="0.05" value="0.35">
 
-      <label for="octaves">Detail — <span id="octavesVal">5</span></label>
-      <input type="range" id="octaves" min="2" max="7" step="1" value="5">
+          <label for="warp">Distortion <span id="warpVal">0.18</span></label>
+          <input type="range" id="warp" min="0" max="0.5" step="0.02" value="0.18">
 
-      <label for="island">Island falloff — <span id="islandVal">0.00</span></label>
-      <input type="range" id="island" min="0" max="1" step="0.05" value="0">
+          <label for="escale">Terrain scale <span id="escaleVal">2.5</span></label>
+          <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
+
+          <label for="octaves">Detail <span id="octavesVal">5</span></label>
+          <input type="range" id="octaves" min="2" max="7" step="1" value="5">
+
+          <label for="island">Island falloff <span id="islandVal">0.00</span></label>
+          <input type="range" id="island" min="0" max="1" step="0.05" value="0">
+        </div>
+      </details>
+
+      <details class="group" open>
+        <summary>Climate</summary>
+        <div class="body">
+          <label for="mscale">Moisture scale <span id="mscaleVal">3.0</span></label>
+          <input type="range" id="mscale" min="1" max="6" step="0.1" value="3.0">
+
+          <label for="tbias">Temperature bias <span id="tbiasVal">+0.00</span></label>
+          <input type="range" id="tbias" min="-0.3" max="0.3" step="0.02" value="0">
+
+          <label for="mbias">Moisture bias <span id="mbiasVal">+0.00</span></label>
+          <input type="range" id="mbias" min="-0.3" max="0.3" step="0.02" value="0">
+
+          <label for="rivers">Rivers <span id="riversVal">1.0</span></label>
+          <input type="range" id="rivers" min="0" max="2" step="0.25" value="1">
+        </div>
+      </details>
+
+      <details class="group" open>
+        <summary>View</summary>
+        <div class="body">
+          <label for="isoexag">Height exaggeration (iso) <span id="isoexagVal">1.6</span></label>
+          <input type="range" id="isoexag" min="0.6" max="3" step="0.1" value="1.6">
+
+          <label class="check"><input type="checkbox" id="showGrid"> Grid lines</label>
+          <label class="check"><input type="checkbox" id="showShade" checked> Hillshade</label>
+        </div>
+      </details>
+
+      <details class="group" id="legendGroup" open>
+        <summary>Biomes</summary>
+        <div class="body" id="legend"></div>
+      </details>
     </div>
 
-    <div class="group">
-      <h2>Climate</h2>
-      <label for="mscale">Moisture scale — <span id="mscaleVal">3.0</span></label>
-      <input type="range" id="mscale" min="1" max="6" step="0.1" value="3.0">
+    <button id="regen" type="button" class="primary">Regenerate</button>
 
-      <label for="tbias">Temp. bias — <span id="tbiasVal">+0.00</span></label>
-      <input type="range" id="tbias" min="-0.3" max="0.3" step="0.02" value="0">
-
-      <label for="mbias">Moisture bias — <span id="mbiasVal">+0.00</span></label>
-      <input type="range" id="mbias" min="-0.3" max="0.3" step="0.02" value="0">
-
-      <label for="rivers">Rivers — <span id="riversVal">1.0</span></label>
-      <input type="range" id="rivers" min="0" max="2" step="0.25" value="1">
-    </div>
-
-    <div class="group">
-      <h2>View</h2>
-      <label for="isoexag">Height exaggeration (iso) — <span id="isoexagVal">1.6</span></label>
-      <input type="range" id="isoexag" min="0.6" max="3" step="0.1" value="1.6">
-
-      <label class="check"><input type="checkbox" id="showGrid"> Grid lines</label>
-      <label class="check"><input type="checkbox" id="showShade" checked> Hillshade</label>
-    </div>
-
-    <button id="regen" type="button" class="primary">↻ Regenerate</button>
-
-    <div id="stats" class="muted"></div>
-    <div id="legend"></div>
+    <footer id="tools">
+      <span id="stats"></span>
+      <div class="toolrow">
+        <button id="exportPng" type="button" title="Download the current view as a PNG">Export PNG</button>
+        <button id="shareLink" type="button" title="Copy a link that reproduces this map">Copy link</button>
+      </div>
+    </footer>
   </aside>
 
   <main id="stage">
     <div id="hover"></div>
-    <div id="isohint">drag · scroll to zoom</div>
+    <div id="isohint">drag to pan &middot; scroll to zoom</div>
     <canvas id="map"></canvas>
     <canvas id="riverfx"></canvas>
   </main>

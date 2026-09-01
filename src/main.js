@@ -30,7 +30,7 @@
   }
 
   var SLIDERS = {
-    size: { label: 'sizeVal', fmt: function (v) { return v; } },
+    size: { label: 'sizeVal', fmt: function (v) { return v + '²'; } },
     sea: { label: 'seaVal', fmt: function (v) { return Math.round((1 - v) * 100) + '% land'; } },
     rugged: { label: 'ruggedVal', fmt: function (v) { return (+v).toFixed(2); } },
     warp: { label: 'warpVal', fmt: function (v) { return (+v).toFixed(2); } },
@@ -260,7 +260,7 @@
 
   function buildLegend() {
     var el = $('legend');
-    el.innerHTML = '<h2>Biomes</h2>';
+    el.innerHTML = '';
     SM.BIOME_LIST.forEach(function (b) {
       var row = document.createElement('div');
       row.className = 'legend-row';
@@ -332,12 +332,67 @@
     applyCam();
   }
 
+  // paint the accent-fill portion of a range track (webkit needs a gradient)
+  function paintRange(input) {
+    var min = parseFloat(input.min), max = parseFloat(input.max);
+    var pct = (parseFloat(input.value) - min) / (max - min) * 100;
+    input.style.setProperty('--fill', pct.toFixed(1) + '%');
+  }
+
+  var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
+    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag'];
+
+  function applyQueryString() {
+    if (!location.search) return;
+    var q = new URLSearchParams(location.search);
+    QS_KEYS.forEach(function (id) {
+      if (q.has(id)) $(id).value = q.get(id);
+    });
+    if (q.get('view') === 'iso') {
+      view = 'iso';
+      $('viewTop').classList.remove('active');
+      $('viewIso').classList.add('active');
+      document.body.classList.add('iso');
+    }
+  }
+
+  function shareLink() {
+    var q = new URLSearchParams();
+    QS_KEYS.forEach(function (id) { q.set(id, $(id).value); });
+    q.set('view', view);
+    var url = location.origin + location.pathname + '?' + q.toString();
+    var btn = $('shareLink'), old = btn.textContent;
+    function done(txt) { btn.textContent = txt; btn.classList.add('ok');
+      setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1400); }
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done('Copied'); }, function () { done('Copy failed'); });
+    else done('—');
+  }
+
+  function exportPng() {
+    var out = document.createElement('canvas');
+    out.width = map.width; out.height = map.height;
+    var octx = out.getContext('2d');
+    octx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg') || '#0f1216';
+    octx.fillRect(0, 0, out.width, out.height);
+    octx.drawImage(map, 0, 0);
+    var fx = $('riverfx');
+    if (view === 'iso' && fx.width) octx.drawImage(fx, 0, 0);
+    var a = document.createElement('a');
+    a.download = 'stilizedmaps-' + view + '-' + $('seed').value + '.png';
+    a.href = out.toDataURL('image/png');
+    a.click();
+  }
+
   // --- wiring ---
   Object.keys(SLIDERS).forEach(function (id) {
     var cfg = SLIDERS[id];
     var input = $(id);
     var out = $(cfg.label);
-    input.addEventListener('input', function () { out.textContent = cfg.fmt(input.value); });
+    if (input.type === 'range') paintRange(input);
+    input.addEventListener('input', function () {
+      out.textContent = cfg.fmt(input.value);
+      if (input.type === 'range') paintRange(input);
+    });
   });
   ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias', 'rivers']
     .forEach(function (id) { $(id).addEventListener('change', regenerate); });
@@ -353,6 +408,8 @@
   $('showShade').addEventListener('change', function () { refresh(false); });
   $('viewTop').addEventListener('click', function () { setView('top'); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
+  $('exportPng').addEventListener('click', exportPng);
+  $('shareLink').addEventListener('click', shareLink);
   window.addEventListener('resize', function () { if (grid) applyCam(); });
 
   map.addEventListener('mousemove', onHover);
@@ -363,6 +420,11 @@
   stage.addEventListener('wheel', onWheel, { passive: false });
 
   hoverEl.hidden = true;
+  applyQueryString();
+  Object.keys(SLIDERS).forEach(function (id) {
+    var input = $(id);
+    if (input.type === 'range') { paintRange(input); $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value); }
+  });
   buildLegend();
   regenerate();
 })(window.SM = window.SM || {});
