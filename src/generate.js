@@ -82,8 +82,8 @@
   }
 
   var DEFAULTS = {
-    width: 256,
-    height: 256,
+    width: 192,
+    height: 192,
     seed: 1337,
     seaLevel: 0.42,        // ~fraction of the reference area that is water
     elevationScale: 2.5,   // world-space noise frequency
@@ -366,6 +366,42 @@
     // --- 7: hydrology ---
     hydrology(grid, e, seaThresh, cfg, B);
 
+    // --- 7b: declutter inland water — the land shouldn't be speckled with
+    // little pools. Keep the ocean, rivers, and lakes that are actually big;
+    // fill everything else back to land. ---
+    var MIN_LAKE = 10;
+    var seen = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      if (seen[i] || !grid.water[i] || ocean[i] || grid.biome[i] === B.river) continue;
+      var body = [], bh = 0, touchesRiver = false;
+      seen[i] = 1; body.push(i);
+      while (bh < body.length) {
+        var bi2 = body[bh++];
+        var bx = bi2 % w, by = (bi2 / w) | 0;
+        var nb4 = [
+          bx > 0 ? bi2 - 1 : -1, bx < w - 1 ? bi2 + 1 : -1,
+          by > 0 ? bi2 - w : -1, by < h - 1 ? bi2 + w : -1
+        ];
+        for (var jj = 0; jj < 4; jj++) {
+          var ni3 = nb4[jj];
+          if (ni3 < 0) continue;
+          if (grid.biome[ni3] === B.river) touchesRiver = true;
+          if (grid.water[ni3] && !ocean[ni3] && grid.biome[ni3] !== B.river && !seen[ni3]) {
+            seen[ni3] = 1; body.push(ni3);
+          }
+        }
+      }
+      if (body.length >= MIN_LAKE || touchesRiver) continue;
+      for (var bk = 0; bk < body.length; bk++) {
+        var fi = body[bk];
+        grid.water[fi] = 0;
+        e[fi] = Math.max(e[fi], seaThresh + 0.012);
+        var lfF = clamp01((e[fi] - seaThresh) / landSpan);
+        grid.biome[fi] = e[fi] < beachThresh ? B.beach
+          : SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
+      }
+    }
+
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     var wd = cfg.waterDepth;
     var shelf = grid._shelf || 9;
@@ -489,17 +525,20 @@
     want = Math.max(1, Math.min(want, maxima.length, 40));
 
     var river = new Uint8Array(n);
-    var flow = new Int8Array(n);      // 1..8 flow direction, 0 = none
-    var fstep = new Int16Array(n);    // steps from source (animation phase)
+    var flow = new Int8Array(n);       // 1..8 flow direction, 0 = none
+    var fstep = new Int16Array(n);     // steps from source (animation phase)
+    var accum = new Uint16Array(n);    // upstream source paths through this tile (dendritic)
     for (var s = 0; s < want; s++) {
       var cur = maxima[s].i;
       var steps = 0, maxSteps = w + h;
       while (steps < maxSteps) {
         river[cur] = 1;
         fstep[cur] = steps;
+        accum[cur]++;
         var cxx2 = cur % w, cyy2 = (cur / w) | 0;
         if (grid.water[cur] || cxx2 === 0 || cyy2 === 0 || cxx2 === w - 1 || cyy2 === h - 1) break;
-        // steepest descent over 8 neighbours
+        // steepest descent over 8 neighbours — naturally follows any channel it
+        // has already merged into, so tributaries build one big trunk
         var best = -1, bestE = e[cur];
         for (var dy = -1; dy <= 1; dy++) {
           for (var dx = -1; dx <= 1; dx++) {
@@ -513,25 +552,25 @@
         if (best < 0) break;                 // local pit — stop (a small lake)
         var bxx = best % w, byy = (best / w) | 0;
         flow[cur] = DIR[(byy - cyy2 + 1) * 3 + (bxx - cxx2 + 1)];
-        if (river[best] && grid.biome[best] === B.river) break; // merged into a bigger river
         cur = best;
         steps++;
       }
     }
-    // widen the channel — banks become river too, and further downstream (a
-    // higher flowStep) the river spreads wider, so it grows toward the mouth.
+    // widen the channel by how much flow it carries — headwaters are a single
+    // tile, the trunk near the mouth spreads several tiles wide.
     var wide = new Uint8Array(n);
     for (i = 0; i < n; i++) {
       if (!river[i]) continue;
       var rx = i % w, ry = (i / w) | 0;
-      var span = fstep[i] > 26 ? 2 : 1;
+      var a = accum[i];
+      var span = a >= 6 ? 3 : (a >= 3 ? 2 : (fstep[i] > 30 ? 2 : 1));
       for (var oy = -span; oy <= span; oy++) {
         var wy2 = ry + oy; if (wy2 < 0 || wy2 >= h) continue;
         for (var ox = -span; ox <= span; ox++) {
           var wx2 = rx + ox; if (wx2 < 0 || wx2 >= w) continue;
           if (ox * ox + oy * oy > span * span) continue;
           var wi = wy2 * w + wx2;
-          if (!grid.water[wi] && e[wi] <= e[i] + 0.03) wide[wi] = 1;
+          if (!grid.water[wi] && e[wi] <= e[i] + 0.035) wide[wi] = 1;
         }
       }
     }

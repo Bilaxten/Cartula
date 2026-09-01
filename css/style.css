@@ -128,13 +128,15 @@ body {
   cursor: grab;
 }
 #stage.dragging { cursor: grabbing; }
-#map {
+#map, #riverfx {
   position: absolute;
   left: 0;
   top: 0;
   transform-origin: 0 0;
   image-rendering: pixelated;
 }
+#riverfx { pointer-events: none; }
+body:not(.iso) #riverfx { display: none; }
 
 #isohint {
   position: absolute;

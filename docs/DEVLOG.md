@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-09-01 — Perf + iç su temizliği + dendritik nehirler
+
+**Ne yapıldı:** Uğur "kasmaya başladı kontrol edemiyorum" + "deniz/ada
+çevresi değilse çok su olmasın, iç kısımda nehir/göl olsun ama 500 su
+birikintisi olmasın" dedi + "sonraki tura başla".
+
+- **Perf:** 256²→192² varsayılan (slider max 448). **Nehir animasyonu ayrı
+  bir overlay canvas'a** (`#riverfx`) taşındı — büyük terrain canvas'ı bake
+  sonrası hiç dokunulmuyor, compositor onu statik texture olarak tutuyor,
+  pan/zoom bedava. Overlay'de her frame sadece nehir karelerinin küçük
+  dirty-rect'leri temizlenip yeniden çiziliyor. 30fps sınırı. >600 nehir
+  ya da >16MP haritada kapalı.
+- **İç su temizliği (7b pass):** hydrology sonrası — okyanus olmayan, nehir
+  olmayan her su gövdesi flood-fill'le ölçülüyor; `< MIN_LAKE (10)` VE
+  nehre değmiyorsa karaya dolduruluyor (elevation deniz üstüne, biome
+  classify'dan). Sonuç: <10 kareli iç su gövdesi ~onlarca → ~1 (o da
+  nehir bağlantılı). Land artık lekesiz.
+- **Dendritik nehirler:** iz sürme artık merge'de KIRILMIYOR — kaynaklar
+  denize kadar iniyor (steepest descent zaten birleşen kanalı takip eder),
+  her tile'da `accum` (kaç kaynak geçti) sayılıyor. Genişletme accum'a göre:
+  headwater 1 kare, `accum>=3` → 2, `accum>=6` → 3 kare geniş. Nehir mansaba
+  doğru büyüyor.
+
+**Hangi dosyalar:** `src/generate.js`, `src/main.js`, `index.html`,
+`css/style.css`.
+
+**Doğrulama:** headless — determinism 0, 0 kule, <10 kareli iç su ~1,
+192² gen ~80ms (256²'de ~200ms'di), 448² ~360ms. Tarayıcıda — 192² temiz
+harita, dendritik nehirler (mansapta geniş trunk), overlay canvas kurulu +
+transform eşleşiyor, konsol temiz.
+
+**Sonraki tur (devam):** deltalar, V/U vadiler, göl taşması (outlet nehir),
+fiyortlar, kıyı okları/lagünler, platolar, kıstaklar, takımadalar, haliçler,
+voxel-yükseklik nehir dalgası, üstten görünüm nehir animasyonu.
+
+
 ## 2026-09-01 — Kalın nehirler, büyük harita, zirve baskınlığı
 
 **Ne yapıldı:** Uğur "nehirleri daha kalın, harita fantasy map gibi büyük,

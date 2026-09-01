@@ -64,8 +64,9 @@
   }
 
   function applyCam() {
-    map.style.transform =
-      'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.scale + ')';
+    var t = 'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.scale + ')';
+    map.style.transform = t;
+    $('riverfx').style.transform = t;
   }
 
   function fitCam() {
@@ -77,40 +78,47 @@
 
   function stopAnim() {
     if (anim) { cancelAnimationFrame(anim.raf); anim = null; }
+    var fx = $('riverfx');
+    if (fx.width) fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
   }
 
-  // River flow: after the static bake, snapshot the canvas and each frame
-  // redraw just the river top diamonds with a small bob + shimmer travelling
-  // downstream. Restoring from the snapshot first avoids smearing.
+  // River flow runs on a SEPARATE overlay canvas (#riverfx) so the big terrain
+  // canvas is never touched after the bake — the compositor keeps it cached and
+  // pan/zoom stay free. Each frame, only the river tiles are cleared+redrawn on
+  // the overlay, with a small bob + shimmer travelling downstream. Capped 30fps.
   function startRiverAnim() {
     stopAnim();
-    if (!content.rivers || !content.rivers.length || map.width * map.height > 12e6) return;
-    var snap = document.createElement('canvas');
-    snap.width = map.width;
-    snap.height = map.height;
-    snap.getContext('2d').drawImage(map, 0, 0);
+    var r = content.rivers;
+    if (!r || !r.length || r.length > 600 || map.width * map.height > 16e6) return;
+    var fx = $('riverfx');
+    fx.width = map.width;
+    fx.height = map.height;
+    fx.style.transform = map.style.transform;
     anim = {
-      raf: 0, snap: snap, rivers: content.rivers,
-      rgb: content.riverRgb, d: content.diamond, t0: performance.now()
+      raf: 0, rivers: r, rgb: content.riverRgb, d: content.diamond,
+      t0: performance.now(), last: 0
     };
     tick();
   }
 
   function tick() {
     if (!anim || view !== 'iso') { anim = null; return; }
-    var ctx = map.getContext('2d');
+    anim.raf = requestAnimationFrame(tick);
+    var now = performance.now();
+    if (now - anim.last < 32) return;      // ~30 fps
+    anim.last = now;
+
+    var fx = $('riverfx');
+    var ctx = fx.getContext('2d');
     var d = anim.d, w2 = d.w2, h2 = d.h2;
-    var BOB = 2.2, SPEED = 2.6;
-    var ph = (performance.now() - anim.t0) / 1000 * SPEED;
-    var rivers = anim.rivers, rgb = anim.rgb, snap = anim.snap;
+    var BOB = 2.2, SPEED = 2.6, pad = BOB + 3;
+    var ph = (now - anim.t0) / 1000 * SPEED;
+    var rivers = anim.rivers, rgb = anim.rgb;
     for (var k = 0; k < rivers.length; k++) {
       var r = rivers[k];
-      var pad = BOB + 3;
-      ctx.drawImage(snap,
-        r.cx - w2 - 2, r.cy - h2 - pad, w2 * 2 + 4, h2 * 2 + pad * 2,
-        r.cx - w2 - 2, r.cy - h2 - pad, w2 * 2 + 4, h2 * 2 + pad * 2);
+      ctx.clearRect(r.cx - w2 - 1, r.cy - h2 - pad, w2 * 2 + 2, h2 * 2 + pad * 2);
       var bob = Math.sin(ph - r.phase * 0.6) * BOB;
-      var sh = 0.82 + 0.34 * (0.5 + 0.5 * Math.sin(ph * 1.25 - r.phase * 0.55));
+      var sh = 0.85 + 0.30 * (0.5 + 0.5 * Math.sin(ph * 1.25 - r.phase * 0.55));
       var cy = r.cy - bob;
       ctx.fillStyle = 'rgb(' +
         Math.round(rgb[0] * sh) + ',' + Math.round(rgb[1] * sh) + ',' + Math.round(rgb[2] * sh) + ')';
@@ -122,7 +130,6 @@
       ctx.closePath();
       ctx.fill();
     }
-    anim.raf = requestAnimationFrame(tick);
   }
 
   function drawContent() {
