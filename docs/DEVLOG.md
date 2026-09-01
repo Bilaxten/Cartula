@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-09-01 — M2 cila turu: perf, çeşitlilik, su derinliği, kamera
+
+**Ne yapıldı:** Uğur'un M2 geri bildirimi — iso "kasıyor", 2D'ye de pan/zoom
+gelsin, harita daha çeşitli olsun, iso yükseltileri çok düz, su da dağlar
+gibi zeminin altına insin, harita boyutu değişsin (piksel sabit).
+
+- **Perf: kamera artık CSS transform.** Eskiden her mousemove'da ~19MP canvas
+  drawImage ile blit ediliyordu → jank. Şimdi harita bir kez tam çözünürlükte
+  `#map`'e çiziliyor, pan/zoom = `map.style.transform = translate() scale()`
+  (compositor, sıfır redraw — 200 yazım 0.2ms). Redraw sadece regenerate/
+  view-switch/exag-değişimi. **Chrome GPU-accel eşiği** (~9-10MP) keşfedildi;
+  iso canvas budget'ı `MAX_CANVAS_PX = 8e6` ile sınırlı, aşarsa tile küçülüyor.
+  160² regen ~90-115ms.
+- **2D + iso ortak kamera.** İkisi de sürükle-pan + tekerlek-zoom. Hover
+  ekran→tile dönüşümü kamera transform'undan geçiyor (top view).
+- **Su derinliği (Uğur'un isteği).** `grid.level` artık Int8 (işaretli):
+  kara +1..+11, su -1..-3 (kıyıdan uzaklaştıkça derin). Iso'da su zeminin
+  ALTINA oturuyor, kıyıda uçurum + deniz basen görünümü.
+- **Yükseklik abartısı.** `levels` 8→10, `level = round(pow(landFrac,0.85)*
+  levels)+1` (orta yükseklikler yayılıyor), iso `levelHeight = 13 * exag`.
+  Yeni "Yükseklik abartısı (izo)" slider'ı (0.6–3, vars. 1.6).
+- **Harita çeşitliliği.** 11→18 biyom (yalıyar/bataklık/çayır/çalılık/tayga/
+  kızıl kaya/çıplak eklendi), classify yeniden yazıldı (daha çok dal).
+  Eğim tabanlı yalıyar (dik kıyı = kaya). Sıcaklık modeline noise wobble +
+  taban ısı (kutuplar daha az donuk). `SM.biomeShade` — nem/yükseklik/hash
+  ile biyom-içi renk varyasyonu (büyük bölgeler düz görünmüyor).
+- **Boyut.** Varsayılan 96²→160², slider 128–176 (piksel sabit, harita
+  büyüyor). Iso `#map` tam iso extent'inde tek büyük canvas, offscreen yok.
+
+**Hangi dosyalar değişti:** `src/biome.js`, `src/generate.js`, `src/grid.js`,
+`src/render/topdown.js`, `src/render/iso.js`, `src/main.js`, `index.html`,
+`css/style.css`.
+
+**Doğrulama:** `node --check` temiz, headless — determinism 0, 18 biyom,
+level -3..11, aralık dışı yok. Tarayıcıda (Chrome, localhost): perf ölçüldü
+(pan 0ms, regen ~90ms, GPU eşiği doğrulandı), su basen görünümü + abartılı
+yükseklikler + çeşitli biyomlar ekran görüntüsüyle onaylandı, konsol temiz
+(eski koddan bir onHover NaN bug'ı çıktı, `!(a && b)` bounds check + `!b`
+guard ile düzeltildi).
+
+**Açık işler:** iso'da hover, kamera döndürme, M3 fırça, M4 animasyon.
+
+**Sonraki adım:** Uğur'un geri bildirimi — sonra M3 (fırça) ya da iso cilası.
+
+
 ## 2026-09-01 — M2: izometrik voxel projeksiyon
 
 **Ne yapıldı:** İzometrik görünüm eklendi. Panel'e Üstten/İzometrik toggle,

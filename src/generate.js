@@ -5,8 +5,8 @@
   'use strict';
 
   var DEFAULTS = {
-    width: 96,
-    height: 96,
+    width: 160,
+    height: 160,
     seed: 1337,
     seaLevel: 0.40,        // TARGET FRACTION of the map that becomes water (percentile-based)
     elevationScale: 2.5,   // noise frequency — smaller = larger landmasses
@@ -16,7 +16,8 @@
     temperatureBias: 0.0,  // -0.3..0.3, shifts the whole map warmer/colder
     moistureBias: 0.0,     // -0.3..0.3, shifts the whole map wetter/drier
     islandFalloff: 0.0,    // 0 = off, 1 = strong radial falloff toward edges
-    levels: 8               // discrete elevation steps above sea level, for the voxel view
+    levels: 10,            // discrete elevation steps above sea level (voxel view)
+    waterDepth: 3          // discrete steps water sinks below the coast (voxel view)
   };
 
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
@@ -29,6 +30,7 @@
     var baseNoise = SM.makeNoise2D(cfg.seed);
     var ridgeNoise = SM.makeNoise2D((cfg.seed ^ 0x2545f491) >>> 0);
     var moistNoise = SM.makeNoise2D((cfg.seed ^ 0x9e3779b9) >>> 0);
+    var tempNoise = SM.makeNoise2D((cfg.seed ^ 0x85ebca6b) >>> 0);
 
     var raw = new Float32Array(n);       // smooth fBm, not yet normalized
     var combined = new Float32Array(n);  // raw normalized + ridged mix + island falloff
@@ -81,8 +83,17 @@
     var peakElev = sorted[n - 1];
     var deepThresh = seaThresh - 0.05;
     var beachThresh = seaThresh + 0.015;
+    var deepSpan = (seaThresh - sorted[0]) || 1;
+    var landSpan = (peakElev - seaThresh) || 1;
+    var B = SM.BIOME_IDX;
 
-    // Pass 3: derive moisture / temperature / water / biome / discrete level.
+    function elevAt(cx, cy) {
+      if (cx < 0) cx = 0; else if (cx >= w) cx = w - 1;
+      if (cy < 0) cy = 0; else if (cy >= h) cy = h - 1;
+      return combined[cy * w + cx];
+    }
+
+    // Pass 3: derive moisture / temperature / water / biome / signed level.
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
         i = y * w + x;
@@ -96,25 +107,43 @@
         grid.moisture[i] = m;
 
         var isWater = e < seaThresh;
-        // Normalized against the map's ACTUAL peak (not a theoretical 1) —
-        // blending in ridged noise pulls the achievable max below 1, and
-        // without this the mountain/snow line would quietly recede as
-        // ruggedness increases instead of becoming more visible.
-        var landFrac = isWater ? 0 : clamp01((e - seaThresh) / ((peakElev - seaThresh) || 1));
+        // Relative elevation above sea, normalized against the map's ACTUAL
+        // peak (not a theoretical 1) so the mountain/snow line stays
+        // proportioned as ruggedness reshapes the curve.
+        var landFrac = isWater ? 0 : clamp01((e - seaThresh) / landSpan);
 
-        // Temperature: warm band across the map's middle latitude, cooled
-        // proportionally by relative elevation (so it scales with any sea level).
-        var lat = 1 - Math.abs(ny - 0.5) * 2;
-        var t = clamp01(lat - landFrac * 0.6 + cfg.temperatureBias);
+        // latitude band (warm mid-map, cool poles) + noise wobble so biome
+        // boundaries aren't perfectly horizontal, minus altitude cooling.
+        var latBand = 1 - Math.abs(ny - 0.5) * 1.7;
+        var tn = SM.fbm(tempNoise, nx * 2.2, ny * 2.2, 3, 2, 0.5) * 0.13;
+        var t = clamp01(0.12 + 0.82 * latBand + tn - landFrac * 0.5 + cfg.temperatureBias);
         grid.temperature[i] = t;
 
-        grid.water[i] = isWater ? 1 : 0;
-        if (e < deepThresh) grid.biome[i] = SM.BIOME_IDX.deep_water;
-        else if (isWater) grid.biome[i] = SM.BIOME_IDX.shallow_water;
-        else if (e < beachThresh) grid.biome[i] = SM.BIOME_IDX.beach;
-        else grid.biome[i] = SM.classifyBiome(landFrac, m, t);
+        // local steepness (used for coastal cliffs and steep rock faces)
+        var slope = 0.5 * (
+          Math.abs(e - elevAt(x - 1, y)) + Math.abs(e - elevAt(x + 1, y)) +
+          Math.abs(e - elevAt(x, y - 1)) + Math.abs(e - elevAt(x, y + 1))
+        );
 
-        grid.level[i] = isWater ? 0 : Math.min(cfg.levels - 1, Math.floor(landFrac * cfg.levels));
+        grid.water[i] = isWater ? 1 : 0;
+
+        if (isWater) {
+          grid.biome[i] = e < deepThresh ? B.deep_water : B.shallow_water;
+          var depthFrac = clamp01((seaThresh - e) / deepSpan);
+          grid.level[i] = -Math.max(1, Math.ceil(depthFrac * cfg.waterDepth));
+        } else {
+          var b;
+          if (e < beachThresh) {
+            b = slope > 0.050 ? B.cliff : B.beach;
+          } else if (slope > 0.085) {
+            b = B.cliff;
+          } else {
+            b = SM.classifyBiome(landFrac, m, t);
+          }
+          grid.biome[i] = b;
+          var lv = Math.round(Math.pow(landFrac, 0.85) * cfg.levels) + 1;
+          grid.level[i] = lv > 120 ? 120 : lv;
+        }
       }
     }
 

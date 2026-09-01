@@ -1,24 +1,26 @@
-/* Wiring: read the panel, generate, render (top-down or isometric),
- * hover readout, iso pan/zoom. */
+/* Wiring: read the panel, generate, render (top-down or isometric), and drive
+ * one shared camera. The map is drawn once onto #map at full resolution; the
+ * camera is a CSS transform on that canvas, so pan and zoom never redraw. */
 (function (SM) {
   'use strict';
 
   var $ = function (id) { return document.getElementById(id); };
-  var canvas = $('map');
+  var map = $('map');
   var stage = $('stage');
   var hoverEl = $('hover');
-  var grid = null;
-  var lastTile = 8;
 
-  var view = 'top';            // 'top' | 'iso'
-  var iso = null;              // baked { canvas, width, height }
-  var isoScale = 1;
-  var isoPan = { x: 0, y: 0 };
-  var isoFitted = false;       // has the view been auto-centered for this bake
+  var grid = null;
+  var view = 'top';                 // 'top' | 'iso'
+  var content = null;               // { width, height, tile } after a render
+  var cam = { scale: 1, x: 0, y: 0 };
+  var lastW = 0, lastH = 0;         // content dims of the previous render
   var drag = null;
 
-  var ISO_BAKE_TILE = 64;
-  var ISO_LEVEL_H = 12;
+  var TOP_TILE = 9;
+  var ISO_TILE = 24;
+  var ISO_BASE_LH = 13;
+
+  function isoExag() { return parseFloat($('isoexag').value); }
 
   function signed(v) {
     var n = +v;
@@ -34,7 +36,8 @@
     island: { label: 'islandVal', fmt: function (v) { return (+v).toFixed(2); } },
     mscale: { label: 'mscaleVal', fmt: function (v) { return (+v).toFixed(1); } },
     tbias: { label: 'tbiasVal', fmt: signed },
-    mbias: { label: 'mbiasVal', fmt: signed }
+    mbias: { label: 'mbiasVal', fmt: signed },
+    isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } }
   };
 
   function readConfig() {
@@ -54,49 +57,42 @@
     };
   }
 
-  function tileSize(mapWidth) {
-    var avail = Math.min(window.innerWidth - 340, window.innerHeight - 44);
-    return Math.max(2, Math.floor(avail / mapWidth));
+  function applyCam() {
+    map.style.transform =
+      'translate(' + cam.x + 'px,' + cam.y + 'px) scale(' + cam.scale + ')';
   }
 
-  function renderTop() {
-    lastTile = tileSize(grid.width);
-    SM.renderTopDown(canvas, grid, {
-      tile: lastTile,
-      grid: $('showGrid').checked,
-      shade: $('showShade').checked
-    });
+  function fitCam() {
+    var sw = stage.clientWidth, sh = stage.clientHeight;
+    cam.scale = Math.min(sw / content.width, sh / content.height) * 0.92;
+    cam.x = (sw - content.width * cam.scale) / 2;
+    cam.y = (sh - content.height * cam.scale) / 2;
   }
 
-  function renderIso() {
-    if (!iso) {
-      iso = SM.bakeIso(grid, { tile: ISO_BAKE_TILE, levelHeight: ISO_LEVEL_H });
-      isoFitted = false;
+  function drawContent() {
+    if (view === 'iso') {
+      content = SM.renderIso(map, grid, {
+        tile: ISO_TILE,
+        levelHeight: ISO_BASE_LH * isoExag()
+      });
+    } else {
+      content = SM.renderTopDown(map, grid, {
+        tile: TOP_TILE,
+        grid: $('showGrid').checked,
+        shade: $('showShade').checked
+      });
     }
-    var vw = stage.clientWidth, vh = stage.clientHeight;
-    canvas.width = vw;
-    canvas.height = vh;
-
-    if (!isoFitted) {
-      isoScale = Math.min(vw / iso.width, vh / iso.height) * 0.92;
-      isoPan.x = (vw - iso.width * isoScale) / 2;
-      isoPan.y = (vh - iso.height * isoScale) / 2;
-      isoFitted = true;
-    }
-
-    var ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, vw, vh);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(
-      iso.canvas, 0, 0, iso.width, iso.height,
-      isoPan.x, isoPan.y, iso.width * isoScale, iso.height * isoScale
-    );
   }
 
-  function render() {
+  // refit = force re-centering; otherwise the camera is kept unless the
+  // content changed size (e.g. map dimensions or iso exaggeration).
+  function refresh(refit) {
     if (!grid) return;
-    if (view === 'iso') renderIso();
-    else renderTop();
+    drawContent();
+    if (refit || content.width !== lastW || content.height !== lastH) fitCam();
+    lastW = content.width;
+    lastH = content.height;
+    applyCam();
   }
 
   function regenerate() {
@@ -104,8 +100,7 @@
     var t0 = performance.now();
     grid = SM.generate(cfg);
     var dt = performance.now() - t0;
-    iso = null; // invalidate the bake
-    render();
+    refresh(false);
 
     var s = SM.summarize(grid);
     $('stats').textContent =
@@ -120,7 +115,7 @@
     $('viewIso').classList.toggle('active', mode === 'iso');
     document.body.classList.toggle('iso', mode === 'iso');
     hoverEl.hidden = true;
-    render();
+    refresh(true);
   }
 
   function buildLegend() {
@@ -139,20 +134,21 @@
   }
 
   function onHover(ev) {
-    if (view !== 'top' || !grid || drag) return;
-    var rect = canvas.getBoundingClientRect();
-    var scaleX = canvas.width / rect.width;
-    var scaleY = canvas.height / rect.height;
-    var px = (ev.clientX - rect.left) * scaleX;
-    var py = (ev.clientY - rect.top) * scaleY;
-    var tx = Math.floor(px / lastTile);
-    var ty = Math.floor(py / lastTile);
-    if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) {
+    if (view !== 'top' || !grid || drag || !content || !content.tile) return;
+    var rect = stage.getBoundingClientRect();
+    var mx = ev.clientX - rect.left;
+    var my = ev.clientY - rect.top;
+    var px = (mx - cam.x) / cam.scale;
+    var py = (my - cam.y) / cam.scale;
+    var tx = Math.floor(px / content.tile);
+    var ty = Math.floor(py / content.tile);
+    if (!(tx >= 0 && ty >= 0 && tx < grid.width && ty < grid.height)) {
       hoverEl.hidden = true;
       return;
     }
     var i = grid.index(tx, ty);
     var b = SM.BIOME_LIST[grid.biome[i]];
+    if (!b) { hoverEl.hidden = true; return; }
     hoverEl.hidden = false;
     hoverEl.innerHTML =
       '<span class="sw" style="background:' + b.color + '"></span>' +
@@ -162,37 +158,37 @@
       ' · sıc ' + grid.temperature[i].toFixed(2);
   }
 
-  // --- iso pan / zoom ---
+  // --- camera drag / wheel (both views) ---
   function onDown(ev) {
-    if (view !== 'iso') return;
     drag = { x: ev.clientX, y: ev.clientY };
     stage.classList.add('dragging');
+    hoverEl.hidden = true;
   }
   function onMove(ev) {
     if (!drag) return;
-    isoPan.x += ev.clientX - drag.x;
-    isoPan.y += ev.clientY - drag.y;
+    cam.x += ev.clientX - drag.x;
+    cam.y += ev.clientY - drag.y;
     drag.x = ev.clientX;
     drag.y = ev.clientY;
-    render();
+    applyCam();
   }
   function onUp() {
     drag = null;
     stage.classList.remove('dragging');
   }
   function onWheel(ev) {
-    if (view !== 'iso' || !iso) return;
+    if (!content) return;
     ev.preventDefault();
-    var rect = canvas.getBoundingClientRect();
+    var rect = stage.getBoundingClientRect();
     var mx = ev.clientX - rect.left;
     var my = ev.clientY - rect.top;
     var factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
-    var next = Math.max(0.15, Math.min(2.5, isoScale * factor));
-    var k = next / isoScale;
-    isoPan.x = mx - (mx - isoPan.x) * k;
-    isoPan.y = my - (my - isoPan.y) * k;
-    isoScale = next;
-    render();
+    var next = Math.max(0.1, Math.min(6, cam.scale * factor));
+    var k = next / cam.scale;
+    cam.x = mx - (mx - cam.x) * k;
+    cam.y = my - (my - cam.y) * k;
+    cam.scale = next;
+    applyCam();
   }
 
   // --- wiring ---
@@ -201,8 +197,10 @@
     var input = $(id);
     var out = $(cfg.label);
     input.addEventListener('input', function () { out.textContent = cfg.fmt(input.value); });
-    input.addEventListener('change', regenerate);
   });
+  ['size', 'sea', 'rugged', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias']
+    .forEach(function (id) { $(id).addEventListener('change', regenerate); });
+  $('isoexag').addEventListener('change', function () { refresh(true); });
 
   $('regen').addEventListener('click', regenerate);
   $('seed').addEventListener('change', regenerate);
@@ -210,18 +208,18 @@
     $('seed').value = Math.floor(Math.random() * 1e6);
     regenerate();
   });
-  $('showGrid').addEventListener('change', render);
-  $('showShade').addEventListener('change', render);
+  $('showGrid').addEventListener('change', function () { refresh(false); });
+  $('showShade').addEventListener('change', function () { refresh(false); });
   $('viewTop').addEventListener('click', function () { setView('top'); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
-  window.addEventListener('resize', render);
+  window.addEventListener('resize', function () { if (grid) applyCam(); });
 
-  canvas.addEventListener('mousemove', onHover);
-  canvas.addEventListener('mouseleave', function () { if (view === 'top') hoverEl.hidden = true; });
-  canvas.addEventListener('mousedown', onDown);
+  map.addEventListener('mousemove', onHover);
+  stage.addEventListener('mouseleave', function () { if (view === 'top') hoverEl.hidden = true; });
+  map.addEventListener('mousedown', onDown);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
-  canvas.addEventListener('wheel', onWheel, { passive: false });
+  stage.addEventListener('wheel', onWheel, { passive: false });
 
   hoverEl.hidden = true;
   buildLegend();

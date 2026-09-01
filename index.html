@@ -25,8 +25,8 @@
         <button id="randomSeed" type="button" title="Rastgele seed">🎲</button>
       </div>
 
-      <label for="size">Boyut — <span id="sizeVal">96</span>²</label>
-      <input type="range" id="size" min="32" max="192" step="16" value="96">
+      <label for="size">Boyut — <span id="sizeVal">160</span>²</label>
+      <input type="range" id="size" min="128" max="176" step="16" value="160">
     </div>
 
     <div class="group">
@@ -61,6 +61,9 @@
 
     <div class="group">
       <h2>Görünüm</h2>
+      <label for="isoexag">Yükseklik abartısı (izo) — <span id="isoexagVal">1.6</span></label>
+      <input type="range" id="isoexag" min="0.6" max="3" step="0.1" value="1.6">
+
       <label class="check"><input type="checkbox" id="showGrid"> Izgara çizgileri</label>
       <label class="check"><input type="checkbox" id="showShade" checked> Tepe gölgesi</label>
     </div>
@@ -73,7 +76,7 @@
 
   <main id="stage">
     <div id="hover"></div>
-    <div id="isohint">sürükle · tekerlek yakınlaştır</div>
+    <div id="isohint">sürükle · tekerlek zoom</div>
     <canvas id="map"></canvas>
   </main>
 </div>
