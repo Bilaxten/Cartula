@@ -75,13 +75,26 @@ function run(seed, size, sea) {
   const s = SM.summarize(grid);
   const isl = countIslands(grid);
   const hist = biomeHistogram(grid);
-  let water = 0;
-  for (let i = 0; i < grid.water.length; i++) if (grid.water[i]) water++;
+  let water = 0, roadTiles = 0, bridges = 0, builtup = 0;
+  let waterfallTiles = 0, waterfallDrops = 0;
+  for (let i = 0; i < grid.water.length; i++) {
+    if (grid.water[i]) water++;
+    if (grid.roads && grid.roads[i]) roadTiles++;
+    if (grid.roads && grid.roads[i] === 2) bridges++;
+    if (grid.builtup && grid.builtup[i]) builtup++;
+    if (grid.waterfalls && grid.waterfalls[i]) waterfallTiles++;
+    if (grid.waterfallDrop && grid.waterfallDrop[i] > 0) waterfallDrops++;
+  }
   return {
     seed, size, sea, dt: +dt.toFixed(1),
     landPct: s.landPct, waterPct: Math.round(water / grid.biome.length * 100),
     islands: isl.length, islandTop5: isl.slice(0, 5),
     towers: towers(grid),
+    settlements: (grid.settlements || []).length,
+    settlementSizes: (grid.settlements || []).map(s => s.size),
+    builtup, roadTiles, bridges,
+    labels: (grid.labels || []).length,
+    waterfallTiles, waterfallDrops,
     biomes: hist, grid
   };
 }
@@ -92,12 +105,20 @@ if (process.argv[2] === '--sweep') {
     const r = run(1337, 192, sea);
     console.log(`  sea=${sea.toFixed(2)}  land=${String(r.landPct).padStart(2)}%  ` +
       `islands=${String(r.islands).padStart(3)}  top5=[${r.islandTop5.join(', ')}]  ` +
+      `towns=${r.settlements} roads=${r.roadTiles}/${r.bridges}bridge ` +
+      `labels=${r.labels} falls=${r.waterfallDrops}/${r.waterfallTiles}tiles ` +
       `towers=${r.towers}  ${r.dt}ms`);
   }
   // determinism
-  const a = JSON.stringify([...run(7, 160, 0.4).grid.level]);
-  const b = JSON.stringify([...run(7, 160, 0.4).grid.level]);
-  console.log('determinism (same seed → identical levels):', a === b ? 'OK' : 'FAIL');
+  function signature(g) {
+    return JSON.stringify({
+      level: [...g.level], settlements: g.settlements, roads: [...g.roads],
+      labels: g.labels, waterfalls: [...g.waterfalls]
+    });
+  }
+  const a = signature(run(7, 160, 0.4).grid);
+  const b = signature(run(7, 160, 0.4).grid);
+  console.log('determinism (same seed → identical levels/features):', a === b ? 'OK' : 'FAIL');
 } else {
   const seed = +(process.argv[2] || 1337);
   const size = +(process.argv[3] || 192);

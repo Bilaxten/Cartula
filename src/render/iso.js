@@ -68,6 +68,8 @@
     var lavaFlag = grid.lava || null;
     var rivers = []; // {cx, cy, elev, i} of each river tile's top diamond, for animation
     var lavas = [];  // same, for lava tiles
+    var waterfalls = [];
+    var foam = [];
 
     function lvl(x, y) {
       if (x < 0 || y < 0 || x >= W || y >= H) return floorLevel;
@@ -186,10 +188,75 @@
         ctx.closePath();
         ctx.fill();
 
+        // Short centre-to-edge strips join with the matching strips on road
+        // neighbours. Canvas strokes are square-ended quads at this scale.
+        if (grid.roads && grid.roads[i]) {
+          ctx.strokeStyle = grid.roads[i] === 2 ? '#806b50' : '#b7a07a';
+          ctx.lineWidth = Math.max(2, TW * (grid.roads[i] === 2 ? 0.16 : 0.11));
+          ctx.lineCap = 'butt';
+          for (var rn = 0; rn < 4; rn++) {
+            var rdx = rn === 0 ? -1 : (rn === 1 ? 1 : 0);
+            var rdy = rn === 2 ? -1 : (rn === 3 ? 1 : 0);
+            var rnx = x + rdx, rny = y + rdy;
+            if (rnx < 0 || rny < 0 || rnx >= W || rny >= H) continue;
+            var rni = rny * W + rnx;
+            if (!grid.roads[rni]) continue;
+            var ncx = originX + (rnx - rny) * TW2;
+            var ncy = originY + (rnx + rny) * TH2 - level[rni] * LH;
+            ctx.beginPath(); ctx.moveTo(cx, cy);
+            ctx.lineTo((cx + ncx) * 0.5, (cy + ncy) * 0.5); ctx.stroke();
+          }
+          if (grid.roads[i] === 2) {
+            ctx.strokeStyle = '#c4ad84'; ctx.lineWidth = 1;
+            for (var plank = -1; plank <= 1; plank++) {
+              ctx.beginPath();
+              ctx.moveTo(cx - TW * 0.13, cy + plank * 2);
+              ctx.lineTo(cx + TW * 0.13, cy + plank * 2); ctx.stroke();
+            }
+          }
+        }
+
+        // Tiny deterministic prisms give each built-up cell its own compact
+        // roofline without consuming another random stream during rendering.
+        if (grid.builtup && grid.builtup[i]) {
+          var bhash = ((x * 73856093) ^ (y * 19349663) ^ (((grid.config && grid.config.seed) || 0) * 83492791)) >>> 0;
+          var bcount = 1 + (bhash % 3);
+          for (var bn = 0; bn < bcount; bn++) {
+            var hb = (bhash >>> (bn * 5)) ^ (bn * 2654435761);
+            var boxX = cx + (((hb & 15) / 15) - 0.5) * TW * 0.34;
+            var boxY = cy + ((((hb >>> 4) & 15) / 15) - 0.5) * TH2 * 0.55;
+            var bw = Math.max(2, TW * (0.09 + ((hb >>> 8) & 3) * 0.018));
+            var bht = 3 + ((hb >>> 10) & 3);
+            ctx.fillStyle = 'rgba(32,28,24,0.22)';
+            ctx.fillRect(boxX + bw * 0.45, boxY + 1, bw * 1.4, Math.max(1, bht * 0.35));
+            ctx.fillStyle = '#8a7b68';
+            ctx.beginPath(); ctx.moveTo(boxX - bw, boxY); ctx.lineTo(boxX, boxY + bw * 0.45);
+            ctx.lineTo(boxX, boxY + bw * 0.45 + bht); ctx.lineTo(boxX - bw, boxY + bht);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#9a8c78';
+            ctx.beginPath(); ctx.moveTo(boxX, boxY + bw * 0.45); ctx.lineTo(boxX + bw, boxY);
+            ctx.lineTo(boxX + bw, boxY + bht); ctx.lineTo(boxX, boxY + bw * 0.45 + bht);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#6f6250';
+            ctx.beginPath(); ctx.moveTo(boxX, boxY - bw * 0.45); ctx.lineTo(boxX + bw, boxY);
+            ctx.lineTo(boxX, boxY + bw * 0.45); ctx.lineTo(boxX - bw, boxY);
+            ctx.closePath(); ctx.fill();
+          }
+        }
+
         if (grid.biome[i] === RIVER) {
           rivers.push({ cx: cx, cy: cy, elev: grid.elevation[i], gx: x, gy: y });
         } else if ((LAVA >= 0 && grid.biome[i] === LAVA) || (lavaFlag && lavaFlag[i])) {
           lavas.push({ cx: cx, cy: cy, elev: grid.elevation[i], gx: x, gy: y });
+        }
+        if (grid.waterfalls && grid.waterfalls[i]) waterfalls.push({
+          cx: cx, cy: cy, elev: grid.elevation[i], gx: x, gy: y,
+          drop: grid.waterfallDrop ? grid.waterfallDrop[i] : 0
+        });
+        if (grid.biome[i] === SM.BIOME_IDX.shallow_water) {
+          var touchLand = (x > 0 && !grid.water[i - 1]) || (x < W - 1 && !grid.water[i + 1]) ||
+            (y > 0 && !grid.water[i - W]) || (y < H - 1 && !grid.water[i + W]);
+          if (touchLand) foam.push({ cx: cx, cy: cy, gx: x, gy: y });
         }
       }
     }
@@ -221,6 +288,8 @@
       width: canvas.width, height: canvas.height,
       rivers: visRivers,
       lavas: visLavas,
+      waterfalls: waterfalls,
+      foam: foam,
       riverRgb: rgb[RIVER],
       lavaRgb: LAVA >= 0 ? rgb[LAVA] : [226, 82, 29],
       lh: LH,

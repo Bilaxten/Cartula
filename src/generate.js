@@ -814,6 +814,15 @@
       }
     }
 
+    // --- 7f: waterfalls — quantized riverbed drops while flow data is fresh ---
+    markWaterfalls(grid, e, seaThresh, landSpan, cfg, B);
+
+    // --- 7g: settlements — flat, temperate sites near fresh water or coasts ---
+    placeSettlements(grid, e, seaThresh, landSpan, cfg, B);
+
+    // --- 7h: roads — bounded terrain-aware paths over a sparse town graph ---
+    buildRoads(grid, e, seaThresh, landSpan, cfg, B);
+
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     var wd = cfg.waterDepth;
     var shelf = grid._shelf || 9;
@@ -845,6 +854,9 @@
       }
       grid.level.set(lvTmp);
     }
+
+    // --- 8a: fantasy labels — final land/water components and voxel heights ---
+    makeFantasyLabels(grid, cfg, B);
     delete grid._shoreDist;
     delete grid._shelf;
 
@@ -866,6 +878,314 @@
   function lvget(grid, x, y) {
     if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return -9;
     return grid.level[y * grid.width + x];
+  }
+
+  function quantLandLevel(ev, seaThresh, landSpan, levels) {
+    var lf = clamp01((ev - seaThresh) / landSpan);
+    return Math.round(Math.pow(lf, 0.82) * levels) + 1;
+  }
+
+  function markWaterfalls(grid, e, seaThresh, landSpan, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var falls = new Uint8Array(n), drops = new Int8Array(n);
+    var dx = [0, 1, 1, 0, -1, -1, -1, 0, 1];
+    var dy = [0, 0, 1, 1, 1, 0, -1, -1, -1];
+    grid.waterfalls = falls;
+    grid.waterfallDrop = drops;
+    if (!grid.flow) return;
+
+    for (var i = 0; i < n; i++) {
+      var dir = grid.flow[i];
+      if (!dir || grid.biome[i] !== B.river) continue;
+      var x = i % w, y = (i / w) | 0;
+      var nx = x + dx[dir], ny = y + dy[dir];
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      var ni = ny * w + nx;
+      var fromL = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
+      var toL = (grid.water[ni] && grid.biome[ni] !== B.river)
+        ? 0 : quantLandLevel(e[ni], seaThresh, landSpan, cfg.levels);
+      var drop = fromL - toL;
+      if (drop < 2) continue;
+      falls[i] = 1; drops[i] = Math.min(127, drop);
+      var plunge = ni;
+      for (var p = 0; p < 2; p++) {
+        if (plunge < 0 || plunge >= n) break;
+        falls[plunge] = 1;
+        var px = plunge % w, py = (plunge / w) | 0;
+        var pd = grid.flow[plunge] || dir;
+        var pnx = px + dx[pd], pny = py + dy[pd];
+        if (pnx < 0 || pny < 0 || pnx >= w || pny >= h) break;
+        plunge = pny * w + pnx;
+      }
+    }
+  }
+
+  function placeSettlements(grid, e, seaThresh, landSpan, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h, i, x, y;
+    var rnd = SM.mulberry32((cfg.seed ^ 0x71e4ac93) >>> 0);
+    var fresh = new Int8Array(n), coast = new Int8Array(n);
+    var fq = [], cq = [], fh = 0, ch = 0;
+    for (i = 0; i < n; i++) {
+      fresh[i] = -1; coast[i] = -1;
+      if (grid.biome[i] === B.river || grid.biome[i] === B.lake) {
+        fresh[i] = 0; fq.push(i);
+      }
+      if (grid.water[i] && grid.biome[i] !== B.river && grid.biome[i] !== B.lake) {
+        coast[i] = 0; cq.push(i);
+      }
+    }
+    function spread(q, head, dist, limit) {
+      while (head < q.length) {
+        var c = q[head++], d = dist[c];
+        if (d >= limit) continue;
+        var cx = c % w, cy = (c / w) | 0;
+        var nb = [cx > 0 ? c - 1 : -1, cx < w - 1 ? c + 1 : -1,
+          cy > 0 ? c - w : -1, cy < h - 1 ? c + w : -1];
+        for (var j = 0; j < 4; j++) {
+          var ni = nb[j];
+          if (ni >= 0 && dist[ni] < 0) { dist[ni] = d + 1; q.push(ni); }
+        }
+      }
+    }
+    spread(fq, fh, fresh, 3);
+    spread(cq, ch, coast, 2);
+
+    var bad = {};
+    bad[B.cliff] = bad[B.beach] = bad[B.marsh] = bad[B.lava] = bad[B.volcanic] = 1;
+    bad[B.snow] = bad[B.tundra] = 1;
+    var candidates = [], landCells = 0;
+    for (y = 1; y < h - 1; y++) for (x = 1; x < w - 1; x++) {
+      i = y * w + x;
+      if (grid.water[i]) continue;
+      landCells++;
+      if (bad[grid.biome[i]]) continue;
+      var ql = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
+      if (ql > 6 || grid.temperature[i] < 0.32 || grid.temperature[i] > 0.72) continue;
+      var slope = (Math.abs(e[i] - e[i - 1]) + Math.abs(e[i] - e[i + 1]) +
+        Math.abs(e[i] - e[i - w]) + Math.abs(e[i] - e[i + w])) / (landSpan * 0.36);
+      var flat = 1 - clamp01(slope);
+      if (flat < 0.22) continue;
+      var temp = 1 - clamp01(Math.abs(grid.temperature[i] - 0.52) / 0.20);
+      var freshBonus = fresh[i] >= 0 ? 1.35 - fresh[i] * 0.20 : 0;
+      var coastBonus = coast[i] >= 0 ? 0.52 - coast[i] * 0.12 : 0;
+      if (!freshBonus && !coastBonus) continue;
+      var low = 1 - clamp01((ql - 1) / 6);
+      var score = flat * 1.15 + temp * 0.62 + low * 0.25 + freshBonus + coastBonus + rnd() * 0.018;
+      candidates.push({ x: x, y: y, i: i, score: score, flat: flat, fresh: fresh[i] });
+    }
+    candidates.sort(function (a, b) { return b.score - a.score || a.i - b.i; });
+    var want = Math.max(1, Math.min(12, Math.round(Math.sqrt(landCells) / 26)));
+    var settlements = [], minD2 = 14 * 14;
+    for (var ci = 0; ci < candidates.length && settlements.length < want; ci++) {
+      var c = candidates[ci], clear = true;
+      for (var si = 0; si < settlements.length; si++) {
+        var sx = c.x - settlements[si].x, sy = c.y - settlements[si].y;
+        if (sx * sx + sy * sy < minD2) { clear = false; break; }
+      }
+      if (!clear) continue;
+      var size = c.score > 2.72 && c.flat > 0.78 && c.fresh >= 0 && c.fresh <= 2 ? 3
+        : (c.score > 2.05 ? 2 : 1);
+      settlements.push({ x: c.x, y: c.y, size: size });
+    }
+
+    grid.settlements = settlements;
+    grid.builtup = new Uint8Array(n);
+    for (si = 0; si < settlements.length; si++) {
+      var st = settlements[si], centre = e[st.y * w + st.x], rad = st.size;
+      for (var oy = -rad; oy <= rad; oy++) for (var ox = -rad; ox <= rad; ox++) {
+        var tx = st.x + ox, ty = st.y + oy;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+        var ti = ty * w + tx;
+        if (grid.water[ti] || grid.lava[ti] || bad[grid.biome[ti]]) continue;
+        if (ox * ox + oy * oy > rad * rad + (rnd() < 0.22 ? -1 : 1)) continue;
+        grid.builtup[ti] = 1;
+        grid.biome[ti] = B.town;
+        e[ti] += (centre - e[ti]) * 0.18;
+        grid.elevation[ti] = e[ti];
+      }
+    }
+  }
+
+  function buildRoads(grid, e, seaThresh, landSpan, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var towns = grid.settlements || [], roads = new Uint8Array(n);
+    var rnd = SM.mulberry32((cfg.seed ^ 0x4b1d5a77) >>> 0);
+    grid.roads = roads;
+    if (towns.length < 2) return;
+
+    var edges = [], edgeSet = {};
+    function addEdge(a, b) {
+      if (a === b) return false;
+      if (a > b) { var t = a; a = b; b = t; }
+      var key = a + ':' + b;
+      if (edgeSet[key]) return false;
+      edgeSet[key] = 1; edges.push([a, b]); return true;
+    }
+    function townDist(a, b) {
+      var dx = towns[a].x - towns[b].x, dy = towns[a].y - towns[b].y;
+      return dx * dx + dy * dy;
+    }
+
+    // Prim MST first, then a few nearest-neighbour links for useful loops.
+    var inTree = new Uint8Array(towns.length); inTree[0] = 1;
+    for (var joined = 1; joined < towns.length; joined++) {
+      var ba = -1, bb = -1, bd = 1e30;
+      for (var a = 0; a < towns.length; a++) if (inTree[a]) {
+        for (var b = 0; b < towns.length; b++) if (!inTree[b]) {
+          var dd = townDist(a, b);
+          if (dd < bd) { bd = dd; ba = a; bb = b; }
+        }
+      }
+      if (bb < 0) break;
+      addEdge(ba, bb); inTree[bb] = 1;
+    }
+    var edgeCap = Math.max(towns.length - 1, Math.ceil(towns.length * 1.5));
+    for (a = 0; a < towns.length && edges.length < edgeCap; a++) {
+      var near = [];
+      for (b = 0; b < towns.length; b++) if (a !== b) near.push({ b: b, d: townDist(a, b) });
+      near.sort(function (aa, bb2) { return aa.d - bb2.d || aa.b - bb2.b; });
+      for (var nk = 0; nk < Math.min(2, near.length) && edges.length < edgeCap; nk++) addEdge(a, near[nk].b);
+    }
+
+    var qlevel = new Int8Array(n);
+    for (var qi = 0; qi < n; qi++) qlevel[qi] = quantLandLevel(e[qi], seaThresh, landSpan, cfg.levels);
+    function trace(edge) {
+      var start = towns[edge[0]].y * w + towns[edge[0]].x;
+      var goal = towns[edge[1]].y * w + towns[edge[1]].x;
+      var dist = new Float64Array(n), prev = new Int32Array(n), closed = new Uint8Array(n);
+      for (var di = 0; di < n; di++) { dist[di] = Infinity; prev[di] = -1; }
+      var heapN = [], heapC = [];
+      var goalX = goal % w, goalY = (goal / w) | 0;
+      function heuristic(node) {
+        var hx = node % w, hy = (node / w) | 0;
+        return Math.abs(hx - goalX) + Math.abs(hy - goalY);
+      }
+      function push(node, cost) {
+        var k = heapN.length; heapN.push(node); heapC.push(cost);
+        while (k > 0) {
+          var p = (k - 1) >> 1;
+          if (heapC[p] <= cost) break;
+          heapN[k] = heapN[p]; heapC[k] = heapC[p]; k = p;
+        }
+        heapN[k] = node; heapC[k] = cost;
+      }
+      function pop() {
+        var node = heapN[0], cost = heapC[0], lastN = heapN.pop(), lastC = heapC.pop();
+        if (heapN.length) {
+          var k = 0;
+          while (true) {
+            var l = k * 2 + 1, r = l + 1;
+            if (l >= heapN.length) break;
+            var c = r < heapN.length && heapC[r] < heapC[l] ? r : l;
+            if (heapC[c] >= lastC) break;
+            heapN[k] = heapN[c]; heapC[k] = heapC[c]; k = c;
+          }
+          heapN[k] = lastN; heapC[k] = lastC;
+        }
+        return [node, cost];
+      }
+      dist[start] = 0; push(start, heuristic(start));
+      var expanded = 0, found = false;
+      while (heapN.length && expanded < 4000) {
+        var item = pop(), cur = item[0];
+        if (closed[cur]) continue;
+        closed[cur] = 1; expanded++;
+        if (cur === goal) { found = true; break; }
+        var cx = cur % w, cy = (cur / w) | 0;
+        var nb = [cx > 0 ? cur - 1 : -1, cx < w - 1 ? cur + 1 : -1,
+          cy > 0 ? cur - w : -1, cy < h - 1 ? cur + w : -1];
+        for (var j = 0; j < 4; j++) {
+          var ni = nb[j]; if (ni < 0 || closed[ni] || grid.lava[ni]) continue;
+          var bridge = grid.biome[ni] === B.river || grid.biome[ni] === B.lake;
+          if (grid.water[ni] && !bridge) continue;
+          var step = 1 + Math.abs(qlevel[cur] - qlevel[ni]) * 4 + (bridge ? 13 : 0) + rnd() * 0.001;
+          var nd = dist[cur] + step;
+          if (nd < dist[ni]) { dist[ni] = nd; prev[ni] = cur; push(ni, nd + heuristic(ni)); }
+        }
+      }
+      if (!found) return;
+      var path = goal, guard = 0;
+      while (path >= 0 && guard++ < n) {
+        roads[path] = (grid.biome[path] === B.river || grid.biome[path] === B.lake) ? 2 : 1;
+        if (path === start) break;
+        path = prev[path];
+      }
+    }
+    for (var ei = 0; ei < edges.length; ei++) trace(edges[ei]);
+  }
+
+  function makeFantasyLabels(grid, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var rnd = SM.mulberry32((cfg.seed ^ 0xa5c31f29) >>> 0);
+    var candidates = [];
+    function components(kind, accept, minArea, sameBiome) {
+      var seen = new Uint8Array(n);
+      for (var i = 0; i < n; i++) {
+        if (seen[i] || !accept(i)) continue;
+        var biome = grid.biome[i], q = [i], head = 0, sx = 0, sy = 0;
+        seen[i] = 1;
+        while (head < q.length) {
+          var c = q[head++], x = c % w, y = (c / w) | 0;
+          sx += x; sy += y;
+          var nb = [x > 0 ? c - 1 : -1, x < w - 1 ? c + 1 : -1,
+            y > 0 ? c - w : -1, y < h - 1 ? c + w : -1];
+          for (var j = 0; j < 4; j++) {
+            var ni = nb[j];
+            if (ni >= 0 && !seen[ni] && accept(ni) && (!sameBiome || grid.biome[ni] === biome)) {
+              seen[ni] = 1; q.push(ni);
+            }
+          }
+        }
+        if (q.length >= minArea) {
+          var mx = sx / q.length, my = sy / q.length, anchor = q[0], anchorD = 1e30;
+          for (var qk = 0; qk < q.length; qk++) {
+            var qx = q[qk] % w, qy = (q[qk] / w) | 0;
+            var qad = (qx - mx) * (qx - mx) + (qy - my) * (qy - my);
+            if (qad < anchorD) { anchorD = qad; anchor = q[qk]; }
+          }
+          candidates.push({ x: anchor % w, y: (anchor / w) | 0, kind: kind, area: q.length });
+        }
+      }
+    }
+    components('mountain', function (i) { return !grid.water[i] && grid.level[i] >= 7; }, 25, false);
+    components('sea', function (i) { return grid.biome[i] === B.deep_water; }, 200, false);
+    components('land', function (i) {
+      return !grid.water[i] && grid.biome[i] !== B.town;
+    }, 400, true);
+    candidates.sort(function (a, b) { return b.area - a.area || (a.kind < b.kind ? -1 : (a.kind > b.kind ? 1 : 0)); });
+
+    var starts = ['al', 'bel', 'cor', 'dor', 'el', 'fal', 'gal', 'hal', 'jor', 'kel', 'lor', 'mor', 'nor', 'pel', 'quil', 'ran', 'sel', 'tor', 'val', 'wyr', 'zel'];
+    var mids = ['a', 'ae', 'en', 'ia', 'in', 'or', 'os', 'u', 'un', 'yr'];
+    var ends = ['dor', 'fell', 'gard', 'ion', 'mere', 'mon', 'ras', 'reth', 'ria', 'tor', 'wyn'];
+    var suffix = {
+      mountain: [' Range', ' Peaks', ' Heights'],
+      sea: [' Sea', ' Reach', ' Expanse'],
+      land: [' Vale', ' March', ' Wilds']
+    };
+    var used = {};
+    function nameFor(kind) {
+      var text, tries = 0;
+      do {
+        var syllables = 2 + (rnd() * 3 | 0);
+        text = starts[(rnd() * starts.length) | 0];
+        for (var s = 2; s < syllables; s++) text += mids[(rnd() * mids.length) | 0];
+        text += ends[(rnd() * ends.length) | 0];
+        text = text.charAt(0).toUpperCase() + text.slice(1) + suffix[kind][(rnd() * suffix[kind].length) | 0];
+      } while (used[text] && tries++ < 8);
+      used[text] = 1; return text;
+    }
+    var labels = [];
+    for (var ci = 0; ci < candidates.length && labels.length < 10; ci++) {
+      var c = candidates[ci], clear = true;
+      for (var li = 0; li < labels.length; li++) {
+        var dx = c.x - labels[li].x, dy = c.y - labels[li].y;
+        if (dx * dx + dy * dy < 20 * 20) { clear = false; break; }
+      }
+      if (!clear) continue;
+      labels.push({ x: c.x, y: c.y, text: nameFor(c.kind), kind: c.kind,
+        size: Math.max(10, Math.min(22, Math.round(8 + Math.sqrt(c.area) * 0.32))) });
+    }
+    grid.labels = labels;
   }
 
   function shapeRiverMouths(grid, e, seaThresh, cfg, B, ocean) {
