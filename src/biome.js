@@ -22,7 +22,9 @@
     { id: 'tundra',        label: 'Tundra',        color: '#9db3a6' },
     { id: 'bare',          label: 'Bare',          color: '#8a7f6c' },
     { id: 'rock',          label: 'Rock',          color: '#7c7468' },
-    { id: 'snow',          label: 'Snow',          color: '#e9edf0' }
+    { id: 'snow',          label: 'Snow',          color: '#e9edf0' },
+    { id: 'lava',          label: 'Lava',          color: '#e2521d' },
+    { id: 'volcanic',      label: 'Volcanic rock', color: '#3a2b28' }
   ];
 
   var IDX = {};

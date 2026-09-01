@@ -89,14 +89,18 @@
   // the per-tile dirty rects are cleared each frame. Capped ~30 fps.
   function startRiverAnim() {
     stopAnim();
-    var r = content.rivers;
-    if (!r || !r.length || r.length > 700 || map.width * map.height > 16e6) return;
+    var r = content.rivers || [];
+    var lv = content.lavas || [];
+    if ((r.length + lv.length) === 0 || (r.length + lv.length) > 1400 ||
+        map.width * map.height > 16e6) return;
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
     fx.style.transform = map.style.transform;
     anim = {
-      raf: 0, rivers: r, rgb: content.riverRgb, d: content.diamond,
+      raf: 0, mode: view, rivers: r, lavas: lv,
+      rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
+      d: content.diamond, tile: content.tile,
       lh: content.lh || 20, t0: performance.now(), last: 0
     };
     tick();
@@ -107,13 +111,39 @@
   }
 
   function tick() {
-    if (!anim || view !== 'iso') { anim = null; return; }
+    if (!anim) return;
     anim.raf = requestAnimationFrame(tick);
     var now = performance.now();
     if (now - anim.last < 32) return;
     anim.last = now;
-
     var ctx = $('riverfx').getContext('2d');
+    if (anim.mode === 'iso') tickIso(now, ctx);
+    else tickTop(now, ctx);
+  }
+
+  // top-down: a moving sheen slides downstream over the baked river tiles; lava
+  // tiles pulse orange. The overlay only tints — the terrain canvas is untouched.
+  function tickTop(now, ctx) {
+    var ts = anim.tile;
+    var rivers = anim.rivers, lavas = anim.lavas || [];
+    var t = (now - anim.t0) / 1000;
+    for (var k = 0; k < rivers.length; k++) {
+      var r = rivers[k];
+      ctx.clearRect(r.x, r.y, ts, ts);
+      var s = 0.5 + 0.5 * Math.sin(t * 3.0 - r.phase * 0.55);
+      ctx.fillStyle = 'rgba(206,232,255,' + (0.06 + 0.20 * s).toFixed(3) + ')';
+      ctx.fillRect(r.x, r.y, ts, ts);
+    }
+    for (var li = 0; li < lavas.length; li++) {
+      var lv = lavas[li];
+      ctx.clearRect(lv.x, lv.y, ts, ts);
+      var g = 0.5 + 0.5 * Math.sin(t * 1.6 - lv.phase);
+      ctx.fillStyle = 'rgba(255,150,40,' + (0.12 + 0.42 * g).toFixed(3) + ')';
+      ctx.fillRect(lv.x, lv.y, ts, ts);
+    }
+  }
+
+  function tickIso(now, ctx) {
     var d = anim.d, w2 = d.w2, h2 = d.h2;
     var rivers = anim.rivers, rgb = anim.rgb;
     var slab = anim.lh * 0.42;                 // visible water body under the surface
@@ -150,6 +180,41 @@
       ctx.lineTo(r.cx, cy + h2); ctx.lineTo(r.cx - w2, cy);
       ctx.closePath(); ctx.fill();
     }
+
+    // --- lava: slow glowing swell, cooler crust dark, molten crest near-white ---
+    var lavas = anim.lavas || [];
+    var lrgb = anim.lavaRgb;
+    var LAMP = Math.min(3, anim.lh * 0.16);
+    var LK = 55, LSPEED = 1.4;
+    var lt = (now - anim.t0) / 1000 * LSPEED;
+    for (var li = 0; li < lavas.length; li++) {
+      var lv = lavas[li];
+      ctx.clearRect(lv.cx - w2 - 1, lv.cy - LAMP - h2 - 1, w2 * 2 + 2, LAMP + slab + h2 * 2 + 3);
+      var lwave = Math.sin(lt - lv.elev * LK);
+      var glow = 0.5 + 0.5 * lwave;                 // 0..1
+      var lcy = lv.cy - lwave * LAMP;
+      var lbot = lv.cy + slab;
+      // crust sides — dark, barely lit
+      ctx.fillStyle = shade(lrgb, 0.30);
+      ctx.beginPath();
+      ctx.moveTo(lv.cx - w2, lcy); ctx.lineTo(lv.cx, lcy + h2);
+      ctx.lineTo(lv.cx, lbot + h2); ctx.lineTo(lv.cx - w2, lbot);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = shade(lrgb, 0.22);
+      ctx.beginPath();
+      ctx.moveTo(lv.cx, lcy + h2); ctx.lineTo(lv.cx + w2, lcy);
+      ctx.lineTo(lv.cx + w2, lbot); ctx.lineTo(lv.cx, lbot + h2);
+      ctx.closePath(); ctx.fill();
+      // molten top — lerp lava -> bright yellow with the glow
+      var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
+      var tg = Math.round(lrgb[1] + (230 - lrgb[1]) * glow * 0.9);
+      var tb = Math.round(lrgb[2] + (90 - lrgb[2]) * glow * 0.5);
+      ctx.fillStyle = 'rgb(' + tr + ',' + tg + ',' + tb + ')';
+      ctx.beginPath();
+      ctx.moveTo(lv.cx, lcy - h2); ctx.lineTo(lv.cx + w2, lcy);
+      ctx.lineTo(lv.cx, lcy + h2); ctx.lineTo(lv.cx - w2, lcy);
+      ctx.closePath(); ctx.fill();
+    }
   }
 
   function drawContent() {
@@ -180,7 +245,7 @@
     lastW = content.width;
     lastH = content.height;
     applyCam();
-    if (view === 'iso') startRiverAnim();
+    startRiverAnim();
   }
 
   function regenerate() {

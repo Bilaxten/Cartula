@@ -136,7 +136,6 @@ body {
   image-rendering: pixelated;
 }
 #riverfx { pointer-events: none; }
-body:not(.iso) #riverfx { display: none; }
 
 #isohint {
   position: absolute;

@@ -44,10 +44,18 @@ değil, kurallı:
   transform (pan/zoom = sıfır redraw). Üstten VE izometrikte sürükle-pan +
   tekerlek-zoom. "Yükseklik abartısı" slider'ı. 18 biyom, eğim tabanlı
   yalıyar, biyom-içi renk varyasyonu. Boyut 128–176² (piksel sabit).
+- [~] **Coğrafi kurallar.** Dünya-uzayı örnekleme, sıradağ fay hatları, zirve
+  baskınlığı, yağmur gölgesi/orografik, kıta sahanlığı, dendritik nehirler +
+  vadiler, göller + taşma. **Tur 2:** platolar, fiyortlar, kıyı okları/lagünler,
+  deltalar/haliçler, karasallık, riparian yeşillik, volkanik koniler + lav,
+  takımada konsolidasyonu (su artınca ada sayısı düşer → tek adaya iner).
+- [x] **Animasyon (kısmi).** Voxel-küp nehir dalgası (yüksekten alçağa akış),
+  lav glow, üstten görünüm nehir parıltısı. `#riverfx` overlay + occlusion cull.
+  İso yönlü gölge + harita border/plinth.
 - [ ] **M3 — Düzenleme.** Fırça araçları: biyom boya, terrain yükselt/alçalt,
   nehir çiz. Kısmi yeniden hesap.
-- [ ] **M4 — Animasyon.** Nehir dalgası (voxel yüksekliği sinüs), uçan kuşlar.
-  Sonra: gündüz/gece, bulut gölgesi, kamera döndürme.
+- [ ] **M4 — Animasyon (kalan).** Uçan kuşlar, gündüz/gece, bulut gölgesi,
+  kamera döndürme.
 
 ## Bağlam
 

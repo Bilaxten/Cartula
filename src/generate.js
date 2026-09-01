@@ -101,6 +101,11 @@
 
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
 
+  function smoothstep(lo, hi, v) {
+    var t = clamp01((v - lo) / (hi - lo));
+    return t * t * (3 - 2 * t);
+  }
+
   /* One height sample through the full shaping chain, at world coords (wx, wy).
    * `norm` remaps the typical fBm range to [0,1] without per-map min/max, so
    * the result is comparable across map sizes. */
@@ -239,6 +244,50 @@
         }
       }
     }
+
+    // --- 3c: plateaus — seeded highland caps with broad, level interiors ---
+    var plateauRnd = SM.mulberry32((cfg.seed ^ 0x6d2b79f5) >>> 0);
+    var plateauCandidates = [];
+    for (y = 10; y < h - 10; y += 3) {
+      for (x = 10; x < w - 10; x += 3) {
+        i = y * w + x;
+        if (e[i] > seaThresh + 0.55 * Math.max(0.32, refPeak - seaThresh)) {
+          plateauCandidates.push(i);
+        }
+      }
+    }
+    for (var pc = plateauCandidates.length - 1; pc > 0; pc--) {
+      var ps = (plateauRnd() * (pc + 1)) | 0;
+      var pSwap = plateauCandidates[pc]; plateauCandidates[pc] = plateauCandidates[ps]; plateauCandidates[ps] = pSwap;
+    }
+    var plateauCount = Math.min(plateauCandidates.length, 1 + (plateauRnd() * 3 | 0));
+    var plateauUsed = [];
+    for (var pn = 0, made = 0; pn < plateauCandidates.length && made < plateauCount; pn++) {
+      var pCenter = plateauCandidates[pn], pcx = pCenter % w, pcy = (pCenter / w) | 0;
+      var pFar = true;
+      for (var pu = 0; pu < plateauUsed.length; pu++) {
+        var pudx = pcx - plateauUsed[pu][0], pudy = pcy - plateauUsed[pu][1];
+        if (pudx * pudx + pudy * pudy < 324) { pFar = false; break; }
+      }
+      if (!pFar) continue;
+      var pr = 6 + (plateauRnd() * 4 | 0), pVals = [];
+      for (var py = -pr; py <= pr; py++) for (var px = -pr; px <= pr; px++) {
+        if (px * px + py * py <= (pr - 1) * (pr - 1)) pVals.push(e[(pcy + py) * w + pcx + px]);
+      }
+      pVals.sort(function (a, b) { return a - b; });
+      var pTop = pVals[Math.floor(pVals.length * 0.75)];
+      if (pTop < seaThresh + 0.12) continue;
+      for (py = -pr; py <= pr; py++) {
+        for (px = -pr; px <= pr; px++) {
+          var pd = Math.sqrt(px * px + py * py);
+          if (pd > pr) continue;
+          var pidx = (pcy + py) * w + pcx + px;
+          if (pd <= pr - 1.5) e[pidx] = pTop + (e[pidx] - pTop) * 0.08;
+          else e[pidx] = Math.min(e[pidx], pTop - 0.035 * (pd - pr + 1.5));
+        }
+      }
+      plateauUsed.push([pcx, pcy]); made++;
+    }
     for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
     var mapMax = 0;
@@ -280,7 +329,47 @@
     }
     for (i = 0; i < n; i++) grid.moisture[i] = mois[i];
 
-    // --- 5c + 6: temperature + biome classification ---
+    // --- 5c: continentality — distance from border-connected ocean moderates climate ---
+    var climateOcean = new Uint8Array(n), climateDist = new Int16Array(n);
+    var cq = [], ch = 0;
+    for (x = 0; x < w; x++) {
+      if (grid.water[x]) { climateOcean[x] = 1; cq.push(x); }
+      var cbi = (h - 1) * w + x;
+      if (grid.water[cbi] && !climateOcean[cbi]) { climateOcean[cbi] = 1; cq.push(cbi); }
+    }
+    for (y = 0; y < h; y++) {
+      var cli = y * w, cri = cli + w - 1;
+      if (grid.water[cli] && !climateOcean[cli]) { climateOcean[cli] = 1; cq.push(cli); }
+      if (grid.water[cri] && !climateOcean[cri]) { climateOcean[cri] = 1; cq.push(cri); }
+    }
+    while (ch < cq.length) {
+      var cc = cq[ch++], ccx = cc % w, ccy = (cc / w) | 0;
+      var cnb = [ccx > 0 ? cc - 1 : -1, ccx < w - 1 ? cc + 1 : -1,
+        ccy > 0 ? cc - w : -1, ccy < h - 1 ? cc + w : -1];
+      for (var cn = 0; cn < 4; cn++) {
+        var cni = cnb[cn];
+        if (cni >= 0 && grid.water[cni] && !climateOcean[cni]) { climateOcean[cni] = 1; cq.push(cni); }
+      }
+    }
+    cq = []; ch = 0;
+    for (i = 0; i < n; i++) {
+      climateDist[i] = climateOcean[i] ? 0 : -1;
+      if (climateOcean[i]) cq.push(i);
+    }
+    while (ch < cq.length) {
+      cc = cq[ch++]; ccx = cc % w; ccy = (cc / w) | 0;
+      cnb = [ccx > 0 ? cc - 1 : -1, ccx < w - 1 ? cc + 1 : -1,
+        ccy > 0 ? cc - w : -1, ccy < h - 1 ? cc + w : -1];
+      for (cn = 0; cn < 4; cn++) {
+        cni = cnb[cn];
+        if (cni >= 0 && climateDist[cni] < 0) { climateDist[cni] = climateDist[cc] + 1; cq.push(cni); }
+      }
+    }
+    for (i = 0; i < n; i++) {
+      if (!grid.water[i]) grid.moisture[i] = mois[i] = clamp01(mois[i] - 0.15 * clamp01(climateDist[i] / 42));
+    }
+
+    // --- 5d + 6: temperature + biome classification ---
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
         i = y * w + x;
@@ -291,7 +380,9 @@
 
         var latBand = 1 - Math.abs(ny - 0.5) * 1.7;
         var tn = SM.fbm(tempN, wxOf(x) * 2.2, wyOf(y) * 2.2, 3, 2, 0.5) * 0.13;
-        var t = clamp01(0.16 + 0.78 * latBand + tn - landFrac * 0.30 + cfg.temperatureBias);
+        var t = 0.16 + 0.78 * latBand + tn - landFrac * 0.30 + cfg.temperatureBias;
+        var contin = isWater ? 0 : clamp01(climateDist[i] / 42);
+        t = clamp01(t + (t - 0.5) * 0.25 * contin);
         grid.temperature[i] = t;
 
         var slope = 0.5 * (
@@ -363,11 +454,206 @@
       if (grid.water[i] && !ocean[i]) grid.biome[i] = B.lake;
     }
 
+    // --- 6d: island consolidation — retain a sea-level-dependent set of land bodies ---
+    var landSeen = new Uint8Array(n), landBodies = [];
+    for (i = 0; i < n; i++) {
+      if (grid.water[i] || landSeen[i]) continue;
+      var landBody = [i], lhead = 0; landSeen[i] = 1;
+      while (lhead < landBody.length) {
+        var lc0 = landBody[lhead++], lcx = lc0 % w, lcy = (lc0 / w) | 0;
+        var lnb0 = [lcx > 0 ? lc0 - 1 : -1, lcx < w - 1 ? lc0 + 1 : -1,
+          lcy > 0 ? lc0 - w : -1, lcy < h - 1 ? lc0 + w : -1];
+        for (var ln0 = 0; ln0 < 4; ln0++) {
+          var lni0 = lnb0[ln0];
+          if (lni0 >= 0 && !grid.water[lni0] && !landSeen[lni0]) {
+            landSeen[lni0] = 1; landBody.push(lni0);
+          }
+        }
+      }
+      landBodies.push({ cells: landBody, size: landBody.length, keep: false });
+    }
+    landBodies.sort(function (a, b) { return b.size - a.size; });
+    // As the sea rises the minimum surviving island size sweeps up through the
+    // size distribution: specks go first, then small isles, and near the top of
+    // the range only the main landmass clears the bar. So the island COUNT
+    // falls smoothly and, at the extreme, collapses to one — rather than the
+    // map shattering into more and more confetti. The largest body is always
+    // kept. `consT*consT` keeps the bar low across most of the slider and only
+    // ramps hard near the end.
+    var biggestBody = landBodies.length ? landBodies[0].size : 1;
+    var consT = smoothstep(0.28, 0.72, cfg.seaLevel);
+    var minKeep = Math.round(4 + (biggestBody * 0.85 - 4) * consT * consT);
+    for (var lb = 0; lb < landBodies.length; lb++) {
+      landBodies[lb].keep = lb === 0 || landBodies[lb].size >= minKeep;
+      if (!landBodies[lb].keep) {
+        for (var lbc = 0; lbc < landBodies[lb].cells.length; lbc++) {
+          var sink = landBodies[lb].cells[lbc];
+          grid.water[sink] = 1;
+          e[sink] = Math.min(e[sink], seaThresh - 0.02);
+          grid.biome[sink] = B.shallow_water;
+        }
+      }
+    }
+    // Re-label ocean after the newly submerged cells join the sea.
+    for (i = 0; i < n; i++) ocean[i] = 0;
+    oq = []; ohd = 0;
+    for (x = 0; x < w; x++) {
+      if (grid.water[x]) { ocean[x] = 1; oq.push(x); }
+      bi = (h - 1) * w + x;
+      if (grid.water[bi] && !ocean[bi]) { ocean[bi] = 1; oq.push(bi); }
+    }
+    for (y = 0; y < h; y++) {
+      li = y * w; ri = li + w - 1;
+      if (grid.water[li] && !ocean[li]) { ocean[li] = 1; oq.push(li); }
+      if (grid.water[ri] && !ocean[ri]) { ocean[ri] = 1; oq.push(ri); }
+    }
+    while (ohd < oq.length) {
+      oi = oq[ohd++]; oxx = oi % w; oyy = (oi / w) | 0;
+      var onb = [oxx > 0 ? oi - 1 : -1, oxx < w - 1 ? oi + 1 : -1,
+        oyy > 0 ? oi - w : -1, oyy < h - 1 ? oi + w : -1];
+      for (var on = 0; on < 4; on++) {
+        var oni0 = onb[on];
+        if (oni0 >= 0 && grid.water[oni0] && !ocean[oni0]) { ocean[oni0] = 1; oq.push(oni0); }
+      }
+    }
+    for (i = 0; i < n; i++) if (grid.water[i] && !ocean[i]) grid.biome[i] = B.lake;
+
+    // --- 6e: fjords — sparse cold, steep coastal inlets with cliff walls ---
+    var fjordRnd = SM.mulberry32((cfg.seed ^ 0xa4c3f129) >>> 0);
+    var fjordCandidates = [];
+    for (y = 2; y < h - 2; y++) for (x = 2; x < w - 2; x++) {
+      i = y * w + x;
+      if (grid.water[i] || grid.temperature[i] >= 0.32) continue;
+      var fslope = 0.5 * (Math.abs(e[i] - e[i - 1]) + Math.abs(e[i] - e[i + 1]) +
+        Math.abs(e[i] - e[i - w]) + Math.abs(e[i] - e[i + w]));
+      if (fslope < 0.075) continue;
+      if (ocean[i - 1] || ocean[i + 1] || ocean[i - w] || ocean[i + w]) fjordCandidates.push(i);
+    }
+    var fjordWant = fjordCandidates.length ? (fjordRnd() * 4 | 0) : 0;
+    for (var fj = 0; fj < fjordWant && fjordCandidates.length; fj++) {
+      var fci = fjordCandidates[(fjordRnd() * fjordCandidates.length) | 0];
+      var fcx = fci % w, fcy = (fci / w) | 0, fdx = 0, fdy = 0;
+      if (ocean[fci - 1]) fdx++; if (ocean[fci + 1]) fdx--;
+      if (ocean[fci - w]) fdy++; if (ocean[fci + w]) fdy--;
+      var fcur = fci, flen = 6 + (fjordRnd() * 7 | 0);
+      for (var fst = 0; fst < flen; fst++) {
+        var fxx = fcur % w, fyy = (fcur / w) | 0;
+        if (fxx < 2 || fyy < 2 || fxx >= w - 2 || fyy >= h - 2 || grid.water[fcur]) break;
+        grid.water[fcur] = 1; ocean[fcur] = 1; e[fcur] = Math.min(e[fcur], seaThresh - 0.012);
+        grid.biome[fcur] = B.shallow_water;
+        var fwalls = [fcur - 1, fcur + 1, fcur - w, fcur + w];
+        for (var fwi = 0; fwi < 4; fwi++) if (!grid.water[fwalls[fwi]]) grid.biome[fwalls[fwi]] = B.cliff;
+        var fbest = -1, fbestScore = 1e9;
+        for (var fsy = -1; fsy <= 1; fsy++) for (var fsx = -1; fsx <= 1; fsx++) {
+          if (!fsx && !fsy) continue;
+          var fnx = fxx + fsx, fny = fyy + fsy, fni = fny * w + fnx;
+          if (grid.water[fni]) continue;
+          var forward = fsx * fdx + fsy * fdy;
+          if (forward < 0) continue;
+          var fscore = e[fni] - forward * 0.025 + fjordRnd() * 0.006;
+          if (fscore < fbestScore) { fbestScore = fscore; fbest = fni; }
+        }
+        if (fbest < 0) break;
+        fcur = fbest;
+      }
+    }
+
+    // --- 6f: coastal spits and lagoons — curving beach fingers along gentle shores ---
+    var spitRnd = SM.mulberry32((cfg.seed ^ 0x3f84d5b5) >>> 0);
+    var spitCandidates = [];
+    for (y = 2; y < h - 2; y++) for (x = 2; x < w - 2; x++) {
+      i = y * w + x;
+      if (grid.water[i] || grid.biome[i] !== B.beach) continue;
+      var sWater = ocean[i - 1] + ocean[i + 1] + ocean[i - w] + ocean[i + w];
+      if (sWater) spitCandidates.push(i);
+    }
+    var spitWant = spitCandidates.length ? (spitRnd() * 3 | 0) : 0;
+    for (var sp = 0; sp < spitWant && spitCandidates.length; sp++) {
+      var sci = spitCandidates[(spitRnd() * spitCandidates.length) | 0];
+      var scx = sci % w, scy = (sci / w) | 0, snx = 0, sny = 0;
+      if (ocean[sci - 1]) snx--; if (ocean[sci + 1]) snx++;
+      if (ocean[sci - w]) sny--; if (ocean[sci + w]) sny++;
+      var stx = -sny, sty = snx;
+      if (spitRnd() < 0.5) { stx = -stx; sty = -sty; }
+      var sxp = scx, syp = scy, slen = 4 + (spitRnd() * 4 | 0);
+      for (var ss = 0; ss < slen; ss++) {
+        if (ss > slen / 2 && spitRnd() < 0.45) { stx += snx; sty += sny; }
+        var sl = Math.max(1, Math.sqrt(stx * stx + sty * sty));
+        sxp += Math.round(stx / sl); syp += Math.round(sty / sl);
+        if (sxp <= 0 || syp <= 0 || sxp >= w - 1 || syp >= h - 1) break;
+        var spi = syp * w + sxp;
+        if (!grid.water[spi] || !ocean[spi]) break;
+        grid.water[spi] = 0; ocean[spi] = 0; e[spi] = Math.max(e[spi], seaThresh + 0.006); grid.biome[spi] = B.beach;
+        var lagx = sxp + snx, lagy = syp + sny;
+        if (lagx > 0 && lagy > 0 && lagx < w - 1 && lagy < h - 1) {
+          var lagi = lagy * w + lagx;
+          if (grid.water[lagi]) grid.biome[lagi] = B.lake;
+        }
+      }
+    }
+
+    // --- 6g: volcanic cones — hot, dry ridge summits with lava craters and flows ---
+    grid.lava = new Uint8Array(n);
+    var volcanoRnd = SM.mulberry32((cfg.seed ^ 0xd1b54a35) >>> 0);
+    var volcanoCandidates = [];
+    for (y = 7; y < h - 7; y += 2) for (x = 7; x < w - 7; x += 2) {
+      i = y * w + x;
+      var vrf = ridgeAt(rfield, wxOf(x), wyOf(y));
+      if (!grid.water[i] && grid.temperature[i] > 0.42 && grid.moisture[i] < 0.62 &&
+          e[i] > seaThresh + 0.13 && vrf > 0.05) volcanoCandidates.push(i);
+    }
+    volcanoCandidates.sort(function (a, b) { return e[b] - e[a]; });
+    var volcanoWant = volcanoCandidates.length ? 1 + (volcanoRnd() * 2 | 0) : 0;
+    for (var vv = 0; vv < volcanoWant && vv < volcanoCandidates.length; vv++) {
+      var vci = volcanoCandidates[Math.min(volcanoCandidates.length - 1, vv * 4)], vcx = vci % w, vcy = (vci / w) | 0;
+      var vRad = 5 + (volcanoRnd() * 4 | 0), craterRad = 2 + (volcanoRnd() * 2 | 0);
+      var rimE = e[vci] + 0.055;
+      for (var vry = -vRad; vry <= vRad; vry++) for (var vrx = -vRad; vrx <= vRad; vrx++) {
+        var vdist = Math.sqrt(vrx * vrx + vry * vry);
+        if (vdist > vRad) continue;
+        var vnx0 = vcx + vrx, vny0 = vcy + vry;
+        if (vnx0 < 0 || vny0 < 0 || vnx0 >= w || vny0 >= h) continue;
+        var vri = vny0 * w + vnx0;
+        if (grid.water[vri]) continue;
+        e[vri] = Math.max(e[vri], rimE - vdist * 0.012);
+        grid.biome[vri] = B.volcanic;
+        if (vdist <= craterRad) {
+          e[vri] = Math.min(e[vri], rimE - 0.035);
+          grid.water[vri] = 0; grid.lava[vri] = 1; grid.biome[vri] = B.lava;
+        }
+      }
+      var flowCur = vci, flowLen = 3 + (volcanoRnd() * 6 | 0);
+      for (var vf = 0; vf < flowLen; vf++) {
+        if (!grid.water[flowCur]) { grid.lava[flowCur] = 1; grid.biome[flowCur] = B.lava; }
+        var vfx = flowCur % w, vfy = (flowCur / w) | 0, vfbest = -1, vfbe = e[flowCur];
+        for (var vfdy = -1; vfdy <= 1; vfdy++) for (var vfdx = -1; vfdx <= 1; vfdx++) {
+          if (!vfdx && !vfdy) continue;
+          var vfnx = vfx + vfdx, vfny = vfy + vfdy;
+          if (vfnx < 0 || vfny < 0 || vfnx >= w || vfny >= h) continue;
+          var vfni = vfny * w + vfnx;
+          if (!grid.water[vfni] && e[vfni] < vfbe) { vfbe = e[vfni]; vfbest = vfni; }
+        }
+        if (vfbest < 0) break;
+        flowCur = vfbest;
+      }
+    }
+
     // --- 7: hydrology (also carves river valleys into `e`) ---
     hydrology(grid, e, seaThresh, cfg, B);
+
+    // --- 7a: volcanic drainage guard — lava remains land even if a river crosses it ---
+    for (i = 0; i < n; i++) {
+      if (!grid.lava[i]) continue;
+      grid.water[i] = 0; grid.biome[i] = B.lava;
+      if (grid.flow) grid.flow[i] = 0;
+      if (grid.flowStep) grid.flowStep[i] = 0;
+    }
+
+    // --- 7b: river mouths — seeded deltas or widening estuaries, never both ---
+    shapeRiverMouths(grid, e, seaThresh, cfg, B, ocean);
     for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
-    // --- 7b: declutter inland water — land shouldn't be speckled with pools.
+    // --- 7c: declutter inland water — land shouldn't be speckled with pools.
     // Keep the ocean, river-connected water, and genuinely big endorheic basins;
     // fill everything else back to land. ---
     var BIG_LAKE = 60;
@@ -447,6 +733,72 @@
       }
     }
 
+    // --- 7d: riparian vegetation — reclassify a two-tile land buffer with added moisture ---
+    var ripDist = new Int8Array(n), ripQ = [], ripH = 0;
+    for (i = 0; i < n; i++) {
+      ripDist[i] = -1;
+      if (grid.biome[i] === B.river || grid.biome[i] === B.lake) { ripDist[i] = 0; ripQ.push(i); }
+    }
+    while (ripH < ripQ.length) {
+      var rip = ripQ[ripH++], rd = ripDist[rip];
+      if (rd >= 2) continue;
+      var rix = rip % w, riy = (rip / w) | 0;
+      var rnb = [rix > 0 ? rip - 1 : -1, rix < w - 1 ? rip + 1 : -1,
+        riy > 0 ? rip - w : -1, riy < h - 1 ? rip + w : -1];
+      for (var rj = 0; rj < 4; rj++) {
+        var rni = rnb[rj];
+        if (rni >= 0 && ripDist[rni] < 0) { ripDist[rni] = rd + 1; ripQ.push(rni); }
+      }
+    }
+    for (i = 0; i < n; i++) {
+      if (grid.water[i] || ripDist[i] < 1 || ripDist[i] > 2 || grid.lava[i]) continue;
+      if (grid.biome[i] === B.cliff || grid.biome[i] === B.beach) continue;
+      grid.moisture[i] = clamp01(grid.moisture[i] + (ripDist[i] === 1 ? 0.22 : 0.11));
+      var ripLf = clamp01((e[i] - seaThresh) / landSpan);
+      grid.biome[i] = SM.classifyBiome(ripLf, grid.moisture[i], grid.temperature[i]);
+    }
+
+    // --- 7e: landmass invariant — clean up fragments left by water-carving ---
+    // Rivers, fjords, deltas and crater lakes run after 6d and can shave slivers
+    // off a kept island or split a thin isthmus. Re-count and sink only bodies
+    // that now fall below the same size bar 6d used — never by a hard count, so
+    // this can't re-open the land% cliff.
+    var finalSeen = new Uint8Array(n), finalBodies = [];
+    for (i = 0; i < n; i++) {
+      if (grid.water[i] || finalSeen[i]) continue;
+      var finalBody = [i], finalHead = 0; finalSeen[i] = 1;
+      while (finalHead < finalBody.length) {
+        var fc = finalBody[finalHead++], fcx2 = fc % w, fcy2 = (fc / w) | 0;
+        var fnb = [fcx2 > 0 ? fc - 1 : -1, fcx2 < w - 1 ? fc + 1 : -1,
+          fcy2 > 0 ? fc - w : -1, fcy2 < h - 1 ? fc + w : -1];
+        for (var fn = 0; fn < 4; fn++) {
+          var fni2 = fnb[fn];
+          if (fni2 >= 0 && !grid.water[fni2] && !finalSeen[fni2]) {
+            finalSeen[fni2] = 1; finalBody.push(fni2);
+          }
+        }
+      }
+      finalBodies.push(finalBody);
+    }
+    finalBodies.sort(function (a, b) { return b.length - a.length; });
+    for (var fb = 1; fb < finalBodies.length; fb++) {
+      if (finalBodies[fb].length >= minKeep) continue;
+      for (var fbc = 0; fbc < finalBodies[fb].length; fbc++) {
+        var fSink = finalBodies[fb][fbc];
+        grid.water[fSink] = 1; grid.lava[fSink] = 0;
+        e[fSink] = Math.min(e[fSink], seaThresh - 0.02);
+        grid.elevation[fSink] = e[fSink];
+        // this pass runs after hydrology, so the shelf classifier won't see it —
+        // match the surrounding sea: deep unless a real shore is right next to it.
+        var fsx = fSink % w, fsy = (fSink / w) | 0, fDeep = true;
+        if ((fsx > 0 && grid.biome[fSink - 1] === B.shallow_water) ||
+            (fsx < w - 1 && grid.biome[fSink + 1] === B.shallow_water) ||
+            (fsy > 0 && grid.biome[fSink - w] === B.shallow_water) ||
+            (fsy < h - 1 && grid.biome[fSink + w] === B.shallow_water)) fDeep = false;
+        grid.biome[fSink] = fDeep ? B.deep_water : B.shallow_water;
+      }
+    }
+
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     var wd = cfg.waterDepth;
     var shelf = grid._shelf || 9;
@@ -501,6 +853,105 @@
     return grid.level[y * grid.width + x];
   }
 
+  function shapeRiverMouths(grid, e, seaThresh, cfg, B, ocean) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var rnd = SM.mulberry32((cfg.seed ^ 0x94d049bb) >>> 0);
+    var mouths = [], i, x, y;
+    for (y = 1; y < h - 1; y++) {
+      for (x = 1; x < w - 1; x++) {
+        i = y * w + x;
+        if (grid.biome[i] !== B.river) continue;
+        if (ocean[i - 1] || ocean[i + 1] || ocean[i - w] || ocean[i + w]) mouths.push(i);
+      }
+    }
+    mouths.sort(function (a, b) { return a - b; });
+    var chosen = [];
+    for (var mi = 0; mi < mouths.length; mi++) {
+      var mx = mouths[mi] % w, my = (mouths[mi] / w) | 0, separate = true;
+      for (var ci = 0; ci < chosen.length; ci++) {
+        var cdx = mx - chosen[ci][0], cdy = my - chosen[ci][1];
+        if (cdx * cdx + cdy * cdy < 64) { separate = false; break; }
+      }
+      if (!separate) continue;
+      chosen.push([mx, my]);
+
+      // Walk from the mouth toward successively higher river cells. This picks
+      // a stable approximation of the trunk even where the channel is wide.
+      var chain = [mouths[mi]], used = {};
+      used[mouths[mi]] = 1;
+      while (chain.length < 10) {
+        var cur = chain[chain.length - 1], cx = cur % w, cy = (cur / w) | 0;
+        var best = -1, bestScore = -1e9;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          var nnx = cx + dx, nny = cy + dy;
+          if (nnx < 0 || nny < 0 || nnx >= w || nny >= h) continue;
+          var ni = nny * w + nnx;
+          if (used[ni] || grid.biome[ni] !== B.river) continue;
+          var score = e[ni] + (grid.flow && grid.flow[ni] ? 0.01 : 0);
+          if (score > bestScore) { bestScore = score; best = ni; }
+        }
+        if (best < 0) break;
+        used[best] = 1; chain.push(best);
+      }
+      if (chain.length < 3) continue;
+
+      if (rnd() < 0.5) {
+        // Estuary: a single shallow-water funnel, widest at the ocean.
+        var estLen = Math.min(chain.length, 4 + (rnd() * 5 | 0));
+        for (var es = 0; es < estLen; es++) {
+          var ec = chain[es], ex = ec % w, ey = (ec / w) | 0;
+          var er = es < 2 ? 3 : (es < 5 ? 2 : 1);
+          for (var eoy = -er; eoy <= er; eoy++) for (var eox = -er; eox <= er; eox++) {
+            if (eox * eox + eoy * eoy > er * er) continue;
+            var enx = ex + eox, eny = ey + eoy;
+            if (enx < 1 || eny < 1 || enx >= w - 1 || eny >= h - 1) continue;
+            var ei = eny * w + enx;
+            if (grid.lava && grid.lava[ei]) continue;
+            grid.water[ei] = 1; grid.biome[ei] = B.shallow_water;
+            e[ei] = Math.min(e[ei], seaThresh - 0.004);
+            if (grid._shoreDist) grid._shoreDist[ei] = 1;
+          }
+        }
+      } else {
+        // Delta: branch from the inland end of the mouth reach, fanning seaward.
+        var split = chain[Math.min(chain.length - 1, 6 + (rnd() * 4 | 0))];
+        var sx = split % w, sy = (split / w) | 0;
+        var bvx = mx - sx, bvy = my - sy, bl = Math.sqrt(bvx * bvx + bvy * bvy) || 1;
+        bvx /= bl; bvy /= bl;
+        var branchCount = 2 + (rnd() < 0.35 ? 1 : 0);
+        for (var br = 0; br < branchCount; br++) {
+          var ba = branchCount === 2 ? (br ? 0.52 : -0.52) : (br - 1) * 0.52;
+          var bcos = Math.cos(ba), bsin = Math.sin(ba);
+          var bdx = bvx * bcos - bvy * bsin, bdy = bvx * bsin + bvy * bcos;
+          var bx = sx, by = sy, branchLen = 6 + (rnd() * 5 | 0);
+          for (var bs = 0; bs < branchLen; bs++) {
+            bx += bdx; by += bdy;
+            var bix = Math.round(bx), biy = Math.round(by);
+            if (bix < 1 || biy < 1 || bix >= w - 1 || biy >= h - 1) break;
+            var bidx = biy * w + bix;
+            if (grid.lava && grid.lava[bidx]) break;
+            if (ocean[bidx]) { grid.biome[bidx] = B.shallow_water; break; }
+            grid.water[bidx] = 1; grid.biome[bidx] = B.river;
+            e[bidx] = Math.min(e[bidx], seaThresh + 0.002);
+            if (grid._shoreDist) grid._shoreDist[bidx] = 2;
+          }
+        }
+        // Low triangular sediment apron around the mouth.
+        for (var ay = -3; ay <= 3; ay++) for (var ax = -3; ax <= 3; ax++) {
+          var anx = mx + ax, any = my + ay;
+          if (ax * ax + ay * ay > 10 || anx < 0 || any < 0 || anx >= w || any >= h) continue;
+          var ai = any * w + anx;
+          if (grid.water[ai]) {
+            if (grid.biome[ai] !== B.river) grid.biome[ai] = B.shallow_water;
+          } else if (grid.biome[ai] !== B.cliff && !(grid.lava && grid.lava[ai])) {
+            grid.biome[ai] = rnd() < 0.55 ? B.marsh : B.beach;
+          }
+        }
+      }
+    }
+  }
+
   /* Distance-from-shore water depth + downhill rivers. */
   function hydrology(grid, e, seaThresh, cfg, B) {
     var w = grid.width, h = grid.height, n = w * h, i, x, y;
@@ -513,10 +964,12 @@
       for (x = 0; x < w; x++) {
         i = y * w + x;
         if (!grid.water[i]) continue;
+        // seed the BFS only from water that actually touches land — the map
+        // border is open ocean, not a shore, so deep water can reach the edge
+        // instead of leaving a rectangular shelf outline.
         var coast =
-          x === 0 || y === 0 || x === w - 1 || y === h - 1 ||
-          !grid.water[i - 1] || !grid.water[i + 1] ||
-          !grid.water[i - w] || !grid.water[i + w];
+          (x > 0 && !grid.water[i - 1]) || (x < w - 1 && !grid.water[i + 1]) ||
+          (y > 0 && !grid.water[i - w]) || (y < h - 1 && !grid.water[i + w]);
         if (coast) { dist[i] = 1; q.push(i); }
       }
     }

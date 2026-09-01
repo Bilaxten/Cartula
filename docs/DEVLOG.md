@@ -1,5 +1,66 @@
 # DEVLOG
 
+## 2026-09-01 — Coğrafi kurallar tur 2 (Codex delegasyonu), lav, iso gölge + border, takımada konsolidasyonu
+
+**Ne yapıldı:** Uğur: sıradaki coğrafi kurallar turu + "kodlama işini codexe
+devret" + iso'da border görünmüyor + nehir animasyonunda occlusion (kameraya
+görünmeyeni render etme) + lav + iso gölge + "su artınca minik minik adalar
+oluşmasın, önce ada sayısı azalsın sonra tek adaya insin" + shell'leri arka
+planda aç.
+
+**Codex'e devredildi** (`.claude/scripts/codex-delegate.sh --write`,
+`generate.js` + `biome.js`), sonra satır satır doğrulandı ve elle ayarlandı:
+- **Takımada konsolidasyonu (6d):** deniz yükseldikçe minimum ada boyutu
+  eşiği boyut dağılımı içinde yukarı süpürüyor — önce serpinti, sonra küçük
+  adalar, sınıra gelince yalnız ana kara kalıyor. Codex'in sabit sayı
+  tavanı (`maxIslands`) 0.45→0.55 arası kara %64→%19 uçurumu yaratmıştı;
+  yumuşak boyut eşiğine çevrildi (`minKeep`, `consT*consT` eğrisi). En büyük
+  gövde daima korunuyor. Sweep: 9→8→5→2→3→1→1 ada.
+- **7e invaryant:** hidrolojiden sonra nehir/fiyort'un kestiği parçalar
+  eşiğin altındaysa batırılıyor (sabit sayı değil). Batan parçalar
+  komşusuna göre deep/shallow.
+- **Kıta sahanlığı (hidroloji) düzeltmesi:** BFS artık harita kenarını
+  "kıyı" saymıyor → dikdörtgen shelf hattı gitti, derin su kenara ulaşıyor.
+- **Plato (3c), karasallık (5c, BFS ile okyanus uzaklığı → iç bölge sıcaklık
+  daha uçlu + nem -0.15), fiyort (6e), kıyı oku+lagün (6f), delta/haliç
+  (7b, tohum bitine göre biri), riparian yeşillik (7d, nehir/göl 2 kare
+  tamponu +nem yeniden sınıflandırma).**
+- **Lav:** `biome.js`'e `lava` + `volcanic` eklendi (son sıraya, index'ler
+  sabit). Volkanik koniler (0-2 tohumlu, sıradağ+sıcak+kurak; her haritada
+  ≥1'e ayarlandı), krater lav gölü, kısa lav akışı. `grid.lava` Uint8Array
+  `generate()` içinde.
+
+**Nano (render/animasyon):**
+- **İso border:** floor-düzlemi görünmez çizgi yerine — iki ön kenarda koyu
+  plinth (zemine kadar) + dört kenarda reliefe yaslanan kalın koyu rim.
+- **İso gölge:** yönlü gölge ön-geçişi (güneş ekran sol-üst); occluded
+  kareler üst yüz ~%34, yan ~%18 kararıyor.
+- **Nehir occlusion culling:** `iso.js`'te geometrik test —
+  `L_ön >= L + (TH2/LH)(2k-1)` ise üst yüz gizli → animasyon listesinden
+  düşür. Lav için de.
+- **Lav animasyonu:** `#riverfx` overlay'de — koyu kabuk yan yüzleri, glow
+  ile parlak sarıya lerp'lenen erimiş üst, yavaş şişme.
+- **Üstten görünüm nehir animasyonu:** `#riverfx` artık top view'da da
+  görünür; nehir karelerinde akıntı yönünde kayan parıltı, lav turuncu nabız.
+
+**Hangi dosyalar:** `src/generate.js` (+~430 satır), `src/biome.js`,
+`src/render/iso.js`, `src/render/topdown.js`, `src/main.js`, `css/style.css`,
+`tools/headless.js` (yeni test harness).
+
+**Doğrulama:** headless — determinism OK, 0 kule, ada sayısı monoton
+düşüyor (1'e), her tohumda lav+volkanik, gen 60-185ms (192²), 325ms (320²).
+Tarayıcıda — top+iso temiz, konsol hatasız, dikdörtgen shelf gitti, derin su
+kenara ulaşıyor, border+plinth görünür, gölge var, volkan+lav akışı görünür.
+Batan adalardan kalan sığ shoal lekeleri var (deniz bankları — kabul
+edilebilir). Animasyon otomasyonda gözlenemedi (bg-tab rAF throttle).
+
+**Açık işler / sonraki:** shoal lekelerini tam derine çevirmek; 320²+ perf
+(~325ms); kıstak/takımada belirgin özellik değil (emergent). Fırça editleme
+(M3) hâlâ bekliyor.
+
+**Sonraki tur seçenekleri:** M3 fırça editleme, veya lav akışı animasyonunu
+nehir gibi voxel-küp yapmak, veya shoal temizliği + perf.
+
 ## 2026-09-01 — Voxel nehir animasyonu, daha az su, vadiler, göl taşması, İngilizce UI
 
 **Ne yapıldı:** Uğur: su kuralı daha strict (daha az su), nehir animasyonu

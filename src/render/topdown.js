@@ -28,6 +28,10 @@
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     var rgb = biomeRgb();
+    var RIVER = SM.BIOME_IDX.river;
+    var LAVA = SM.BIOME_IDX.lava != null ? SM.BIOME_IDX.lava : -1;
+    var lavaFlag = grid.lava || null;
+    var rivers = [], lavas = [];
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
@@ -35,6 +39,12 @@
         var c = rgb[grid.biome[i]];
         ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
         ctx.fillRect(x * ts, y * ts, ts, ts);
+
+        if (grid.biome[i] === RIVER) {
+          rivers.push({ x: x * ts, y: y * ts, phase: (grid.flowStep ? grid.flowStep[i] : (x + y)) });
+        } else if ((LAVA >= 0 && grid.biome[i] === LAVA) || (lavaFlag && lavaFlag[i])) {
+          lavas.push({ x: x * ts, y: y * ts, phase: grid.elevation[i] * 60 });
+        }
 
         if (o.shade && !grid.water[i]) {
           var eHere = grid.elevation[i];
@@ -58,7 +68,11 @@
       ctx.stroke();
     }
 
-    return { width: canvas.width, height: canvas.height, tile: ts };
+    return {
+      width: canvas.width, height: canvas.height, tile: ts,
+      rivers: rivers, lavas: lavas,
+      riverRgb: rgb[RIVER], lavaRgb: LAVA >= 0 ? rgb[LAVA] : [226, 82, 29]
+    };
   }
 
   SM.renderTopDown = renderTopDown;
