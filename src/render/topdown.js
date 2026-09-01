@@ -52,8 +52,8 @@
           var eU = y > 0 ? grid.elevation[i - w] : eHere;
           var s = (eHere - eL) + (eHere - eU);
           var a = s * 5;
-          if (a > 0.4) a = 0.4;
-          if (a < -0.4) a = -0.4;
+          if (a > 0.18) a = 0.18;
+          if (a < -0.18) a = -0.18;
           ctx.fillStyle = a > 0 ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + (-a) + ')';
           ctx.fillRect(x * ts, y * ts, ts, ts);
         }
@@ -75,12 +75,12 @@
       var st = settlements[si];
       var sc = Math.max(3, Math.min(ts * 0.85, ts * (0.42 + st.size * 0.10)));
       var sx = (st.x + 0.5) * ts, sy = (st.y + 0.5) * ts;
-      ctx.fillStyle = '#3b3b3b';
+      ctx.fillStyle = '#8a5a3f';
       ctx.fillRect(sx - sc * 0.36, sy - sc * 0.02, sc * 0.72, sc * 0.55);
       ctx.beginPath();
       ctx.moveTo(sx - sc * 0.48, sy); ctx.lineTo(sx, sy - sc * 0.48);
       ctx.lineTo(sx + sc * 0.48, sy); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#d8d2c4';
+      ctx.fillStyle = '#ffe9cf';
       ctx.fillRect(sx + sc * 0.08, sy + sc * 0.16, Math.max(1, sc * 0.12), Math.max(1, sc * 0.18));
     }
 

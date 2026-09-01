@@ -17,6 +17,8 @@
   var drag = null;
   var editStroke = null;
   var undoStack = [], redoStack = [];
+  var editedSinceRender = false;
+  var editRenderTimer = 0;
   var statsBase = '';
 
   var TOP_TILE = 9;
@@ -64,7 +66,7 @@
       dx: up ? Math.cos(day * Math.PI) : -0.6,    // light swings east -> west
       dy: -0.35 - 0.45 * elev,                    // always a bit from the north
       rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
-      strength: up ? (0.16 + 0.26 * elev) : 0.05
+      strength: up ? (0.05 + 0.09 * elev) : 0.02
     };
     var overlay, filter;
     if (!up) {                                    // night — deep blue, dim
@@ -353,15 +355,15 @@
 
   function drawCloudShadows(ctx, sun) {
     var wx = anim.weather;
-    var drop = 150 + 220 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
-    var skew = sun.dx * 120;
-    ctx.fillStyle = 'rgba(14,17,28,0.20)';
+    var drop = 190 + 170 * (1 - Math.min(1, sun.strength / 0.14));  // low sun -> long throw
+    var skew = sun.dx * 130;
+    ctx.fillStyle = 'rgba(46,64,92,0.09)';   // soft cool wash, layered for a fade
     for (var i = 0; i < wx.clouds.length; i++) {
       var c = wx.clouds[i];
       for (var p = 0; p < c.puffs.length; p++) {
         var pf = c.puffs[p];
         ctx.beginPath();
-        ctx.ellipse(c.x + pf.dx + skew, c.y + pf.dy + drop, pf.r * 1.2, pf.r * 0.72, 0, 0, 6.283);
+        ctx.ellipse(c.x + pf.dx + skew, c.y + pf.dy + drop, pf.r * 1.5, pf.r * 0.9, 0, 0, 6.283);
         ctx.fill();
       }
     }
@@ -491,6 +493,7 @@
   }
 
   function drawContent() {
+    if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
     stopAnim();
     if (view === 'iso') {
       content = SM.renderIso(map, grid, {
@@ -508,6 +511,7 @@
         shade: $('showShade').checked
       });
     }
+    editedSinceRender = false;
   }
 
   // refit = force re-centering; otherwise the camera is kept unless the
@@ -529,6 +533,7 @@
     var dt = performance.now() - t0;
     undoStack = [];
     redoStack = [];
+    editedSinceRender = false;
     updateUndoButtons();
     refresh(false);
 
@@ -589,6 +594,58 @@
 
   // --- top-down brush editing ---
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+
+  function hexToRgb(hex) {
+    var n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function shade(rgb, f) {
+    return 'rgb(' + Math.round(rgb[0] * f) + ',' +
+      Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
+  }
+
+  // Paint only changed top-down cells while a brush is live. The normal
+  // renderer later cleans seams and re-adds global details in one idle pass.
+  function paintEditedTiles(indices) {
+    editedSinceRender = true;
+    if (view !== 'top' || !content || !content.tile) return;
+    var ctx = map.getContext('2d'), ts = content.tile;
+    var hillshade = $('showShade').checked;
+    for (var k = 0; k < indices.length; k++) {
+      var i = indices[k];
+      var x = i % grid.width, y = (i / grid.width) | 0;
+      var c = hexToRgb(SM.BIOME_LIST[grid.biome[i]].color);
+      ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
+      ctx.fillRect(x * ts, y * ts, ts, ts);
+      if (hillshade && !grid.water[i]) {
+        var eHere = grid.elevation[i];
+        var eL = x > 0 ? grid.elevation[i - 1] : eHere;
+        var eU = y > 0 ? grid.elevation[i - grid.width] : eHere;
+        var a = ((eHere - eL) + (eHere - eU)) * 5;
+        if (a > 0.18) a = 0.18;
+        if (a < -0.18) a = -0.18;
+        ctx.fillStyle = a > 0 ? 'rgba(255,255,255,' + a + ')' :
+          'rgba(0,0,0,' + (-a) + ')';
+        ctx.fillRect(x * ts, y * ts, ts, ts);
+      }
+    }
+  }
+
+  function scheduleEditedTopRender() {
+    if (editRenderTimer) clearTimeout(editRenderTimer);
+    editRenderTimer = setTimeout(function () {
+      editRenderTimer = 0;
+      if (!editedSinceRender || view !== 'top' || editStroke) return;
+      content = SM.renderTopDown(map, grid, {
+        tile: content.tile,
+        grid: $('showGrid').checked,
+        shade: $('showShade').checked
+      });
+      editedSinceRender = false;
+      applyCam();
+    }, 450);
+  }
 
   function isWaterBiome(biome) {
     return biome === SM.BIOME_IDX.deep_water || biome === SM.BIOME_IDX.shallow_water ||
@@ -738,6 +795,7 @@
         deriveTile(i, false);
       }
     }
+    paintEditedTiles(targets.map(function (target) { return target.i; }));
     editStroke.lastX = tx;
     editStroke.lastY = ty;
   }
@@ -773,13 +831,14 @@
     editStroke = null;
     clampEditedTowers(record);
     if (record.indices.length) {
+      paintEditedTiles(record.indices);
       delete record.seen;
       undoStack.push(record);
       if (undoStack.length > 40) undoStack.shift();
       redoStack = [];
       updateUndoButtons();
       updateEditedStats();
-      refresh(false);
+      scheduleEditedTopRender();
     }
   }
 
@@ -787,14 +846,16 @@
     if (!undoStack.length || !grid) return;
     var record = undoStack.pop();
     redoStack.push(restoreRecord(record));
-    updateUndoButtons(); updateEditedStats(); refresh(false);
+    paintEditedTiles(record.indices);
+    updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
   }
 
   function redoEdit() {
     if (!redoStack.length || !grid) return;
     var record = redoStack.pop();
     undoStack.push(restoreRecord(record));
-    updateUndoButtons(); updateEditedStats(); refresh(false);
+    paintEditedTiles(record.indices);
+    updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
   }
 
   function eventTile(ev) {
