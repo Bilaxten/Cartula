@@ -1,5 +1,30 @@
 # DEVLOG
 
+## 2026-09-02 — Voxel border, daha büyük yanardağlar, voxel lav akışı
+
+Uğur: "lav akışını da border'ı da voxel yapman lazım. yanardağları da daha
+yüksek ya da daha geniş yapabilirsin gerçek dünyadaki gibi."
+
+- **Voxel border:** iso'daki plinth+rim stroke kaldırıldı. Ana döngü artık
+  `-MB..W+MB` (MB=1); harita dışındaki halka için koyu kömür (`[32,36,44]`,
+  üst `×1.4` okunur) voxel prizmalar çiziliyor — üstü kenar reliefine yaslanıyor
+  (min level 2), yan yüzler zemine kadar. Painter's order'da terrain ile
+  çizildiği için doğru occlude oluyor. Canvas + origin 1 tile pay büyütüldü.
+- **Yanardağlar gerçek-dünya ölçeği:** vRad 5-8 → 8-15 (geniş taban), rim
+  lift 0.055 → 0.13 (yüksek), koni profili `rimE - (t²)*coneDrop` (dik üst
+  koni), krater 0.055 çökük. Lav akışı 3-8 → 6-14 tile + yana 1 tile genişleme
+  (akıntı gibi okusun). Kule yok, determinism OK.
+- **Voxel lav animasyonu:** LAMP 3→6, LSPEED 1.4→2.4, ayrı `lslab` (lh·0.5),
+  crest lavadan beyaz-sıcağa lerp, kabuk yan yüzlerinde hafif iç glow.
+
+**Doğrulama:** headless determinism OK, 0 kule, her tohumda lav+volkanik
+(volkanik footprint 135→337). Tarayıcı canvas örneklemesi: iso render tam,
+border ~69k kömür piksel (ön kenarlarda zemin-plinth), lav ~2k turuncu
+piksel. Otomasyon screenshot'ları büyük canvas + animasyonda bazen stale
+geliyor — canvas `getImageData` ile doğrulandı.
+
+**Sonraki:** M3 fırça editleme; border kontrastı isteğe göre ayarlanabilir.
+
 ## 2026-09-01 — Coğrafi kurallar tur 2 (Codex delegasyonu), lav, iso gölge + border, takımada konsolidasyonu
 
 **Ne yapıldı:** Uğur: sıradaki coğrafi kurallar turu + "kodlama işini codexe

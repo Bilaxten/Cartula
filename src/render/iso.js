@@ -49,11 +49,13 @@
     var maxLevel = levels + 1;
     var floorLevel = -waterDepth - 1;
 
-    var originX = (H - 1) * TW2 + TW2 + 2;
-    var originY = TH2 * 2 + maxLevel * LH + 2;
+    var MB = 1;  // dark voxel border ring, in tiles, around the whole map
 
-    canvas.width = Math.ceil((W + H) * TW2 + TW + 4);
-    canvas.height = Math.ceil((W + H) * TH2 + (maxLevel - floorLevel) * LH + TW + 4);
+    var originX = (H - 1 + MB) * TW2 + TW2 + 2;
+    var originY = TH2 * 2 + maxLevel * LH + 2 + MB * TH2;
+
+    canvas.width = Math.ceil((W + H + 2 * MB) * TW2 + TW + 4);
+    canvas.height = Math.ceil((W + H + 2 * MB) * TH2 + (maxLevel - floorLevel) * LH + TW + 4);
     var ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -97,11 +99,47 @@
       }
     }
 
-    for (var y = 0; y < H; y++) {
-      for (var x = 0; x < W; x++) {
+    // near-black border voxel — its top follows the relief of the map edge it
+    // hugs, dropping full side faces to the floor, drawn in painter's order
+    // with the terrain so it occludes and is occluded correctly.
+    // dark charcoal — reads as a black frame but stays visible against both the
+    // terrain and the page background behind the map
+    var BORD = [32, 36, 44];
+    function borderTop(bx, by) {
+      var cxx = bx < 0 ? 0 : (bx >= W ? W - 1 : bx);
+      var cyy = by < 0 ? 0 : (by >= H ? H - 1 : by);
+      var bl = level[cyy * W + cxx];
+      return bl < 2 ? 2 : bl;
+    }
+
+    for (var y = -MB; y < H + MB; y++) {
+      for (var x = -MB; x < W + MB; x++) {
+        var cx = originX + (x - y) * TW2;
+
+        if (x < 0 || y < 0 || x >= W || y >= H) {
+          var bL = borderTop(x, y);
+          var bcy = originY + (x + y) * TH2 - bL * LH;
+          var bDrop = (bL - floorLevel) * LH + 1;
+          ctx.fillStyle = shade(BORD, 0.55);        // left face
+          ctx.beginPath();
+          ctx.moveTo(cx - TW2 - E, bcy); ctx.lineTo(cx, bcy + TH2);
+          ctx.lineTo(cx, bcy + TH2 + bDrop); ctx.lineTo(cx - TW2 - E, bcy + bDrop);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = shade(BORD, 0.4);         // right face
+          ctx.beginPath();
+          ctx.moveTo(cx, bcy + TH2); ctx.lineTo(cx + TW2 + E, bcy);
+          ctx.lineTo(cx + TW2 + E, bcy + bDrop); ctx.lineTo(cx, bcy + TH2 + bDrop);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = shade(BORD, 1.4);         // top — legible from above
+          ctx.beginPath();
+          ctx.moveTo(cx, bcy - TH2 - E); ctx.lineTo(cx + TW2 + E, bcy);
+          ctx.lineTo(cx, bcy + TH2 + E); ctx.lineTo(cx - TW2 - E, bcy);
+          ctx.closePath(); ctx.fill();
+          continue;
+        }
+
         var i = y * W + x;
         var L = level[i];
-        var cx = originX + (x - y) * TW2;
         var cy = originY + (x + y) * TH2 - L * LH;
         var c = rgb[grid.biome[i]];
         var sv = SM.biomeShade(grid, i);
@@ -155,57 +193,6 @@
         }
       }
     }
-
-    // --- map border ---
-    // A dark plinth under the two front edges (east + south) plus a thick dark
-    // rim hugging the relief along all four outer edges, so the map reads as a
-    // solid slab with a clean single-line boundary.
-    var fY = originY - floorLevel * LH;
-    function topV(x, y) {
-      var L = lvl(x, y);
-      return { cx: originX + (x - y) * TW2, cy: originY + (x + y) * TH2 - L * LH };
-    }
-
-    ctx.fillStyle = '#0c0f15';
-    for (y = 0; y < H; y++) {                 // east edge — right faces to floor
-      var pe = topV(W - 1, y);
-      ctx.beginPath();
-      ctx.moveTo(pe.cx, pe.cy + TH2);
-      ctx.lineTo(pe.cx + TW2, pe.cy);
-      ctx.lineTo(pe.cx + TW2, fY + ((W - 1) + y) * TH2);
-      ctx.lineTo(pe.cx, fY + ((W - 1) + y) * TH2 + TH2);
-      ctx.closePath();
-      ctx.fill();
-    }
-    for (x = 0; x < W; x++) {                 // south edge — left faces to floor
-      var ps = topV(x, H - 1);
-      ctx.beginPath();
-      ctx.moveTo(ps.cx - TW2, ps.cy);
-      ctx.lineTo(ps.cx, ps.cy + TH2);
-      ctx.lineTo(ps.cx, fY + (x + (H - 1)) * TH2 + TH2);
-      ctx.lineTo(ps.cx - TW2, fY + (x + (H - 1)) * TH2);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    ctx.strokeStyle = '#0a0d12';
-    ctx.lineWidth = Math.max(2, TW * 0.13);
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    var wv = topV(0, 0);                      // west edge silhouette (top↔left)
-    ctx.moveTo(wv.cx, wv.cy - TH2);
-    for (y = 0; y < H; y++) { var w0 = topV(0, y); ctx.lineTo(w0.cx, w0.cy - TH2); ctx.lineTo(w0.cx - TW2, w0.cy); }
-    var sw = topV(0, H - 1);                  // ...down the south-west corner to the floor
-    ctx.lineTo(sw.cx - TW2, fY + (0 + (H - 1)) * TH2);
-    ctx.stroke();
-    ctx.beginPath();
-    var nv = topV(0, 0);                      // north edge silhouette (top↔right)
-    ctx.moveTo(nv.cx, nv.cy - TH2);
-    for (x = 0; x < W; x++) { var n0 = topV(x, 0); ctx.lineTo(n0.cx, n0.cy - TH2); ctx.lineTo(n0.cx + TW2, n0.cy); }
-    var ne = topV(W - 1, 0);                  // ...down the north-east corner to the floor
-    ctx.lineTo(ne.cx + TW2, fY + ((W - 1) + 0) * TH2);
-    ctx.stroke();
 
     // --- occlusion cull for the animated overlays ---
     // A tile's top face is hidden when a voxel in front of it (larger gx+gy, so

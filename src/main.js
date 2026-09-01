@@ -181,34 +181,37 @@
       ctx.closePath(); ctx.fill();
     }
 
-    // --- lava: slow glowing swell, cooler crust dark, molten crest near-white ---
+    // --- lava: molten voxel cubes, a glowing swell rolling downhill; dark
+    // crust on the sides, crest lerping toward white-hot ---
     var lavas = anim.lavas || [];
     var lrgb = anim.lavaRgb;
-    var LAMP = Math.min(3, anim.lh * 0.16);
-    var LK = 55, LSPEED = 1.4;
+    var LAMP = Math.min(6, anim.lh * 0.30);
+    var LK = 70, LSPEED = 2.4;
+    var lslab = anim.lh * 0.5;
     var lt = (now - anim.t0) / 1000 * LSPEED;
+    var lpadTop = LAMP + h2 + 1, lpadBot = lslab + h2 + 1;
     for (var li = 0; li < lavas.length; li++) {
       var lv = lavas[li];
-      ctx.clearRect(lv.cx - w2 - 1, lv.cy - LAMP - h2 - 1, w2 * 2 + 2, LAMP + slab + h2 * 2 + 3);
+      ctx.clearRect(lv.cx - w2 - 1, lv.cy - lpadTop, w2 * 2 + 2, lpadTop + lpadBot);
       var lwave = Math.sin(lt - lv.elev * LK);
       var glow = 0.5 + 0.5 * lwave;                 // 0..1
       var lcy = lv.cy - lwave * LAMP;
-      var lbot = lv.cy + slab;
-      // crust sides — dark, barely lit
-      ctx.fillStyle = shade(lrgb, 0.30);
+      var lbot = lv.cy + lslab;
+      // crust sides — dark, faint inner glow on the shaded face
+      ctx.fillStyle = shade(lrgb, 0.34 + 0.12 * glow);
       ctx.beginPath();
       ctx.moveTo(lv.cx - w2, lcy); ctx.lineTo(lv.cx, lcy + h2);
       ctx.lineTo(lv.cx, lbot + h2); ctx.lineTo(lv.cx - w2, lbot);
       ctx.closePath(); ctx.fill();
-      ctx.fillStyle = shade(lrgb, 0.22);
+      ctx.fillStyle = shade(lrgb, 0.24 + 0.08 * glow);
       ctx.beginPath();
       ctx.moveTo(lv.cx, lcy + h2); ctx.lineTo(lv.cx + w2, lcy);
       ctx.lineTo(lv.cx + w2, lbot); ctx.lineTo(lv.cx, lbot + h2);
       ctx.closePath(); ctx.fill();
-      // molten top — lerp lava -> bright yellow with the glow
+      // molten top — lava -> white-hot with the glow
       var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
-      var tg = Math.round(lrgb[1] + (230 - lrgb[1]) * glow * 0.9);
-      var tb = Math.round(lrgb[2] + (90 - lrgb[2]) * glow * 0.5);
+      var tg = Math.round(lrgb[1] + (240 - lrgb[1]) * glow);
+      var tb = Math.round(lrgb[2] + (150 - lrgb[2]) * glow * 0.7);
       ctx.fillStyle = 'rgb(' + tr + ',' + tg + ',' + tb + ')';
       ctx.beginPath();
       ctx.moveTo(lv.cx, lcy - h2); ctx.lineTo(lv.cx + w2, lcy);

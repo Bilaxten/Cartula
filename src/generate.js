@@ -606,8 +606,10 @@
     var volcanoWant = volcanoCandidates.length ? 1 + (volcanoRnd() * 2 | 0) : 0;
     for (var vv = 0; vv < volcanoWant && vv < volcanoCandidates.length; vv++) {
       var vci = volcanoCandidates[Math.min(volcanoCandidates.length - 1, vv * 4)], vcx = vci % w, vcy = (vci / w) | 0;
-      var vRad = 5 + (volcanoRnd() * 4 | 0), craterRad = 2 + (volcanoRnd() * 2 | 0);
-      var rimE = e[vci] + 0.055;
+      // real-world scale: wide base, steep upper cone, deep crater
+      var vRad = 8 + (volcanoRnd() * 7 | 0), craterRad = 2 + (volcanoRnd() * 3 | 0);
+      var rimE = e[vci] + 0.13;
+      var coneDrop = 0.13 + volcanoRnd() * 0.05;
       for (var vry = -vRad; vry <= vRad; vry++) for (var vrx = -vRad; vrx <= vRad; vrx++) {
         var vdist = Math.sqrt(vrx * vrx + vry * vry);
         if (vdist > vRad) continue;
@@ -615,17 +617,26 @@
         if (vnx0 < 0 || vny0 < 0 || vnx0 >= w || vny0 >= h) continue;
         var vri = vny0 * w + vnx0;
         if (grid.water[vri]) continue;
-        e[vri] = Math.max(e[vri], rimE - vdist * 0.012);
+        var vt = vdist / vRad;                       // 0 centre .. 1 base
+        e[vri] = Math.max(e[vri], rimE - (vt * vt) * coneDrop);
         grid.biome[vri] = B.volcanic;
         if (vdist <= craterRad) {
-          e[vri] = Math.min(e[vri], rimE - 0.035);
+          e[vri] = Math.min(e[vri], rimE - 0.055);   // sunken crater floor
           grid.water[vri] = 0; grid.lava[vri] = 1; grid.biome[vri] = B.lava;
         }
       }
-      var flowCur = vci, flowLen = 3 + (volcanoRnd() * 6 | 0);
+      var flowCur = vci, flowLen = 6 + (volcanoRnd() * 8 | 0), flowPrev = vci;
       for (var vf = 0; vf < flowLen; vf++) {
+        var vfx = flowCur % w, vfy = (flowCur / w) | 0;
         if (!grid.water[flowCur]) { grid.lava[flowCur] = 1; grid.biome[flowCur] = B.lava; }
-        var vfx = flowCur % w, vfy = (flowCur / w) | 0, vfbest = -1, vfbe = e[flowCur];
+        // widen the channel one tile to the side, so the flow reads as a stream
+        var pdx = vfx - (flowPrev % w), pdy = vfy - ((flowPrev / w) | 0);
+        var sideX = vfx - pdy, sideY = vfy + pdx;
+        if (sideX >= 0 && sideY >= 0 && sideX < w && sideY < h) {
+          var sideI = sideY * w + sideX;
+          if (!grid.water[sideI]) { grid.lava[sideI] = 1; grid.biome[sideI] = B.lava; }
+        }
+        var vfbest = -1, vfbe = e[flowCur];
         for (var vfdy = -1; vfdy <= 1; vfdy++) for (var vfdx = -1; vfdx <= 1; vfdx++) {
           if (!vfdx && !vfdy) continue;
           var vfnx = vfx + vfdx, vfny = vfy + vfdy;
@@ -634,7 +645,7 @@
           if (!grid.water[vfni] && e[vfni] < vfbe) { vfbe = e[vfni]; vfbest = vfni; }
         }
         if (vfbest < 0) break;
-        flowCur = vfbest;
+        flowPrev = flowCur; flowCur = vfbest;
       }
     }
 
