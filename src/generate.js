@@ -93,7 +93,7 @@
     // --- 3: repair — clamp single-tile spikes/pits, then a gentle smooth ---
     // SPIKE is kept below one discrete level so no tile can tower over its
     // neighbourhood after voxelization.
-    var SPIKE = 0.028;
+    var SPIKE = 0.05;
     var tmp = new Float32Array(n);
     function at(a, xx, yy) {
       if (xx < 0) xx = 0; else if (xx >= w) xx = w - 1;
@@ -116,19 +116,6 @@
       }
       e.set(tmp);
     }
-    // gentle smoothing toward the 3x3 average (keeps ridgelines, softens noise)
-    for (y = 0; y < h; y++) {
-      for (x = 0; x < w; x++) {
-        i = y * w + x;
-        var avg = (
-          at(e, x - 1, y - 1) + at(e, x, y - 1) + at(e, x + 1, y - 1) +
-          at(e, x - 1, y) + e[i] + at(e, x + 1, y) +
-          at(e, x - 1, y + 1) + at(e, x, y + 1) + at(e, x + 1, y + 1)
-        ) / 9;
-        tmp[i] = e[i] * 0.72 + avg * 0.28;
-      }
-    }
-    e.set(tmp);
     for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
     // --- 4: sea level — absolute threshold from a fixed reference sample.
@@ -146,7 +133,6 @@
     ref.sort();
     var seaThresh = ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))];
     var refPeak = ref[ref.length - 1];
-    var deepThresh = seaThresh - 0.05;
     var beachThresh = seaThresh + 0.02;
 
     var mapMax = 0;
@@ -179,7 +165,7 @@
 
         grid.water[i] = isWater ? 1 : 0;
         if (isWater) {
-          grid.biome[i] = ev < deepThresh ? B.deep_water : B.shallow_water;
+          grid.biome[i] = B.shallow_water; // hydrology re-tags the few genuinely deep spots
         } else if (ev < beachThresh) {
           grid.biome[i] = slope > 0.05 ? B.cliff : B.beach;
         } else if (slope > 0.085) {
@@ -326,7 +312,10 @@
     // re-tag deep vs shallow from smoothed distance so the seabed isn't jagged
     for (i = 0; i < n; i++) {
       if (grid.water[i] && grid.biome[i] !== B.river && grid.biome[i] !== B.lake) {
-        grid.biome[i] = dist[i] >= 6 ? B.deep_water : B.shallow_water;
+        // sea reads as shallow almost everywhere — deep only far offshore
+        // AND in a genuine basin (a trench, not just "a bit past the shelf")
+        grid.biome[i] = (dist[i] >= 13 && e[i] < seaThresh - 0.11)
+          ? B.deep_water : B.shallow_water;
       }
     }
 
