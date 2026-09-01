@@ -1,5 +1,39 @@
 # DEVLOG
 
+## 2026-09-01 — Kalın nehirler, büyük harita, zirve baskınlığı
+
+**Ne yapıldı:** Uğur "nehirleri daha kalın, harita fantasy map gibi büyük,
+yüksek dağ varsa yanında dağ olma olasılığı düşük" dedi.
+
+- **Kalın nehirler:** iz sürme sonrası genişletme pass'i — nehir karesinin
+  kıyı komşuları da nehir olur (elevation'ı fazla yüksek değilse), `flowStep
+  > 26` olan aşağı-akış kareleri 2 kare genişler. River tile ~30 → ~130,
+  görünür şekilde kalın.
+- **Büyük varsayılan harita:** 160²→256², slider adımı 16→32. Gen ~130-260ms,
+  iso canvas budget otomatik tile küçültüyor. Epic fantasy dünya ölçeği.
+- **Zirve baskınlığı (prominence):** repair sonrası pass — elevation yerel
+  maksimumları bulunur, en yükseğinden başlanır, her biri `DOM_R=13` yarıçapta
+  bir "baskınlık kuyusu" açar: `cap = pkElev - 0.045 - dist*0.0135`, üstündeki
+  rakip yükseltiler `e*0.18 + cap*0.82` ile aşağı çekilir → omuz/boyun olurlar.
+  `claimed` dizisiyle bir zirvenin kapsadığı alandaki başka zirveler atlanır.
+  Sonuç: kümelenmiş benzer-yükseklik zirve %20 → %8, dağlar yalnız duruyor.
+- Deniz seviyesi (referans örneklemesi) sample loop'undan önceye alındı,
+  prominence pass'i `seaThresh`'i biliyor.
+
+**Hangi dosyalar:** `src/generate.js`, `index.html`.
+
+**Doğrulama:** headless — determinism 0, 0 kule, kümelenmiş zirve %6-11,
+256² gen ~130ms, 512² ~350ms, river tile ~130. Tarayıcıda — 256² fantasy
+harita ölçeği, kalın nehirler, sıra dağlar dominant zirvelerle, konsol temiz.
+
+**Not:** prominence bazı yüksek terrain'i alçalttığı için snow %1.5-2'ye
+düştü — dominant zirveler hâlâ karlı, ama genel kar azaldı. Gerekirse
+snowLine/RIDGE_H ile geri çekilir.
+
+**Sonraki tur:** dendritik nehir kolları, deltalar, vadiler, fiyortlar,
+platolar, voxel-yükseklik nehir dalgası.
+
+
 ## 2026-09-01 — Coğrafi kurallar tur 1: sıra dağlar, kıta sahanlığı, yağmur gölgesi, gerçek rakım, nehir akışı
 
 **Ne yapıldı:** Uğur "hepsini yapalım" (menüdeki coğrafi kurallar) + "rakımı
