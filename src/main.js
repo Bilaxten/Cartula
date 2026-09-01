@@ -66,7 +66,7 @@
       dx: up ? Math.cos(day * Math.PI) : -0.6,    // light swings east -> west
       dy: -0.35 - 0.45 * elev,                    // always a bit from the north
       rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
-      strength: up ? (0.05 + 0.09 * elev) : 0.02
+      strength: up ? (0.16 + 0.26 * elev) : 0.05
     };
     var overlay, filter;
     if (!up) {                                    // night — deep blue, dim
@@ -355,9 +355,9 @@
 
   function drawCloudShadows(ctx, sun) {
     var wx = anim.weather;
-    var drop = 190 + 170 * (1 - Math.min(1, sun.strength / 0.14));  // low sun -> long throw
+    var drop = 150 + 200 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
     var skew = sun.dx * 130;
-    ctx.fillStyle = 'rgba(46,64,92,0.09)';   // soft cool wash, layered for a fade
+    ctx.fillStyle = 'rgba(30,40,64,0.13)';   // soft cool wash, layered for a fade
     for (var i = 0; i < wx.clouds.length; i++) {
       var c = wx.clouds[i];
       for (var p = 0; p < c.puffs.length; p++) {

@@ -77,10 +77,11 @@
 
     // --- directional shadow pre-pass ---
     // March each tile toward the light; if a taller voxel breaks the ray, the
-    // tile sits in shade. Direction and ray-climb come from the sun
-    // (time-of-day slider) — low sun casts longer shadows.
+    // tile sits in shade. Direction / ray-climb / darkness come from the sun
+    // (time-of-day slider) — low sun casts long, dark shadows.
     var SUN_DX = sun.dx, SUN_DY = sun.dy;
     var SUN_RISE = Math.max(0.12, sun.rise);
+    var STR = sun.strength;
     var SUN_STEPS = 12;
     var shadow = new Float32Array(W * H); // 0 = lit, up to 1 = fully shaded
     for (var sy = 0; sy < H; sy++) {
@@ -100,11 +101,11 @@
       }
     }
 
-    // slate border voxel — its top matches the height of the map edge it hugs
-    // (never rising above it), bottoming out at the sea plane. Side faces drop
-    // to the floor for the map's base. A mid slate, not a black hole, so it
-    // sits under the bright palette without dominating it.
-    var BORD = [96, 108, 122];
+    // dark charcoal border voxel — its top matches the height of the map edge
+    // it hugs (never rising above it), bottoming out at the sea plane so water
+    // edges get a flush waterline kerb rather than a wall. Side faces drop to
+    // the floor for the map's base. Drawn in painter's order with the terrain.
+    var BORD = [70, 80, 92];
     function borderTop(bx, by) {
       var cxx = bx < 0 ? 0 : (bx >= W ? W - 1 : bx);
       var cyy = by < 0 ? 0 : (by >= H ? H - 1 : by);
@@ -120,17 +121,17 @@
           var bL = borderTop(x, y);
           var bcy = originY + (x + y) * TH2 - bL * LH;
           var bDrop = (bL - floorLevel) * LH + 1;
-          ctx.fillStyle = shade(BORD, 0.74);        // left face
+          ctx.fillStyle = shade(BORD, 0.55);        // left face
           ctx.beginPath();
           ctx.moveTo(cx - TW2 - E, bcy); ctx.lineTo(cx, bcy + TH2);
           ctx.lineTo(cx, bcy + TH2 + bDrop); ctx.lineTo(cx - TW2 - E, bcy + bDrop);
           ctx.closePath(); ctx.fill();
-          ctx.fillStyle = shade(BORD, 0.6);         // right face
+          ctx.fillStyle = shade(BORD, 0.4);         // right face
           ctx.beginPath();
           ctx.moveTo(cx, bcy + TH2); ctx.lineTo(cx + TW2 + E, bcy);
           ctx.lineTo(cx + TW2 + E, bcy + bDrop); ctx.lineTo(cx, bcy + TH2 + bDrop);
           ctx.closePath(); ctx.fill();
-          ctx.fillStyle = shade(BORD, 1.12);        // top — legible from above
+          ctx.fillStyle = shade(BORD, 1.4);         // top — legible from above
           ctx.beginPath();
           ctx.moveTo(cx, bcy - TH2 - E); ctx.lineTo(cx + TW2 + E, bcy);
           ctx.lineTo(cx, bcy + TH2 + E); ctx.lineTo(cx - TW2 - E, bcy);
@@ -143,15 +144,14 @@
         var cy = originY + (x + y) * TH2 - L * LH;
         var c = rgb[grid.biome[i]];
         var sv = SM.biomeShade(grid, i);
-        var s = shadow[i] > 0.35 ? 1 : (shadow[i] > 0.12 ? 0.6 : 0);
-        var shf = 1 - 0.12 * s;
-        var shSide = 1 - 0.06 * s;
+        var shf = 1 - STR * shadow[i];         // top-face darkening from cast shadow
+        var shSide = 1 - STR * 0.55 * shadow[i]; // sides take a lighter hit
 
         // left face — down to the (x, y+1) neighbour (or the floor at the edge)
         var leftDrop = L - lvl(x, y + 1);
         if (leftDrop > 0) {
           var lhp = leftDrop * LH + 1;
-          ctx.fillStyle = shade(c, 0.80 * sv * shSide);
+          ctx.fillStyle = shade(c, 0.70 * sv * shSide);
           ctx.beginPath();
           ctx.moveTo(cx - TW2 - E, cy);
           ctx.lineTo(cx, cy + TH2);
@@ -165,7 +165,7 @@
         var rightDrop = L - lvl(x + 1, y);
         if (rightDrop > 0) {
           var rhp = rightDrop * LH + 1;
-          ctx.fillStyle = shade(c, 0.64 * sv * shSide);
+          ctx.fillStyle = shade(c, 0.50 * sv * shSide);
           ctx.beginPath();
           ctx.moveTo(cx, cy + TH2);
           ctx.lineTo(cx + TW2 + E, cy);
@@ -175,8 +175,9 @@
           ctx.fill();
         }
 
-        // top diamond (outset slightly to close AA seams between tiles)
-        var topF = 1.0;
+        // top diamond (outset slightly to close AA seams between tiles) —
+        // a touch lighter with height so relief reads at a glance
+        var topF = grid.water[i] ? 1.0 : (0.90 + 0.15 * (L / maxLevel));
         ctx.fillStyle = shade(c, topF * sv * shf);
         ctx.beginPath();
         ctx.moveTo(cx, cy - TH2 - E);

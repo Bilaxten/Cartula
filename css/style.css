@@ -307,7 +307,7 @@ details.group .body { padding: 2px 18px 18px; }
   flex: 1;
   overflow: hidden;
   cursor: grab;
-  background: linear-gradient(180deg, #cfe9f5 0%, #e6f3f8 55%, #f1eee7 100%);
+  background: radial-gradient(130% 130% at 50% 0%, #1c222c 0%, #11151c 72%);
 }
 #stage.dragging { cursor: grabbing; }
 #stage.editing { cursor: crosshair; }

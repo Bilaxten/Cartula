@@ -3,29 +3,29 @@
   'use strict';
 
   var BIOME_LIST = [
-    { id: 'deep_water',    label: 'Deep sea',      color: '#1f6fd0' },
-    { id: 'shallow_water', label: 'Shallow sea',   color: '#35c4e8' },
-    { id: 'river',         label: 'River',         color: '#5cd0ef' },
-    { id: 'lake',          label: 'Lake',          color: '#33b2dd' },
-    { id: 'beach',         label: 'Beach',         color: '#ffe0a3' },
-    { id: 'cliff',         label: 'Cliff',         color: '#e07a4a' },
-    { id: 'marsh',         label: 'Marsh',         color: '#7ba85a' },
-    { id: 'grassland',     label: 'Grassland',     color: '#93d95f' },
-    { id: 'plains',        label: 'Plains',        color: '#7ecb58' },
-    { id: 'shrubland',     label: 'Shrubland',     color: '#cdcb6a' },
-    { id: 'forest',        label: 'Forest',        color: '#46994a' },
-    { id: 'taiga',         label: 'Taiga',         color: '#3d8271' },
-    { id: 'jungle',        label: 'Rainforest',    color: '#37ab4c' },
-    { id: 'savanna',       label: 'Savanna',       color: '#e0bd5c' },
-    { id: 'desert',        label: 'Desert',        color: '#ffd98a' },
-    { id: 'mesa',          label: 'Mesa',          color: '#d9673d' },
-    { id: 'tundra',        label: 'Tundra',        color: '#bfcbb6' },
-    { id: 'bare',          label: 'Bare',          color: '#b6a98d' },
-    { id: 'rock',          label: 'Rock',          color: '#9c94ac' },
-    { id: 'snow',          label: 'Snow',          color: '#ffffff' },
-    { id: 'lava',          label: 'Lava',          color: '#ff6b2b' },
-    { id: 'volcanic',      label: 'Volcanic rock', color: '#382a38' },
-    { id: 'town',          label: 'Settlement',    color: '#cf9b76' }
+    { id: 'deep_water',    label: 'Deep sea',      color: '#1b3a5c' },
+    { id: 'shallow_water', label: 'Shallow sea',   color: '#2f6690' },
+    { id: 'river',         label: 'River',         color: '#3f7fa6' },
+    { id: 'lake',          label: 'Lake',          color: '#356b8f' },
+    { id: 'beach',         label: 'Beach',         color: '#d9c48f' },
+    { id: 'cliff',         label: 'Cliff',         color: '#6d6656' },
+    { id: 'marsh',         label: 'Marsh',         color: '#5c6b43' },
+    { id: 'grassland',     label: 'Grassland',     color: '#9cbd63' },
+    { id: 'plains',        label: 'Plains',        color: '#8fb563' },
+    { id: 'shrubland',     label: 'Shrubland',     color: '#a6a862' },
+    { id: 'forest',        label: 'Forest',        color: '#4f7f42' },
+    { id: 'taiga',         label: 'Taiga',         color: '#3f5f4c' },
+    { id: 'jungle',        label: 'Rainforest',    color: '#3a6b31' },
+    { id: 'savanna',       label: 'Savanna',       color: '#b7ad5f' },
+    { id: 'desert',        label: 'Desert',        color: '#dcbd6f' },
+    { id: 'mesa',          label: 'Mesa',          color: '#b06c46' },
+    { id: 'tundra',        label: 'Tundra',        color: '#9db3a6' },
+    { id: 'bare',          label: 'Bare',          color: '#8a7f6c' },
+    { id: 'rock',          label: 'Rock',          color: '#7c7468' },
+    { id: 'snow',          label: 'Snow',          color: '#e9edf0' },
+    { id: 'lava',          label: 'Lava',          color: '#e2521d' },
+    { id: 'volcanic',      label: 'Volcanic rock', color: '#3a2b28' },
+    { id: 'town',          label: 'Settlement',    color: '#8a7d6b' }
   ];
 
   var IDX = {};
@@ -64,14 +64,17 @@
     return IDX.forest;
   }
 
-  /* A whisper of deterministic per-tile variation keeps broad flat colour
-   * blocks alive without turning the toy palette into terrain texture. */
+  /* Subtle within-biome shade variation so large biome regions don't read
+   * as one flat color — driven by moisture, elevation and a cheap per-tile
+   * hash. Returns a multiplier around 1.0. */
   function biomeShade(grid, i) {
+    var m = grid.moisture[i];
+    var e = grid.elevation[i];
     var x = i % grid.width;
     var y = (i / grid.width) | 0;
     var h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
     h = h - Math.floor(h); // 0..1
-    return 0.97 + 0.06 * h; // 0.97 .. 1.03
+    return 0.95 + 0.055 * m + 0.03 * (1 - e) + 0.04 * h; // ~0.95 .. 1.08
   }
 
   SM.BIOME_LIST = BIOME_LIST;
