@@ -60,6 +60,8 @@
     var rgb = biomeRgb();
     var level = grid.level;
     var E = 0.75; // geometry outset, px — fills anti-alias seams
+    var RIVER = SM.BIOME_IDX.river;
+    var rivers = []; // {cx, cy, phase} of each river tile's top diamond, for animation
 
     function lvl(x, y) {
       if (x < 0 || y < 0 || x >= W || y >= H) return floorLevel;
@@ -114,10 +116,19 @@
         ctx.lineTo(cx - TW2 - E, cy);
         ctx.closePath();
         ctx.fill();
+
+        if (grid.biome[i] === RIVER) {
+          rivers.push({ cx: cx, cy: cy, phase: (grid.flowStep ? grid.flowStep[i] : 0) });
+        }
       }
     }
 
-    return { width: canvas.width, height: canvas.height };
+    return {
+      width: canvas.width, height: canvas.height,
+      rivers: rivers,
+      riverRgb: rgb[RIVER],
+      diamond: { w2: TW2 + E, h2: TH2 + E }
+    };
   }
 
   SM.renderIso = renderIso;

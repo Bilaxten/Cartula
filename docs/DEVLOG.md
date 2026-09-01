@@ -1,5 +1,58 @@
 # DEVLOG
 
+## 2026-09-01 — Coğrafi kurallar tur 1: sıra dağlar, kıta sahanlığı, yağmur gölgesi, gerçek rakım, nehir akışı
+
+**Ne yapıldı:** Uğur "hepsini yapalım" (menüdeki coğrafi kurallar) + "rakımı
+gerçek metrelerle göster" + "nehirleri denize dökülene kadar animasyonlu" dedi.
+Aşamalı — bu tur yapısal + iklim kuralları, sonraki tur dendritik nehirler/
+deltalar/fiyortlar/platolar.
+
+- **Dağlar SIRA halinde** (`makeRidgeField`): 2-4 gezinen polyline (fay hattı),
+  bir mesafe alanına (128²) pişirilir, `heightAt` içinde `pow(rb,1.5) * RIDGE_H`
+  ile arazi yükseltilir. Blob değil, zincir dağlar. Referans örneklemesi de
+  ridge'leri hesaba katıyor.
+- **Kıta sahanlığı:** su kıyıdan ~9 kare boyunca deniz düzleminde (level 0,
+  shelf), sonra shelf kırığında derinleşir. Derin deniz artık istisna —
+  shelf denizleri sığ okur (Uğur'un isteği), açık okyanus derin.
+- **Yağmur gölgesi + orografik:** tohumlanmış hâkim rüzgâr yönü; her kara
+  karesi 20 adım rüzgâr yukarı taranır, dağ varsa nem düşer (lee tarafı kurak),
+  windward yamaç nem alır. Ayrı bir climate pass'i (moisture → rain shadow →
+  temp + classify).
+- **Ağaç/kar sınırı** (`classify`): snowLine sıcaklığa göre — kutuplara doğru
+  alçalır, ekvatora doğru yükselir. treeLine = snowLine - 0.15; arası
+  tundra/çıplak.
+- **Gerçek rakım:** `SM.elevationMeters` — deniz seviyesi 0, kara +4200m'ye,
+  okyanus tabanı -5500m'ye. Hover: "Ova · +818 m · nem 0.53 · sıc 22°".
+  Sıcaklık da °C.
+- **Nehir akış animasyonu** (izo): nehir kareleri statik bake'e çizilir, ayrıca
+  main.js bir rAF döngüsünde her kareyi küçük bob (±2px, sinüs) + akıntı yönünde
+  ilerleyen shimmer ile yeniden çizer. Smear'ı önlemek için önce snapshot'tan
+  restore. `grid.flow` (yön 1-8) + `grid.flowStep` (kaynaktan adım) üretimde
+  saklanıyor. Büyük haritalarda (>12MP) kapalı.
+- **Daha az yumuşatma:** 3x3 blur kaldırıldı, SPIKE 0.05.
+- **Yeniden dengeleme:** RIDGE_H, yağmur gölgesi, sıcaklık, cliff eşikleri
+  ayarlandı — dünya artık ılıman/çeşitli (forest/grassland/plains baskın,
+  snow %3-6, cliff seyrek).
+
+**Hangi dosyalar değişti:** `src/generate.js` (ridge alanı, climate yeniden
+yapılandırma, shelf, flow), `src/biome.js` (snowLine/treeLine), `src/render/
+iso.js` (nehir listesi), `src/main.js` (rAF nehir animasyonu, metre hover).
+
+**Doğrulama:** `node --check` temiz, headless — determinism 0, 0 kule,
+metre değerleri makul, 512² gen 362ms. Tarayıcıda — sıra dağlar + yağmur
+gölgesi kuru bölgeler + çoğunlukla sığ deniz + nehirler görünüyor, hover
+metre/°C, iso nehir animasyonu tick atıyor (otomasyonda bg-tab rAF throttle
+yüzünden tam görülemedi ama kod yolu sağlam), konsol temiz.
+
+**Açık işler (sonraki tur):** dendritik nehir ağı (kollar birleşir, aşağı
+genişler), deltalar, V/U vadiler, fiyortlar, kıyı okları/lagünler, platolar,
+kıstaklar, takımadalar, göl taşması, haliçler, karasallık, riparian yeşillik,
+üstten görünümde de nehir animasyonu, voxel-yükseklik nehir dalgası (şu an
+sadece küçük bob + shimmer).
+
+**Sonraki adım:** Uğur'un geri bildirimi.
+
+
 ## 2026-09-01 — Kurallı üretim: dünya-uzayı, erozyon, hidroloji, nehirler
 
 **Ne yapıldı:** Uğur "sistem tamamen rastgele olmasın, gerçek coğrafya gibi

@@ -16,6 +16,70 @@
 
   var REF = 112;          // reference tile span for world-space coords
   var ISLAND_R = 0.62;    // island radius in world units (falloff)
+  var RIDGE_W = 0.13;     // half-width of a mountain range, world units
+  var RIDGE_H = 0.30;     // how much a range lifts the terrain
+  var RFS = 128;          // ridge distance-field resolution
+  var RF_SPAN = 1.35;     // ridge field covers world ±RF_SPAN
+
+  /* Mountain ranges follow LINES (fault lines / plate boundaries), not random
+   * blobs. Build a few wandering polylines, then a coarse distance field so the
+   * per-cell lookup is cheap. */
+  function makeRidgeField(cfg) {
+    var rnd = SM.mulberry32((cfg.seed ^ 0x1b56c4e9) >>> 0);
+    var count = 2 + (rnd() * 3 | 0);
+    var segs = [];
+    for (var r = 0; r < count; r++) {
+      var px = (rnd() * 2 - 1) * 1.1, py = (rnd() * 2 - 1) * 1.1;
+      var ang = rnd() * Math.PI * 2;
+      var len = 14 + (rnd() * 12 | 0);
+      for (var s = 0; s < len; s++) {
+        ang += (rnd() - 0.5) * 0.55;
+        var nx2 = px + Math.cos(ang) * 0.09, ny2 = py + Math.sin(ang) * 0.09;
+        segs.push([px, py, nx2, ny2]);
+        px = nx2; py = ny2;
+      }
+    }
+    var field = new Float32Array(RFS * RFS);
+    for (var gy = 0; gy < RFS; gy++) {
+      for (var gx = 0; gx < RFS; gx++) {
+        var wx = (gx / (RFS - 1) * 2 - 1) * RF_SPAN;
+        var wy = (gy / (RFS - 1) * 2 - 1) * RF_SPAN;
+        var best = 1e9;
+        for (var k2 = 0; k2 < segs.length; k2++) {
+          var d = segDist(wx, wy, segs[k2]);
+          if (d < best) best = d;
+        }
+        var t = best / RIDGE_W;
+        field[gy * RFS + gx] = t >= 1 ? 0 : (1 - t) * (1 - t);
+      }
+    }
+    return field;
+  }
+
+  function segDist(px, py, s) {
+    var ax = s[0], ay = s[1], bx = s[2], by = s[3];
+    var vx = bx - ax, vy = by - ay;
+    var wx = px - ax, wy = py - ay;
+    var c1 = vx * wx + vy * wy;
+    if (c1 <= 0) return Math.sqrt(wx * wx + wy * wy);
+    var c2 = vx * vx + vy * vy;
+    if (c2 <= c1) return Math.sqrt((px - bx) * (px - bx) + (py - by) * (py - by));
+    var tt = c1 / c2;
+    var qx = ax + tt * vx, qy = ay + tt * vy;
+    return Math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+  }
+
+  function ridgeAt(field, wx, wy) {
+    var fx = (wx / RF_SPAN * 0.5 + 0.5) * (RFS - 1);
+    var fy = (wy / RF_SPAN * 0.5 + 0.5) * (RFS - 1);
+    if (fx < 0 || fy < 0 || fx > RFS - 1 || fy > RFS - 1) return 0;
+    var x0 = fx | 0, y0 = fy | 0;
+    var x1 = x0 < RFS - 1 ? x0 + 1 : x0, y1 = y0 < RFS - 1 ? y0 + 1 : y0;
+    var tx = fx - x0, ty = fy - y0;
+    var a = field[y0 * RFS + x0], b = field[y0 * RFS + x1];
+    var c = field[y1 * RFS + x0], d = field[y1 * RFS + x1];
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  }
 
   var DEFAULTS = {
     width: 160,
@@ -40,7 +104,7 @@
   /* One height sample through the full shaping chain, at world coords (wx, wy).
    * `norm` remaps the typical fBm range to [0,1] without per-map min/max, so
    * the result is comparable across map sizes. */
-  function heightAt(baseN, ridgeN, warpN, wx, wy, cfg) {
+  function heightAt(baseN, ridgeN, warpN, rfield, wx, wy, cfg) {
     if (cfg.warp > 0) {
       var wux = SM.fbm(warpN, wx * 0.7 + 11.3, wy * 0.7 + 5.1, 2, 2, 0.5);
       var wuy = SM.fbm(warpN, wx * 0.7 - 7.7, wy * 0.7 - 3.2, 2, 2, 0.5);
@@ -54,8 +118,14 @@
     base = clamp01(0.5 + (base - 0.5) * 1.75);
 
     var ridge = SM.fbmRidged(ridgeN, wx * cfg.elevationScale * 1.7, wy * cfg.elevationScale * 1.7, Math.min(cfg.octaves, 5), 2, 0.5);
-    var mix = cfg.ruggedness * 0.55;
+    var mix = cfg.ruggedness * 0.5;
     var e = base * (1 - mix) + ridge * mix;
+
+    // fold mountain ranges along the fault lines, textured by the ridged noise
+    if (rfield) {
+      var rb = ridgeAt(rfield, wx, wy);
+      if (rb > 0) e += Math.pow(rb, 1.5) * RIDGE_H * (0.55 + 0.45 * ridge);
+    }
 
     if (cfg.islandFalloff > 0) {
       var d = Math.sqrt(wx * wx + wy * wy) / ISLAND_R;
@@ -81,12 +151,14 @@
     function wxOf(x) { return (x - cx0) / REF; }
     function wyOf(y) { return (y - cy0) / REF; }
 
+    var rfield = makeRidgeField(cfg);
+
     // --- 1+2: sample world-space height into the grid ---
     var e = new Float32Array(n);
     var x, y, i;
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
-        e[y * w + x] = heightAt(baseN, ridgeN, warpN, wxOf(x), wyOf(y), cfg);
+        e[y * w + x] = heightAt(baseN, ridgeN, warpN, rfield, wxOf(x), wyOf(y), cfg);
       }
     }
 
@@ -127,7 +199,7 @@
       for (x = 0; x < RS; x++) {
         var rwx = (x - RS / 2) / (RS / (2 * 0.9));
         var rwy = (y - RS / 2) / (RS / (2 * 0.9));
-        ref[k++] = heightAt(baseN, ridgeN, warpN, rwx, rwy, refCfg);
+        ref[k++] = heightAt(baseN, ridgeN, warpN, rfield, rwx, rwy, refCfg);
       }
     }
     ref.sort();
@@ -139,23 +211,53 @@
     for (i = 0; i < n; i++) if (e[i] > mapMax) mapMax = e[i];
     var landSpan = Math.max(0.32, Math.max(mapMax, refPeak) - seaThresh);
 
-    // --- 5+6: climate + biome ---
+    // --- 5a: base moisture + water flag ---
+    var mois = new Float32Array(n);
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        grid.water[i] = e[i] < seaThresh ? 1 : 0;
+        var mo = SM.fbm(moistN, wxOf(x) * cfg.moistureScale, wyOf(y) * cfg.moistureScale, 4, 2, 0.5);
+        mois[i] = clamp01((mo + 1) / 2 * 0.9 + 0.14 + cfg.moistureBias);
+      }
+    }
+
+    // --- 5b: rain shadow + orographic — march upwind; mountains block rain on
+    // their lee side, windward slopes get extra. Prevailing wind is seeded. ---
+    var wr = SM.mulberry32((cfg.seed ^ 0x632be59b) >>> 0)();
+    var wdx = Math.cos(wr * 6.2832), wdy = Math.sin(wr * 6.2832);
+    var MARCH = 20;
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        i = y * w + x;
+        if (grid.water[i]) continue;
+        var here = e[i], maxUp = here, upStep1 = here;
+        for (var m = 1; m <= MARCH; m++) {
+          var ux = Math.round(x - wdx * m), uy = Math.round(y - wdy * m);
+          var ue = at(e, ux, uy);
+          if (m === 1) upStep1 = ue;
+          if (ue > maxUp) maxUp = ue;
+        }
+        var barrier = maxUp - here;                 // mountains upwind
+        if (barrier > 0) mois[i] = clamp01(mois[i] - 0.42 * Math.min(1, barrier / 0.22));
+        var climb = here - upStep1;                 // this cell on a windward rise
+        if (climb > 0) mois[i] = clamp01(mois[i] + 0.45 * Math.min(1, climb / 0.10));
+      }
+    }
+    for (i = 0; i < n; i++) grid.moisture[i] = mois[i];
+
+    // --- 5c + 6: temperature + biome classification ---
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
         i = y * w + x;
         var ev = e[i];
-        var nx = x / w, ny = y / h;
-
-        var mo = SM.fbm(moistN, wxOf(x) * cfg.moistureScale, wyOf(y) * cfg.moistureScale, 4, 2, 0.5);
-        mo = clamp01((mo + 1) / 2 + cfg.moistureBias);
-        grid.moisture[i] = mo;
-
-        var isWater = ev < seaThresh;
+        var ny = y / h;
+        var isWater = grid.water[i];
         var landFrac = isWater ? 0 : clamp01((ev - seaThresh) / landSpan);
 
         var latBand = 1 - Math.abs(ny - 0.5) * 1.7;
         var tn = SM.fbm(tempN, wxOf(x) * 2.2, wyOf(y) * 2.2, 3, 2, 0.5) * 0.13;
-        var t = clamp01(0.12 + 0.82 * latBand + tn - landFrac * 0.5 + cfg.temperatureBias);
+        var t = clamp01(0.16 + 0.78 * latBand + tn - landFrac * 0.30 + cfg.temperatureBias);
         grid.temperature[i] = t;
 
         var slope = 0.5 * (
@@ -163,15 +265,14 @@
           Math.abs(ev - at(e, x, y - 1)) + Math.abs(ev - at(e, x, y + 1))
         );
 
-        grid.water[i] = isWater ? 1 : 0;
         if (isWater) {
-          grid.biome[i] = B.shallow_water; // hydrology re-tags the few genuinely deep spots
+          grid.biome[i] = B.shallow_water;
         } else if (ev < beachThresh) {
-          grid.biome[i] = slope > 0.05 ? B.cliff : B.beach;
-        } else if (slope > 0.085) {
+          grid.biome[i] = slope > 0.075 ? B.cliff : B.beach;
+        } else if (slope > 0.125) {
           grid.biome[i] = B.cliff;
         } else {
-          grid.biome[i] = SM.classifyBiome(landFrac, mo, t);
+          grid.biome[i] = SM.classifyBiome(landFrac, grid.moisture[i], t);
         }
       }
     }
@@ -233,12 +334,12 @@
 
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     var wd = cfg.waterDepth;
+    var shelf = grid._shelf || 9;
     for (i = 0; i < n; i++) {
       if (grid.water[i]) {
-        // water surface sits at the sea plane (0) right at the coast and sinks
-        // outward — so a coastal land tile (level 1) is just one step up.
-        var df = grid._shoreDist ? grid._shoreDist[i] : 8;
-        grid.level[i] = -Math.max(0, Math.min(wd, Math.ceil((df - 2) / 4)));
+        // flush with the sea plane over the shelf, then sinks past the shelf break
+        var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
+        grid.level[i] = df <= shelf ? 0 : -Math.min(wd, Math.ceil((df - shelf) / 4));
       } else {
         var lf = clamp01((e[i] - seaThresh) / landSpan);
         var lv = Math.round(Math.pow(lf, 0.82) * cfg.levels) + 1;
@@ -263,10 +364,21 @@
       grid.level.set(lvTmp);
     }
     delete grid._shoreDist;
+    delete grid._shelf;
 
     grid.config = cfg;
     grid.seaThresh = seaThresh;
+    grid.landSpan = landSpan;
     return grid;
+  }
+
+  /* Real-world altitude in metres for a cell — sea level is 0, land climbs to
+   * roughly +4200 m, ocean floor to about -5500 m. */
+  function elevationMeters(grid, i) {
+    var e = grid.elevation[i];
+    var st = grid.seaThresh != null ? grid.seaThresh : 0.44;
+    if (e >= st) return Math.round((e - st) / (1 - st || 1) * 4200);
+    return Math.round(-((st - e) / (st || 1)) * 5500);
   }
 
   function lvget(grid, x, y) {
@@ -309,15 +421,16 @@
     // enclosed water never reached by the coast -> treat as deep
     for (i = 0; i < n; i++) if (grid.water[i] && dist[i] === 0) dist[i] = cfg.waterDepth * 4;
     grid._shoreDist = dist;
-    // re-tag deep vs shallow from smoothed distance so the seabed isn't jagged
+    // continental shelf: water stays shallow over a broad shelf near land, then
+    // drops off past the shelf break into deep ocean. Deep is the exception,
+    // not the rule (shelf seas between landmasses read as shallow).
+    var SHELF = 9;
     for (i = 0; i < n; i++) {
       if (grid.water[i] && grid.biome[i] !== B.river && grid.biome[i] !== B.lake) {
-        // sea reads as shallow almost everywhere — deep only far offshore
-        // AND in a genuine basin (a trench, not just "a bit past the shelf")
-        grid.biome[i] = (dist[i] >= 13 && e[i] < seaThresh - 0.11)
-          ? B.deep_water : B.shallow_water;
+        grid.biome[i] = dist[i] > SHELF + 5 ? B.deep_water : B.shallow_water;
       }
     }
+    grid._shelf = SHELF;
 
     if (cfg.rivers <= 0) return;
 
@@ -342,11 +455,14 @@
     want = Math.max(1, Math.min(want, maxima.length, 40));
 
     var river = new Uint8Array(n);
+    var flow = new Int8Array(n);      // 1..8 flow direction, 0 = none
+    var fstep = new Int16Array(n);    // steps from source (animation phase)
     for (var s = 0; s < want; s++) {
       var cur = maxima[s].i;
       var steps = 0, maxSteps = w + h;
-      while (steps++ < maxSteps) {
+      while (steps < maxSteps) {
         river[cur] = 1;
+        fstep[cur] = steps;
         var cxx2 = cur % w, cyy2 = (cur / w) | 0;
         if (grid.water[cur] || cxx2 === 0 || cyy2 === 0 || cxx2 === w - 1 || cyy2 === h - 1) break;
         // steepest descent over 8 neighbours
@@ -361,18 +477,27 @@
           }
         }
         if (best < 0) break;                 // local pit — stop (a small lake)
-        if (river[best] && grid.biome[best] === B.river) break; // merged into another river
+        var bxx = best % w, byy = (best / w) | 0;
+        flow[cur] = DIR[(byy - cyy2 + 1) * 3 + (bxx - cxx2 + 1)];
+        if (river[best] && grid.biome[best] === B.river) break; // merged into a bigger river
         cur = best;
+        steps++;
       }
     }
+    grid.flow = new Int8Array(n);
+    grid.flowStep = new Int16Array(n);
     for (i = 0; i < n; i++) {
       if (river[i] && !grid.water[i]) {
         grid.water[i] = 1;
         grid.biome[i] = B.river;
         grid._shoreDist[i] = 2;
       }
+      if (river[i]) { grid.flow[i] = flow[i]; grid.flowStep[i] = fstep[i]; }
     }
   }
+
+  // dir codes indexed by (dy+1)*3 + (dx+1): E=1 SE=2 S=3 SW=4 W=5 NW=6 N=7 NE=8
+  var DIR = [6, 7, 8, 5, 0, 1, 4, 3, 2];
 
   function summarize(grid) {
     var counts = {}, landCount = 0;
@@ -390,5 +515,6 @@
 
   SM.generate = generate;
   SM.summarize = summarize;
+  SM.elevationMeters = elevationMeters;
   SM.GEN_DEFAULTS = DEFAULTS;
 })(window.SM = window.SM || {});

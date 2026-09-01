@@ -20,6 +20,8 @@
   var ISO_TILE = 24;
   var ISO_BASE_LH = 13;
 
+  var anim = null; // river-flow animation state (iso only)
+
   function isoExag() { return parseFloat($('isoexag').value); }
 
   function signed(v) {
@@ -73,7 +75,58 @@
     cam.y = (sh - content.height * cam.scale) / 2;
   }
 
+  function stopAnim() {
+    if (anim) { cancelAnimationFrame(anim.raf); anim = null; }
+  }
+
+  // River flow: after the static bake, snapshot the canvas and each frame
+  // redraw just the river top diamonds with a small bob + shimmer travelling
+  // downstream. Restoring from the snapshot first avoids smearing.
+  function startRiverAnim() {
+    stopAnim();
+    if (!content.rivers || !content.rivers.length || map.width * map.height > 12e6) return;
+    var snap = document.createElement('canvas');
+    snap.width = map.width;
+    snap.height = map.height;
+    snap.getContext('2d').drawImage(map, 0, 0);
+    anim = {
+      raf: 0, snap: snap, rivers: content.rivers,
+      rgb: content.riverRgb, d: content.diamond, t0: performance.now()
+    };
+    tick();
+  }
+
+  function tick() {
+    if (!anim || view !== 'iso') { anim = null; return; }
+    var ctx = map.getContext('2d');
+    var d = anim.d, w2 = d.w2, h2 = d.h2;
+    var BOB = 2.2, SPEED = 2.6;
+    var ph = (performance.now() - anim.t0) / 1000 * SPEED;
+    var rivers = anim.rivers, rgb = anim.rgb, snap = anim.snap;
+    for (var k = 0; k < rivers.length; k++) {
+      var r = rivers[k];
+      var pad = BOB + 3;
+      ctx.drawImage(snap,
+        r.cx - w2 - 2, r.cy - h2 - pad, w2 * 2 + 4, h2 * 2 + pad * 2,
+        r.cx - w2 - 2, r.cy - h2 - pad, w2 * 2 + 4, h2 * 2 + pad * 2);
+      var bob = Math.sin(ph - r.phase * 0.6) * BOB;
+      var sh = 0.82 + 0.34 * (0.5 + 0.5 * Math.sin(ph * 1.25 - r.phase * 0.55));
+      var cy = r.cy - bob;
+      ctx.fillStyle = 'rgb(' +
+        Math.round(rgb[0] * sh) + ',' + Math.round(rgb[1] * sh) + ',' + Math.round(rgb[2] * sh) + ')';
+      ctx.beginPath();
+      ctx.moveTo(r.cx, cy - h2);
+      ctx.lineTo(r.cx + w2, cy);
+      ctx.lineTo(r.cx, cy + h2);
+      ctx.lineTo(r.cx - w2, cy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    anim.raf = requestAnimationFrame(tick);
+  }
+
   function drawContent() {
+    stopAnim();
     if (view === 'iso') {
       content = SM.renderIso(map, grid, {
         tile: ISO_TILE,
@@ -100,6 +153,7 @@
     lastW = content.width;
     lastH = content.height;
     applyCam();
+    if (view === 'iso') startRiverAnim();
   }
 
   function regenerate() {
@@ -118,6 +172,7 @@
   function setView(mode) {
     if (mode === view) return;
     view = mode;
+    stopAnim();
     $('viewTop').classList.toggle('active', mode === 'top');
     $('viewIso').classList.toggle('active', mode === 'iso');
     document.body.classList.toggle('iso', mode === 'iso');
@@ -156,13 +211,14 @@
     var i = grid.index(tx, ty);
     var b = SM.BIOME_LIST[grid.biome[i]];
     if (!b) { hoverEl.hidden = true; return; }
+    var m = SM.elevationMeters(grid, i);
     hoverEl.hidden = false;
     hoverEl.innerHTML =
       '<span class="sw" style="background:' + b.color + '"></span>' +
       b.label + ' · (' + tx + ', ' + ty + ')' +
-      ' · yük ' + grid.elevation[i].toFixed(2) +
+      ' · ' + (m >= 0 ? '+' : '') + m + ' m' +
       ' · nem ' + grid.moisture[i].toFixed(2) +
-      ' · sıc ' + grid.temperature[i].toFixed(2);
+      ' · sıc ' + Math.round(-8 + grid.temperature[i] * 42) + '°';
   }
 
   // --- camera drag / wheel (both views) ---

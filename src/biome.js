@@ -28,38 +28,36 @@
   var IDX = {};
   BIOME_LIST.forEach(function (b, i) { IDX[b.id] = i; });
 
-  /* Classify a LAND cell. landFrac is elevation above sea level, normalized
-   * 0..1 against the map's own peak. moist/temp are each 0..1. Water/beach/
-   * cliff are decided by the caller before this runs. */
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  /* Classify a LAND cell. landFrac is elevation above sea level (0..1 vs the
+   * map's peak), moist/temp are 0..1. The snow and tree lines drop toward the
+   * poles (cold) and rise toward the equator (warm). Water/beach/cliff are
+   * decided by the caller. */
   function classify(landFrac, moist, temp) {
-    // --- high mountains ---
-    if (landFrac > 0.82) return temp < 0.55 ? IDX.snow : IDX.rock;
-    if (landFrac > 0.64) {
-      if (temp < 0.34) return IDX.snow;
-      return temp < 0.62 ? IDX.rock : IDX.bare;
-    }
-    // --- subalpine band ---
-    if (landFrac > 0.48 && temp < 0.42) {
-      return moist > 0.45 ? IDX.taiga : IDX.bare;
-    }
+    var snowLine = clamp(0.74 - (0.5 - temp) * 0.5, 0.28, 0.95);
+    var treeLine = snowLine - 0.15;
 
-    // --- cold lowlands ---
-    if (temp < 0.28) return moist > 0.5 ? IDX.taiga : IDX.tundra;
+    if (landFrac >= snowLine) return IDX.snow;
+    if (landFrac >= treeLine) return temp < 0.32 ? IDX.tundra : IDX.bare;
 
-    // --- hot ---
-    if (temp > 0.7) {
-      if (moist < 0.20) return IDX.desert;
-      if (moist < 0.38) return landFrac > 0.32 ? IDX.mesa : IDX.shrubland;
-      if (moist < 0.58) return IDX.savanna;
-      if (moist > 0.82 && landFrac < 0.14) return IDX.marsh;
+    // --- below the tree line: climate biomes ---
+    if (temp < 0.26) return moist > 0.5 ? IDX.taiga : IDX.tundra;
+    if (temp < 0.42 && landFrac > 0.32) return moist > 0.45 ? IDX.taiga : IDX.bare;
+
+    if (temp > 0.72) {
+      if (moist < 0.18) return IDX.desert;
+      if (moist < 0.35) return landFrac > 0.30 ? IDX.mesa : IDX.shrubland;
+      if (moist < 0.55) return IDX.savanna;
+      if (moist > 0.82 && landFrac < 0.12) return IDX.marsh;
       return IDX.jungle;
     }
 
-    // --- temperate ---
-    if (moist < 0.26) return IDX.shrubland;
-    if (moist < 0.44) return IDX.grassland;
-    if (moist < 0.62) return IDX.plains;
-    if (moist > 0.84 && landFrac < 0.12) return IDX.marsh;
+    // temperate
+    if (moist < 0.24) return IDX.shrubland;
+    if (moist < 0.42) return IDX.grassland;
+    if (moist < 0.60) return IDX.plains;
+    if (moist > 0.85 && landFrac < 0.10) return IDX.marsh;
     return IDX.forest;
   }
 
