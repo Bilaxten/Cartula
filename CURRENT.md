@@ -36,6 +36,8 @@ Değişen tek şey projeksiyon aşaması.
 - [x] Faz 3 — voxel orbit/pan/zoom etkileşimi (varsayılan bilinçli olarak iso kaldı)
 - [x] Faz 3.5 — voxel varsayılanı, stage yaw slider'ı, gölge cilası ve kamera
       korunması (commit bekliyor)
+- [x] Faz 4.5 — per-vertex ambient occlusion, AO uyumlu quad diagonal seçimi
+      ve headless mesh denetimleri (commit bekliyor)
 - [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
 - [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
 
@@ -156,6 +158,30 @@ Q/E ease'i ve paylaşılan URL'nin açılışı tarayıcıda teyit edilmeli.
 yapılmadı. Uğur voxel kamerayı döndürüp grid-lines, height brush, slider drag,
 mouse orbit ve Q/E sırasında yerinde kaldığını tarayıcıda teyit etmeli.
 
+### Faz 4.5 teslimi (2026-09-02, commit bekliyor)
+
+- Hücre-başına, albedoya gömülü AO kaldırıldı. `buildVoxelMesh` artık her
+  bağımsız quad köşesi için `Uint8Array ao` içinde 0..3 görünürlük değeri taşır;
+  albedo malzeme olarak saf kalır ve `aAO` shader attribute'udur.
+- Üst yüz AO'su Minecraft-benzeri iki kenar + çapraz sütun kuralını kullanır.
+  Yan yüzler, sıkıştırılmış heightmap duvarının üst dikişinde dış/tanjant/çapraz
+  sütunlara aynı seviyede bakar; alt köşeler açık kalır. Quad diagonal seçimi
+  `SM.shouldFlipVoxelQuad(a00, a01, a11, a10)` ile saf ve test edilebilirdir.
+- Shader'da `AO_STRENGTH = 0.40`, en kapalı köşeyi 0.60 çarpanına indirir.
+  AO yerel formu taşıdığı için `SHADOW_GAIN` 1.28'den 1.14'e çekildi; yan-yüz
+  cast-shadow katsayısı 0.70 korunarak güneş yönü okunur kalır.
+- Doğrulandı: `bash scripts/checks.sh`, `node tools/headless.js` ve
+  `node tools/headless.js --mesh` temiz. `--mesh` AO dizisi tür/uzunluk/aralık,
+  determinism, düz-grid açıklığı, yüksek sütun duyarlılığı ve quad-flip
+  vakalarını denetliyor; üçgen sayısı **124034** kaldı.
+- 192² mesh kurma ölçümü (8 warm-up + 25 örnek): `14ea427` medyanı 23.6 ms,
+  AO sonrası medyan 28.5 ms. Bu sadece CPU mesh kurulum ölçümüdür.
+
+**Görsel doğrulanmadı:** Tarayıcı/WebGL canvas bu ortamda gözle kontrol
+edilemedi. `?renderer=voxel` altında AO'nun üst köşelerdeki koyuluğu, yüksek
+basamakların yan dikişleri, açık alandaki düz yüzlerin değişmemesi ve gün
+slider'ında cast-shadow ile AO'nun dengesi tarayıcıda kontrol edilmeli.
+
 ### Bu işin dışında, aynı session'da yapılan
 
 Depo Uğur'un ikinci beynine (`BilaxtenOS` vault) bağlandı — `AGENTS.md`, bu dosya,
@@ -193,5 +219,7 @@ onaylanmıştı; Mac'te bakılmadı. Kod aynı, risk düşük — ama "doğrulan
 
 Faz 3.5 için tarayıcı/WebGL görsel-işlevsel kontrolü: varsayılan voxel açılışı,
 `?renderer=iso`, stage yaw slider'ı, Q/E, mouse orbit, grid-lines ve edit sonrası
-kamera korunması. Ardından bu çalışma ağacı user'ın istediği checkpoint akışına
-göre commit'lenebilir; milestone kuyruğu için `TODO.md` NOW'a bak.
+kamera korunması. Aynı kontrolde Faz 4.5 AO köşe koyuluğu, basamak duvarları ve
+güneş gölgesi dengesi de teyit edilmeli. Ardından bu çalışma ağacı user'ın
+istediği checkpoint akışına göre commit'lenebilir; milestone kuyruğu için
+`TODO.md` NOW'a bak.

@@ -168,6 +168,33 @@ function runShadowChecks() {
   ];
 }
 
+function raisedColumnAffectsNeighbourAO() {
+  const W = 7, H = 7, lowLevel = 2, highX = 3, highY = 3;
+  const high = makeFlatGrid(W, H, lowLevel);
+  const westEdge = highX - W / 2;
+  const eastEdge = highX + 1 - W / 2;
+  const northEdge = highY - H / 2;
+  const southEdge = highY + 1 - H / 2;
+  const edges = [
+    [0, westEdge], [0, eastEdge], [2, northEdge], [2, southEdge]
+  ];
+
+  high.level[highY * W + highX] = 6;
+  const raisedMesh = SM.buildVoxelMesh(high);
+  for (const edge of edges) {
+    let found = false;
+    for (let i = 0; i < raisedMesh.vertexCount; i++) {
+      const p = i * 3;
+      if (raisedMesh.normals[p + 1] !== 1 ||
+          raisedMesh.positions[p + 1] !== lowLevel) continue;
+      if (raisedMesh.positions[p + edge[0]] !== edge[1]) continue;
+      if (raisedMesh.ao[i] < 3) found = true;
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
 function runMeshChecks() {
   const a = run(1337, 192, 0.38).grid;
   const t0 = performance.now();
@@ -186,7 +213,8 @@ function runMeshChecks() {
     mesh.colors,
     mesh.sideDepth,
     mesh.cellUV,
-    mesh.emissive
+    mesh.emissive,
+    mesh.ao
   ];
   const finite = attributes.every(arr => Array.prototype.every.call(arr, Number.isFinite));
   const indices = Array.prototype.every.call(mesh.indices, i => i < mesh.vertexCount);
@@ -195,6 +223,18 @@ function runMeshChecks() {
     typedEqual(mesh.colors, meshB.colors) &&
     typedEqual(mesh.cellUV, meshB.cellUV) &&
     typedEqual(mesh.emissive, meshB.emissive);
+  const aoRange = mesh.ao.length === mesh.vertexCount &&
+    Array.prototype.every.call(mesh.ao, value =>
+      value >= 0 && value <= 3 && Number.isInteger(value));
+  const aoDeterministic = typedEqual(mesh.ao, meshB.ao);
+  const flatAO = Array.prototype.every.call(
+    SM.buildVoxelMesh(makeFlatGrid(5, 4, 2)).ao,
+    value => value === 3
+  );
+  const aoResponse = raisedColumnAffectsNeighbourAO();
+  const quadFlip = SM.shouldFlipVoxelQuad(3, 1, 2, 0) &&
+    !SM.shouldFlipVoxelQuad(1, 3, 0, 2) &&
+    !SM.shouldFlipVoxelQuad(2, 2, 2, 2);
   const cellUV = mesh.cellUV.length === mesh.vertexCount * 2 &&
     Array.prototype.every.call(mesh.cellUV, uv => uv >= 0 && uv <= 1);
   const triangleCount = mesh.triangleCount === 124034;
@@ -216,6 +256,11 @@ function runMeshChecks() {
     ['index range', indices],
     ['flat-grid face culling', flat],
     ['determinism (mesh attributes)', deterministic],
+    ['AO type, length, integer range', aoRange],
+    ['AO determinism', aoDeterministic],
+    ['flat grid AO is fully open', flatAO],
+    ['raised column darkens facing neighbour corners', aoResponse],
+    ['AO quad-flip helper', quadFlip],
     ['cell UV range and length', cellUV],
     ['camera yaw, pitch, and snap helpers', cameraHelpers],
     ['clock display wraps after midnight', clockWrap],

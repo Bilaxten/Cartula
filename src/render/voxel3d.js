@@ -48,6 +48,12 @@
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
+  function shouldFlipVoxelQuad(a00, a01, a11, a10) {
+    /* AO is non-linear across a quad. Select the diagonal with the smaller
+     * opposing contrast so its two triangle interpolants meet without a seam. */
+    return a00 + a11 > a01 + a10;
+  }
+
   function buildShadowMap(grid, sun) {
     // This mirrors the iso pre-pass so both projections agree on cast shade.
     var W = grid.width;
@@ -113,6 +119,7 @@
     var depth = [];
     var cellUV = [];
     var emissive = [];
+    var ao = [];
     var indices = [];
     var minX = Infinity;
     var minY = Infinity;
@@ -127,7 +134,7 @@
     var shallow = SM.BIOME_IDX.shallow_water;
     var lava = grid.lava || [];
 
-    function addVertex(x, y, z, nx, ny, nz, c, d, cellX, cellY, glow) {
+    function addVertex(x, y, z, nx, ny, nz, c, d, cellX, cellY, glow, vertexAo) {
       // Positions preserve the raw integer level. uVScale later exaggerates Y
       // without invalidating the mesh topology.
       pos.push(x, y, z);
@@ -141,6 +148,8 @@
       cellUV.push((Math.max(0, Math.min(H - 1, cellY)) + 0.5) / H);
       // A scalar keeps lava emission independent from daylight in the shader.
       emissive.push(glow);
+      // AO remains a discrete 0..3 visibility count until fragment lighting.
+      ao.push(vertexAo);
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -158,7 +167,8 @@
       sideDepth,
       cellX,
       cellY,
-      glow
+      glow,
+      vertexAo
     ) {
       var base = pos.length / 3;
 
@@ -166,31 +176,102 @@
       addVertex(
         vertices[0], vertices[1], vertices[2],
         normal[0], normal[1], normal[2], faceColor, sideDepth[0],
-        cellX, cellY, glow
+        cellX, cellY, glow, vertexAo[0]
       );
       addVertex(
         vertices[3], vertices[4], vertices[5],
         normal[0], normal[1], normal[2], faceColor, sideDepth[1],
-        cellX, cellY, glow
+        cellX, cellY, glow, vertexAo[1]
       );
       addVertex(
         vertices[6], vertices[7], vertices[8],
         normal[0], normal[1], normal[2], faceColor, sideDepth[2],
-        cellX, cellY, glow
+        cellX, cellY, glow, vertexAo[2]
       );
       addVertex(
         vertices[9], vertices[10], vertices[11],
         normal[0], normal[1], normal[2], faceColor, sideDepth[3],
-        cellX, cellY, glow
+        cellX, cellY, glow, vertexAo[3]
       );
-      indices.push(base, base + 1, base + 2);
-      indices.push(base, base + 2, base + 3);
+      if (shouldFlipVoxelQuad(vertexAo[0], vertexAo[1], vertexAo[2], vertexAo[3])) {
+        indices.push(base, base + 1, base + 3);
+        indices.push(base + 1, base + 2, base + 3);
+      } else {
+        indices.push(base, base + 1, base + 2);
+        indices.push(base, base + 2, base + 3);
+      }
     }
 
     function levelAt(x, y) {
       // The terrain's outside is its floor, exposing an honest outer shell.
       if (x < 0 || y < 0 || x >= W || y >= H) return floorLevel;
       return level[y * W + x];
+    }
+
+    function solidAt(x, y, L) {
+      // AO treats out-of-bounds columns as air, not as the display plinth.
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      return level[y * W + x] > L;
+    }
+
+    function vertexAO(side1, side2, corner) {
+      // Two closed edges bury their shared corner regardless of the diagonal.
+      if (side1 && side2) return 0;
+      return 3 - Number(side1) - Number(side2) - Number(corner);
+    }
+
+    function topAO(x, y, L) {
+      /* Vertices are NW, SW, SE, NE. Each checks the two edge columns and
+       * the diagonal column that meet at the same top-face corner. */
+      return [
+        vertexAO(solidAt(x - 1, y, L), solidAt(x, y - 1, L),
+          solidAt(x - 1, y - 1, L)),
+        vertexAO(solidAt(x - 1, y, L), solidAt(x, y + 1, L),
+          solidAt(x - 1, y + 1, L)),
+        vertexAO(solidAt(x + 1, y, L), solidAt(x, y + 1, L),
+          solidAt(x + 1, y + 1, L)),
+        vertexAO(solidAt(x + 1, y, L), solidAt(x, y - 1, L),
+          solidAt(x + 1, y - 1, L))
+      ];
+    }
+
+    function sideVertexAO(x, y, L, outX, outY, tangentX, tangentY) {
+      /* A heightmap collapses a wall's voxel stack into one quad. At its upper
+       * seam, the outward, tangent, and outer-diagonal columns are the useful
+       * analogue of voxel neighbours; lower wall vertices remain open. */
+      return vertexAO(
+        solidAt(x + outX, y + outY, L),
+        solidAt(x + tangentX, y + tangentY, L),
+        solidAt(x + outX + tangentX, y + outY + tangentY, L)
+      );
+    }
+
+    function sideAO(x, y, L, dir) {
+      var open = 3;
+
+      // The array follows each branch's CCW vertex order: upper, lower, lower, upper.
+      if (dir === 0) {
+        return [
+          sideVertexAO(x, y, L, -1, 0, 0, -1), open, open,
+          sideVertexAO(x, y, L, -1, 0, 0, 1)
+        ];
+      }
+      if (dir === 1) {
+        return [
+          sideVertexAO(x, y, L, 1, 0, 0, 1), open, open,
+          sideVertexAO(x, y, L, 1, 0, 0, -1)
+        ];
+      }
+      if (dir === 2) {
+        return [
+          sideVertexAO(x, y, L, 0, -1, 1, 0), open, open,
+          sideVertexAO(x, y, L, 0, -1, -1, 0)
+        ];
+      }
+      return [
+        sideVertexAO(x, y, L, 0, 1, -1, 0), open, open,
+        sideVertexAO(x, y, L, 0, 1, 1, 0)
+      ];
     }
 
     function borderTop(x, y) {
@@ -208,10 +289,8 @@
       var shoreN = 0;
       var shoreDiag = 0;
       var wt;
-      var taller = 0;
       var sv;
       var topF;
-      var ao;
 
       if (grid.biome[i] === shallow) {
         // A shoreline tint preserves the water's readable shallows in 3D.
@@ -231,20 +310,13 @@
         ];
       }
 
-      // This is local ambient occlusion, intentionally separate from sunlight.
-      if (levelAt(x - 1, y) > L) taller++;
-      if (levelAt(x + 1, y) > L) taller++;
-      if (levelAt(x, y - 1) > L) taller++;
-      if (levelAt(x, y + 1) > L) taller++;
       sv = SM.biomeShade(grid, i);
       topF = grid.water[i] ? 1 : (0.90 + 0.15 * (L / maxLevel));
-      // Taller neighbours darken crowded tops before directional light is added.
-      ao = 1 - 0.06 * Math.min(3, taller);
       return {
         top: [
-          topC[0] * topF * sv * ao,
-          topC[1] * topF * sv * ao,
-          topC[2] * topF * sv * ao
+          topC[0] * topF * sv,
+          topC[1] * topF * sv,
+          topC[2] * topF * sv
         ],
         side: [c[0] * sv, c[1] * sv, c[2] * sv]
       };
@@ -264,7 +336,8 @@
         [0, 0, 0, 0],
         x,
         y,
-        glow
+        glow,
+        topAO(x, y, L)
       );
     }
 
@@ -275,6 +348,7 @@
       var z1 = z0 + 1;
       // The gradient follows the visible drop instead of the absolute altitude.
       var d = L - NL;
+      var vertexAo = sideAO(x, y, L, dir);
 
       // Each branch preserves the outward normal and matching CCW winding.
       if (dir === 0) {
@@ -285,7 +359,8 @@
           [0, d, d, 0],
           x,
           y,
-          glow
+          glow,
+          vertexAo
         );
       } else if (dir === 1) {
         addQuad(
@@ -295,7 +370,8 @@
           [0, d, d, 0],
           x,
           y,
-          glow
+          glow,
+          vertexAo
         );
       } else if (dir === 2) {
         addQuad(
@@ -305,7 +381,8 @@
           [0, d, d, 0],
           x,
           y,
-          glow
+          glow,
+          vertexAo
         );
       } else {
         addQuad(
@@ -315,7 +392,8 @@
           [0, d, d, 0],
           x,
           y,
-          glow
+          glow,
+          vertexAo
         );
       }
     }
@@ -401,7 +479,8 @@
       [0, 0, 0, 0],
       0,
       0,
-      0
+      0,
+      [3, 3, 3, 3]
     );
     void o;
     return {
@@ -411,6 +490,7 @@
       sideDepth: new Float32Array(depth),
       cellUV: new Float32Array(cellUV),
       emissive: new Float32Array(emissive),
+      ao: new Uint8Array(ao),
       indices: new Uint32Array(indices),
       vertexCount: pos.length / 3,
       triangleCount: indices.length / 3,
@@ -575,6 +655,7 @@
       'in float aSideDepth;',
       'in vec2 aCellUV;',
       'in float aEmissive;',
+      'in float aAO;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'out vec3 vNormal;',
@@ -582,6 +663,7 @@
       'out float vSideDepth;',
       'out vec2 vCellUV;',
       'out float vEmissive;',
+      'out float vAO;',
       '',
       'void main() {',
       '  vNormal = aNormal;',
@@ -589,6 +671,7 @@
       '  vSideDepth = aSideDepth;',
       '  vCellUV = aCellUV;',
       '  vEmissive = aEmissive;',
+      '  vAO = aAO;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
       '  gl_Position = uViewProjection * vec4(',
@@ -607,6 +690,7 @@
       'in float vSideDepth;',
       'in vec2 vCellUV;',
       'in float vEmissive;',
+      'in float vAO;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform sampler2D uShadowMap;',
@@ -621,14 +705,20 @@
       '  float lambert = ambient + 0.61 * daylight * ndl;',
       '  float topFace = step(0.5, vNormal.y);',
       '  float shadow = texture(uShadowMap, vCellUV).r;',
-      '  // 1.28 deepens the 0.42 daytime baseline without crushing terrain detail.',
-      '  const float SHADOW_GAIN = 1.28;',
+      '  // AO reaches 0.60 at a buried corner: distinct form without black pits.',
+      '  const float AO_STRENGTH = 0.40;',
+      '  float aoFactor = mix(1.0 - AO_STRENGTH, 1.0, vAO / 3.0);',
+      '  // AO now carries local form, so 1.14 keeps cast shadows directional.',
+      '  const float SHADOW_GAIN = 1.14;',
       '  // 0.70 gives side faces more shade while retaining readable Lambert form.',
       '  float shadowHit = mix(0.70, 1.0, topFace);',
       '  float shadowFactor = 1.0 - uSunStrength * SHADOW_GAIN * shadowHit * shadow;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
       '  vec3 emission = vColor * vEmissive * 0.65;',
-      '  outColor = vec4(vColor * lambert * gradient * shadowFactor + emission, 1.0);',
+      '  outColor = vec4(',
+      '    vColor * lambert * gradient * shadowFactor * aoFactor + emission,',
+      '    1.0',
+      '  );',
       '}'
     ].join('\n');
     // Vertex scale and fragment lighting are uniforms, not baked attributes.
@@ -682,6 +772,7 @@
     var sideDepthBuffer = gl.createBuffer();
     var cellUVBuffer = gl.createBuffer();
     var emissiveBuffer = gl.createBuffer();
+    var aoBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
@@ -691,6 +782,7 @@
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
     var cellUV = gl.getAttribLocation(program, 'aCellUV');
     var emission = gl.getAttribLocation(program, 'aEmissive');
+    var ambientOcclusion = gl.getAttribLocation(program, 'aAO');
     var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
     var verticalScale = gl.getUniformLocation(program, 'uVScale');
     var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
@@ -717,10 +809,10 @@
     gl.enable(gl.DEPTH_TEST);
     gl.bindVertexArray(vao);
 
-    function setupAttrib(buffer, location, size) {
+    function setupAttrib(buffer, location, size, type) {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(location, size, type || gl.FLOAT, false, 0, 0);
     }
 
     setupAttrib(positionBuffer, position, 3);
@@ -729,6 +821,7 @@
     setupAttrib(sideDepthBuffer, sideDepth, 1);
     setupAttrib(cellUVBuffer, cellUV, 2);
     setupAttrib(emissiveBuffer, emission, 1);
+    setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -828,6 +921,8 @@
       gl.bufferData(gl.ARRAY_BUFFER, mesh.cellUV, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, emissiveBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.emissive, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, aoBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.ao, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
@@ -957,6 +1052,7 @@
       gl.deleteBuffer(sideDepthBuffer);
       gl.deleteBuffer(cellUVBuffer);
       gl.deleteBuffer(emissiveBuffer);
+      gl.deleteBuffer(aoBuffer);
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       gl.deleteVertexArray(vao);
@@ -980,6 +1076,7 @@
 
   SM.buildVoxelMesh = buildVoxelMesh;
   SM.buildShadowMap = buildShadowMap;
+  SM.shouldFlipVoxelQuad = shouldFlipVoxelQuad;
   SM.VoxelCamera = {
     wrapYaw: wrapYaw,
     clampPitch: clampPitch,
