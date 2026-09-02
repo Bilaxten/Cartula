@@ -11,12 +11,62 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ## Şu anki görev
 
-Aktif kodlama görevi yok. Son iş kapandı ve commit'lendi.
+**İso 2D → WebGL voxel 3D ikamesi.** Beş fazlık iş, Faz 0 bitti.
 
-Bu session'da yapılan şey koda değil **altyapıya** dokundu: depo Uğur'un ikinci
-beynine (`BilaxtenOS` vault) bağlandı — `AGENTS.md`, bu dosya, `TODO.md`,
-`.claude/` hook'ları ve skill'leri, `scripts/sync.sh` + `scripts/checks.sh`
-eklendi. Öncesinde bu depoda hiç ajan sözleşmesi yoktu: session'lar iz bırakmıyordu.
+Neden: `iso.js` rotasyonu yalnızca 90°'lik dört adım verebiliyor ve her adım tam
+bir yeniden bake — projeksiyon piksellere gömülü olduğu için kamera açısı
+bitmap'in içinde donuyor. Uğur kasmasız 360° istedi. WebGL'de geometri dünya
+uzayında durur, kamera bir matristir → rotasyon kare başına bir matris çarpımı.
+
+**Karar: ikame, üçüncü görünüm değil.** Son hâl iki görünüm — `top` (2D, aynen
+kalır) + 3D voxel (`iso`'nun yerine). Ortho projeksiyon (iso karakterini korur),
+varsayılan kamera bugünkü görünümü birebir üretecek (pitch 30° = 2:1 diamond'ın
+karşılığı, yaw 45°).
+
+**Üretim hattı hiç değişmiyor** — `grid.level` zaten işaretli ayrık voxel kademesi.
+Değişen tek şey projeksiyon aşaması.
+
+### Faz durumu
+
+- [x] **Faz 0 — iskele.** `src/render/voxel3d.js`: WebGL2 context, ortho orbit
+      kamera, mat4 yardımcıları (bağımlılık yok). `#gl` canvas'ı, opt-in yol.
+- [ ] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme ← **sıradaki**
+- [ ] Faz 2 — cast shadow + gün döngüsü paritesi
+- [ ] Faz 3 — orbit/pan/zoom etkileşimi, varsayılanın çevrilmesi
+- [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
+- [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
+
+### ⚠️ Geçiş güvenliği: varsayılan HÂLÂ iso
+
+`?renderer=voxel` yeni yola **opt-in** girer; parametresiz açılışta eski iso
+yolu çalışır ve hiçbir davranış değişmez. Bu bilinçli — uygulama hiçbir fazda
+kırık görünmesin diye. **Varsayılan Faz 3 bitince çevrilecek**, `iso.js` Faz 5'te
+silinecek. Plan `?renderer=iso` kaçış kapısı diyordu; erken fazlarda tersi
+daha güvenli olduğu için ters çevrildi.
+
+### Faz 0'da doğrulananlar
+
+- `mat4Ortho` / `mat4LookAt` / `mat4Multiply` glMatrix ile birebir; çarpım sırası
+  `projection * view` doğru, aspect düzeltmesi doğru (satır satır okundu)
+- `scripts/checks.sh` temiz (9 JS, `window.SM` sözleşmesi dahil)
+- `node tools/headless.js` temiz — üretim hattında regresyon yok
+- Varsayılan yol el değmemiş: `isVoxelMode()` parametresiz her zaman `false`
+
+**Doğrulanmadı:** WebGL canvas'ının tarayıcıdaki görüntüsü. Faz 0 sahnesi yalnızca
+geçici referans geometrisi (renkli eksenler + 10×10 tel-kafes ızgara), Faz 1'de
+silinecek. `?renderer=voxel` ile açıp orbit'in döndüğünü gözle görmek gerekiyor.
+
+### Faz 1'e taşınan bilinen borç
+
+- `render()` içinde `distance = 100` ve ortho `near/far = -200..200` sabit —
+  gerçek harita (192²) geldiğinde kırpar, harita sınırlarına göre ölçeklenmeli
+- Vertex attribute'ları her karede bağlanıyor; gerçek mesh gelince VAO'ya geçilmeli
+
+### Bu işin dışında, aynı session'da yapılan
+
+Depo Uğur'un ikinci beynine (`BilaxtenOS` vault) bağlandı — `AGENTS.md`, bu dosya,
+`TODO.md`, `.claude/` hook'ları ve skill'leri, `scripts/sync.sh` +
+`scripts/checks.sh`. Öncesinde hiç ajan sözleşmesi yoktu: session'lar iz bırakmıyordu.
 
 ## Nerede kalındı
 

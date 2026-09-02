@@ -4,8 +4,11 @@
 (function (SM) {
   'use strict';
 
+  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'voxel' ? 'voxel' : 'iso';
+
   var $ = function (id) { return document.getElementById(id); };
   var map = $('map');
+  var glCanvas = $('gl');
   var stage = $('stage');
   var hoverEl = $('hover');
 
@@ -27,6 +30,9 @@
 
   var anim = null; // live overlay animation state
   var camRot = 0;  // iso view rotation, 0..3 quarter turns
+  var voxelRenderer = null;
+  var voxelAnim = 0;
+  var voxelUnavailable = false;
 
   // A rotated *view* of the grid for the iso bake — the real grid is never
   // mutated. The iso projection can't be spun with a CSS transform (it would
@@ -160,6 +166,57 @@
     if (anim) { cancelAnimationFrame(anim.raf); anim = null; }
     var fx = $('riverfx');
     if (fx.width) fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
+  }
+
+  function isVoxelMode() {
+    return view === 'iso' && RENDERER === 'voxel' && !voxelUnavailable;
+  }
+
+  function resizeVoxel() {
+    if (!voxelRenderer) return;
+    voxelRenderer.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
+  }
+
+  function stopVoxel() {
+    if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
+    glCanvas.hidden = true;
+    map.hidden = false;
+    $('riverfx').hidden = false;
+    $('daynight').hidden = false;
+    $('isohint').textContent = 'drag to pan \u00b7 scroll to zoom';
+  }
+
+  function startVoxel() {
+    if (!SM.Voxel3D || !SM.Voxel3D.isSupported()) {
+      if (!voxelUnavailable) console.warn('WebGL2 is unavailable; falling back to the isometric renderer.');
+      voxelUnavailable = true;
+      return false;
+    }
+    if (!voxelRenderer) {
+      voxelRenderer = SM.Voxel3D.create(glCanvas);
+      if (!voxelRenderer) {
+        console.warn('WebGL2 context creation failed; falling back to the isometric renderer.');
+        voxelUnavailable = true;
+        return false;
+      }
+      voxelRenderer.setClearColor(0.055, 0.075, 0.11, 1);
+    }
+    map.hidden = true;
+    $('riverfx').hidden = true;
+    $('daynight').hidden = true;
+    glCanvas.hidden = false;
+    $('isohint').textContent = 'Faz 0: reference grid \u2014 camera controls land in Faz 3';
+    resizeVoxel();
+    if (voxelAnim) return true;
+    var started = performance.now();
+    function frame(now) {
+      var seconds = (now - started) / 1000;
+      voxelRenderer.setCamera({ yaw: 35 + seconds * 10, pitch: 42, zoom: 9, tx: 0, ty: 0, tz: 0 });
+      voxelRenderer.render();
+      voxelAnim = requestAnimationFrame(frame);
+    }
+    voxelAnim = requestAnimationFrame(frame);
+    return true;
   }
 
   function animHash(x, y) {
@@ -674,6 +731,10 @@
 
   function refresh(refit) {
     if (!grid) return;
+    if (isVoxelMode()) {
+      if (startVoxel()) return;
+    }
+    stopVoxel();
     isoJustBaked = false;
     drawContent();
     if (refit || content.width !== lastW || content.height !== lastH) fitCam();
@@ -705,7 +766,7 @@
   }
 
   function rotateView(dir) {
-    if (view !== 'iso' || !grid) return;
+    if (view !== 'iso' || !grid || isVoxelMode()) return;
     camRot = (camRot + dir + 4) % 4;
     $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
     var hit = rotCache[camRot];
@@ -1134,7 +1195,7 @@
     stage.classList.remove('dragging');
   }
   function onWheel(ev) {
-    if (!content) return;
+    if (isVoxelMode() || !content) return;
     ev.preventDefault();
     var rect = stage.getBoundingClientRect();
     var mx = ev.clientX - rect.left;
@@ -1186,6 +1247,10 @@
   }
 
   function exportPng() {
+    if (isVoxelMode()) {
+      console.warn('PNG export is not available in the WebGL view yet (Faz 5).');
+      return;
+    }
     var out = document.createElement('canvas');
     out.width = map.width; out.height = map.height;
     var octx = out.getContext('2d');
@@ -1239,7 +1304,14 @@
   $('rotR').addEventListener('click', function () { rotateView(1); });
   $('exportPng').addEventListener('click', exportPng);
   $('shareLink').addEventListener('click', shareLink);
-  window.addEventListener('resize', function () { if (grid) applyCam(); });
+  window.addEventListener('resize', function () {
+    if (isVoxelMode()) resizeVoxel();
+    else if (grid) applyCam();
+  });
+  window.addEventListener('pagehide', function () {
+    if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
+    if (voxelRenderer) voxelRenderer.dispose();
+  });
 
   map.addEventListener('mousemove', onHover);
   stage.addEventListener('mouseleave', function () {
