@@ -197,6 +197,13 @@ function runMeshChecks() {
   const cellUV = mesh.cellUV.length === mesh.vertexCount * 2 &&
     Array.prototype.every.call(mesh.cellUV, uv => uv >= 0 && uv <= 1);
   const triangleCount = mesh.triangleCount === 124034;
+  const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
+    SM.VoxelCamera.wrapYaw(400) === 40 &&
+    SM.VoxelCamera.clampPitch(5) === 10 &&
+    SM.VoxelCamera.clampPitch(95) === 89 &&
+    SM.VoxelCamera.snapYaw(47) === 90 &&
+    SM.VoxelCamera.snapYaw(44) === 0 &&
+    SM.VoxelCamera.snapYaw(316) === 270;
   const shadowChecks = runShadowChecks();
   const quads = mesh.triangleCount / 2;
   const perCell = quads / (a.width * a.height);
@@ -206,6 +213,7 @@ function runMeshChecks() {
     ['flat-grid face culling', flat],
     ['determinism (mesh attributes)', deterministic],
     ['cell UV range and length', cellUV],
+    ['camera yaw, pitch, and snap helpers', cameraHelpers],
     ['triangle count (Faz 1 baseline)', triangleCount]
   ].concat(shadowChecks);
   console.log('voxel mesh checks (seed 1337, 192²):');

@@ -4,7 +4,9 @@
 (function (SM) {
   'use strict';
 
-  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'voxel' ? 'voxel' : 'iso';
+  // Faz 3: flip this default to 'voxel' once the WebGL view is visually approved.
+  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'voxel'
+    ? 'voxel' : 'iso';
 
   var $ = function (id) { return document.getElementById(id); };
   var map = $('map');
@@ -34,6 +36,9 @@
   var voxelMesh = null;
   var voxelCamera = null;
   var voxelAnim = 0;
+  var voxelDirty = false;
+  var voxelSnap = null;
+  var voxelCameraQuery = null;
   var voxelUnavailable = false;
 
   // A rotated *view* of the grid for the iso bake — the real grid is never
@@ -178,15 +183,86 @@
   function resizeVoxel() {
     if (!voxelRenderer) return;
     voxelRenderer.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
+    requestVoxelRender();
   }
 
   function stopVoxel() {
     if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
+    voxelDirty = false;
+    voxelSnap = null;
     glCanvas.hidden = true;
     map.hidden = false;
     $('riverfx').hidden = false;
     $('daynight').hidden = false;
     $('isohint').textContent = 'drag to pan \u00b7 scroll to zoom';
+    updateRotationLabel();
+  }
+
+  function updateRotationLabel() {
+    var yaw;
+
+    if (isVoxelMode() && voxelCamera) {
+      yaw = SM.VoxelCamera.wrapYaw(voxelCamera.yaw);
+      $('rotVal').textContent = String(Math.round(yaw)).padStart(3, '0') + '°';
+      return;
+    }
+    $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
+  }
+
+  function requestVoxelRender() {
+    if (!voxelRenderer || !isVoxelMode()) return;
+    voxelDirty = true;
+    if (!voxelAnim) voxelAnim = requestAnimationFrame(renderVoxelFrame);
+  }
+
+  function renderVoxelFrame(now) {
+    var elapsed;
+    var eased;
+    var delta;
+
+    voxelAnim = 0;
+    if (!voxelRenderer || !isVoxelMode()) return;
+    if (voxelSnap) {
+      elapsed = Math.min(1, (now - voxelSnap.started) / 220);
+      eased = 1 - Math.pow(1 - elapsed, 3);
+      delta = ((voxelSnap.target - voxelSnap.yaw + 540) % 360) - 180;
+      voxelCamera.yaw = SM.VoxelCamera.wrapYaw(voxelSnap.yaw + delta * eased);
+      voxelRenderer.setCamera(voxelCamera);
+      updateRotationLabel();
+      voxelDirty = true;
+      if (elapsed === 1) voxelSnap = null;
+    }
+    if (!voxelDirty) return;
+    voxelDirty = false;
+    voxelRenderer.render();
+    if (voxelSnap) requestVoxelRender();
+  }
+
+  function setVoxelCamera(next) {
+    if (!voxelRenderer || !voxelCamera) return;
+    voxelCamera.yaw = SM.VoxelCamera.wrapYaw(next.yaw);
+    voxelCamera.pitch = SM.VoxelCamera.clampPitch(next.pitch);
+    voxelCamera.zoom = Math.max(1, Math.min(1000, next.zoom));
+    voxelCamera.tx = next.tx;
+    voxelCamera.ty = next.ty;
+    voxelCamera.tz = next.tz;
+    voxelRenderer.setCamera(voxelCamera);
+    updateRotationLabel();
+    requestVoxelRender();
+  }
+
+  function snapVoxelCamera(dir) {
+    var target;
+
+    if (!isVoxelMode() || !voxelCamera) return;
+    target = SM.VoxelCamera.snapYaw(voxelCamera.yaw);
+    target = SM.VoxelCamera.wrapYaw(target + dir * 90);
+    voxelSnap = {
+      yaw: voxelCamera.yaw,
+      target: target,
+      started: performance.now()
+    };
+    requestVoxelRender();
   }
 
   function startVoxel() {
@@ -208,19 +284,10 @@
     $('riverfx').hidden = true;
     $('daynight').hidden = false;
     glCanvas.hidden = false;
-    $('isohint').textContent = 'Faz 2: sun + shadows \u2014 camera controls land in Faz 3';
+    $('isohint').textContent =
+      'drag to orbit \u00b7 shift+drag to pan \u00b7 scroll to zoom \u00b7 Q/E snap';
     resizeVoxel();
-    if (voxelAnim) return true;
-    var started = performance.now();
-    function frame(now) {
-      var seconds = (now - started) / 1000;
-      var c = voxelCamera || { yaw: 35, pitch: 42, zoom: 9, tx: 0, ty: 0, tz: 0 };
-      voxelRenderer.setCamera({ yaw: c.yaw + seconds * 10, pitch: c.pitch,
-        zoom: c.zoom, tx: c.tx, ty: c.ty, tz: c.tz });
-      voxelRenderer.render();
-      voxelAnim = requestAnimationFrame(frame);
-    }
-    voxelAnim = requestAnimationFrame(frame);
+    updateRotationLabel();
     return true;
   }
 
@@ -231,6 +298,15 @@
     updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);
     voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
+    if (voxelCameraQuery) {
+      voxelCamera.yaw = voxelCameraQuery.yaw;
+      voxelCamera.pitch = voxelCameraQuery.pitch;
+      voxelCamera.zoom = voxelCameraQuery.zoom;
+      voxelCameraQuery = null;
+      voxelRenderer.setCamera(voxelCamera);
+    }
+    updateRotationLabel();
+    requestVoxelRender();
   }
 
   function updateVoxelSun() {
@@ -240,6 +316,7 @@
     sun = sunModel(parseFloat($('sun').value)).iso;
     voxelRenderer.setSun(sun);
     voxelRenderer.setShadowMap(SM.buildShadowMap(grid, sun), grid.width, grid.height);
+    requestVoxelRender();
   }
 
   function animHash(x, y) {
@@ -792,9 +869,13 @@
   }
 
   function rotateView(dir) {
-    if (view !== 'iso' || !grid || isVoxelMode()) return;
+    if (view !== 'iso' || !grid) return;
+    if (isVoxelMode()) {
+      snapVoxelCamera(dir);
+      return;
+    }
     camRot = (camRot + dir + 4) % 4;
-    $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
+    updateRotationLabel();
     var hit = rotCache[camRot];
     if (hit) {
       // instant: blit the pre-baked canvas onto #map, swap in its content
@@ -1176,8 +1257,15 @@
       ' · ' + Math.round(-8 + grid.temperature[i] * 42) + '°C';
   }
 
-  // --- camera drag / wheel (both views) ---
+  // --- camera drag / wheel ---
   function onDown(ev) {
+    if (isVoxelMode()) {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      drag = { x: ev.clientX, y: ev.clientY, voxel: true, pan: ev.shiftKey };
+      stage.classList.add('dragging');
+      return;
+    }
     if (ev.button === 0 && view === 'top' && grid && $('editTool').value !== 'pan') {
       var tile = eventTile(ev);
       if (!tile) return;
@@ -1209,6 +1297,42 @@
       return;
     }
     if (!drag) return;
+    if (drag.voxel) {
+      var dx = ev.clientX - drag.x;
+      var dy = ev.clientY - drag.y;
+
+      drag.x = ev.clientX;
+      drag.y = ev.clientY;
+      voxelSnap = null;
+      if (drag.pan) {
+        var pan = SM.VoxelCamera.panVector(
+          voxelCamera.yaw,
+          voxelCamera.pitch,
+          voxelCamera.zoom,
+          stage.clientWidth,
+          dx,
+          dy
+        );
+        setVoxelCamera({
+          yaw: voxelCamera.yaw,
+          pitch: voxelCamera.pitch,
+          zoom: voxelCamera.zoom,
+          tx: voxelCamera.tx + pan.x,
+          ty: voxelCamera.ty,
+          tz: voxelCamera.tz + pan.z
+        });
+      } else {
+        setVoxelCamera({
+          yaw: voxelCamera.yaw + dx * 360 / Math.max(1, stage.clientWidth),
+          pitch: voxelCamera.pitch - dy * 180 / Math.max(1, stage.clientHeight),
+          zoom: voxelCamera.zoom,
+          tx: voxelCamera.tx,
+          ty: voxelCamera.ty,
+          tz: voxelCamera.tz
+        });
+      }
+      return;
+    }
     cam.x += ev.clientX - drag.x;
     cam.y += ev.clientY - drag.y;
     drag.x = ev.clientX;
@@ -1221,7 +1345,20 @@
     stage.classList.remove('dragging');
   }
   function onWheel(ev) {
-    if (isVoxelMode() || !content) return;
+    if (isVoxelMode() && voxelCamera) {
+      ev.preventDefault();
+      voxelSnap = null;
+      setVoxelCamera({
+        yaw: voxelCamera.yaw,
+        pitch: voxelCamera.pitch,
+        zoom: voxelCamera.zoom * (ev.deltaY < 0 ? 1 / 1.12 : 1.12),
+        tx: voxelCamera.tx,
+        ty: voxelCamera.ty,
+        tz: voxelCamera.tz
+      });
+      return;
+    }
+    if (!content) return;
     ev.preventDefault();
     var rect = stage.getBoundingClientRect();
     var mx = ev.clientX - rect.left;
@@ -1244,14 +1381,22 @@
   }
 
   var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
-    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun'];
+    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'yaw',
+    'pitch', 'zoom'];
 
   function applyQueryString() {
     if (!location.search) return;
     var q = new URLSearchParams(location.search);
     QS_KEYS.forEach(function (id) {
-      if (q.has(id)) $(id).value = q.get(id);
+      if (q.has(id) && $(id)) $(id).value = q.get(id);
     });
+    if (RENDERER === 'voxel' && q.has('yaw') && q.has('pitch') && q.has('zoom')) {
+      voxelCameraQuery = {
+        yaw: SM.VoxelCamera.wrapYaw(q.get('yaw')),
+        pitch: SM.VoxelCamera.clampPitch(q.get('pitch')),
+        zoom: Math.max(1, Math.min(1000, +q.get('zoom')))
+      };
+    }
     if (q.get('view') === 'iso' || RENDERER === 'voxel') {
       view = 'iso';
       $('viewTop').classList.remove('active');
@@ -1262,8 +1407,16 @@
 
   function shareLink() {
     var q = new URLSearchParams();
-    QS_KEYS.forEach(function (id) { q.set(id, $(id).value); });
+    QS_KEYS.forEach(function (id) {
+      if ($(id)) q.set(id, $(id).value);
+    });
     q.set('view', view);
+    if (isVoxelMode() && voxelCamera) {
+      q.set('renderer', 'voxel');
+      q.set('yaw', SM.VoxelCamera.wrapYaw(voxelCamera.yaw).toFixed(2));
+      q.set('pitch', voxelCamera.pitch.toFixed(2));
+      q.set('zoom', voxelCamera.zoom.toFixed(2));
+    }
     var url = location.origin + location.pathname + '?' + q.toString();
     var btn = $('shareLink'), old = btn.textContent;
     function done(txt) { btn.textContent = txt; btn.classList.add('ok');
@@ -1308,6 +1461,8 @@
     if (isVoxelMode() && voxelRenderer && voxelMesh) {
       voxelRenderer.setVerticalScale(isoExag());
       voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
+      updateRotationLabel();
+      requestVoxelRender();
     } else refresh(true);
   });
   $('sun').addEventListener('input', function () {
@@ -1353,6 +1508,7 @@
     hideBrushCursor();
   });
   map.addEventListener('mousedown', onDown);
+  glCanvas.addEventListener('mousedown', onDown);
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
   window.addEventListener('keydown', function (ev) {

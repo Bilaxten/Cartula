@@ -6,6 +6,42 @@
   // A neutral rim makes the generated island read as a finished diorama.
   var BORD = [70, 80, 92];
 
+  function wrapYaw(yaw) {
+    // A compact 0..359 range keeps camera state and shared links canonical.
+    return ((+yaw % 360) + 360) % 360;
+  }
+
+  function clampPitch(pitch) {
+    // Near-horizontal views are unstable, while 90 degrees loses the horizon.
+    return Math.max(10, Math.min(89, +pitch));
+  }
+
+  function snapYaw(yaw) {
+    var angle = wrapYaw(yaw);
+
+    /* 360 degrees is the same pose as zero. Keeping the final sector at 270
+     * avoids a duplicate cardinal stop while Q/E supplies the travel direction. */
+    return Math.min(270, Math.round(angle / 90) * 90);
+  }
+
+  function panVector(yaw, pitch, zoom, screenWidth, deltaX, deltaY) {
+    var yawRad = wrapYaw(yaw) * Math.PI / 180;
+    var pitchRad = clampPitch(pitch) * Math.PI / 180;
+    var worldPerPixel = 2 * Math.max(0.01, +zoom) /
+      Math.max(1, +screenWidth);
+    var rightX = Math.sin(yawRad);
+    var rightZ = -Math.cos(yawRad);
+    var downX = Math.cos(yawRad) * Math.sin(pitchRad);
+    var downZ = Math.sin(yawRad) * Math.sin(pitchRad);
+
+    /* Moving the target opposite the drag makes the terrain follow the cursor.
+     * Vertical screen motion uses the camera plane projected onto the XZ ground. */
+    return {
+      x: -(deltaX * rightX + deltaY * downX) * worldPerPixel,
+      z: -(deltaX * rightZ + deltaY * downZ) * worldPerPixel
+    };
+  }
+
   function hexToRgb(hex) {
     // CSS palette strings are converted before entering the GPU's float range.
     var n = parseInt(hex.slice(1), 16);
@@ -723,8 +759,8 @@
     function setCamera(cam) {
       if (!cam) return;
       // Clamp the public orbit range before its trigonometry reaches render.
-      camera.yaw = ((+cam.yaw % 360) + 360) % 360;
-      camera.pitch = Math.max(10, Math.min(89, +cam.pitch));
+      camera.yaw = wrapYaw(cam.yaw);
+      camera.pitch = clampPitch(cam.pitch);
       camera.zoom = Math.max(0.01, +cam.zoom);
       camera.tx = +cam.tx || 0;
       camera.ty = +cam.ty || 0;
@@ -941,5 +977,11 @@
 
   SM.buildVoxelMesh = buildVoxelMesh;
   SM.buildShadowMap = buildShadowMap;
+  SM.VoxelCamera = {
+    wrapYaw: wrapYaw,
+    clampPitch: clampPitch,
+    snapYaw: snapYaw,
+    panVector: panVector
+  };
   SM.Voxel3D = { isSupported: isSupported, create: create };
 })(window.SM = window.SM || {});

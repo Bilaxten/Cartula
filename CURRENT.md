@@ -33,7 +33,7 @@ Değişen tek şey projeksiyon aşaması.
       kamera, mat4 yardımcıları (bağımlılık yok). `#gl` canvas'ı, opt-in yol.
 - [x] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme
 - [x] Faz 2 — cast shadow + gün döngüsü paritesi (commit bekliyor)
-- [ ] Faz 3 — orbit/pan/zoom etkileşimi, varsayılanın çevrilmesi
+- [x] Faz 3 — voxel orbit/pan/zoom etkileşimi (varsayılan bilinçli olarak iso kaldı)
 - [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
 - [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
 
@@ -110,6 +110,28 @@ tüm orbit açıları ve slider tepkisi tarayıcıda bakılmalı.
 **Görsel doğrulanmadı:** Tarayıcı/WebGL canvas gözle kontrol edilmedi. Özellikle
 `?renderer=voxel` altında gece lav parlaklığı, alçak güneş gölge yönü ve renk
 yıkaması tarayıcıda teyit edilmeli.
+
+### Faz 3 teslimi (2026-09-02, commit bekliyor)
+
+- Voxel görünümünde otomatik dönüş kaldırıldı. Sol sürükleme orbit, Shift+sol
+  sürükleme kamera hedefini yaw'a göre pan eder, tekerlek ortografik zoom yapar.
+  Q/E ve panel düğmeleri kısa ease ile yönlü 90 derece snap uygular.
+- Sürekli RAF yok: yalnızca mesh/gölge/slider güncellemesi, yeniden boyutlandırma,
+  fare kamerası ve snap geçişi bir kare ister. `#rotVal` voxel'de gerçek üç haneli
+  dereceyi gösterir; top-down/klasik iso N/E/S/W davranışı değişmedi.
+- Paylaşım bağlantısı voxel görünümünde `renderer=voxel` ile `yaw`, `pitch` ve
+  `zoom` değerlerini taşır. Varsayılan renderer **iso** kaldı; `RENDERER` yanında
+  gelecekteki tek satırlık flip için açık Faz 3 notu var.
+- Saf `SM.VoxelCamera` yardımcıları (`yaw` sarması, `pitch` clamp, snap, pan
+  vektörü) eklendi; `node tools/headless.js --mesh` istenen sarmalama/clamp/snap
+  örneklerini denetliyor. Geometri tabanı değişmedi: **124034 üçgen**.
+
+Doğrulandı: `bash scripts/checks.sh`, `node tools/headless.js` ve
+`node tools/headless.js --mesh` temiz.
+
+**Görsel/etkileşim doğrulanmadı:** Bu ortamda tarayıcı/WebGL canvas gözle kontrol
+edilemedi. `?renderer=voxel` altında orbit yönü, Shift-pan yönü, zoom sınırları,
+Q/E ease'i ve paylaşılan URL'nin açılışı tarayıcıda teyit edilmeli.
 
 ### Bu işin dışında, aynı session'da yapılan
 
