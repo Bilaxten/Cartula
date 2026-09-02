@@ -3,6 +3,7 @@
  *
  *   node tools/headless.js [seed] [size] [seaLevel]
  *   node tools/headless.js --sweep      # sea-level sweep, island-count check
+ *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
  */
 'use strict';
 const fs = require('fs');
@@ -14,7 +15,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'render/topdown.js', 'render/iso.js']) {
+                 'render/topdown.js', 'render/iso.js', 'render/voxel3d.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // strip canvas-only renderers of their getContext calls is unnecessary — we
   // just never call renderIso/renderTopDown here.
@@ -100,7 +101,65 @@ function run(seed, size, sea) {
   };
 }
 
-if (process.argv[2] === '--sweep') {
+function typedEqual(a, b) {
+  return a.byteLength === b.byteLength &&
+    Buffer.from(a.buffer, a.byteOffset, a.byteLength)
+      .equals(Buffer.from(b.buffer, b.byteOffset, b.byteLength));
+}
+
+function flatMeshCheck() {
+  const W = 5, H = 4, n = W * H;
+  const level = new Int8Array(n);
+  const water = new Uint8Array(n);
+  const biome = new Uint8Array(n);
+  const moisture = new Float32Array(n);
+  const elevation = new Float32Array(n);
+  level.fill(2);
+  biome.fill(SM.BIOME_IDX.grassland);
+  moisture.fill(0.5);
+  elevation.fill(0.5);
+  const mesh = SM.buildVoxelMesh({
+    width: W, height: H, level, water, biome, moisture, elevation,
+    config: { waterDepth: 3, levels: 10 }
+  });
+  // Terrain: WH tops + its perimeter walls. Border: its top ring + exterior
+  // base walls. The flat interior consequently contributes no side quads.
+  const expectedQuads = W * H + (2 * W + 2 * H) +
+    (2 * W + 2 * H + 4) + (2 * W + 2 * H + 8) + 1;
+  return mesh.triangleCount === expectedQuads * 2;
+}
+
+function runMeshChecks() {
+  const a = run(1337, 192, 0.38).grid;
+  const t0 = performance.now();
+  const mesh = SM.buildVoxelMesh(a);
+  const buildMs = performance.now() - t0;
+  const b = run(1337, 192, 0.38).grid;
+  const meshB = SM.buildVoxelMesh(b);
+  const attributes = [mesh.positions, mesh.normals, mesh.colors, mesh.sideDepth];
+  const finite = attributes.every(arr => Array.prototype.every.call(arr, Number.isFinite));
+  const indices = Array.prototype.every.call(mesh.indices, i => i < mesh.vertexCount);
+  const flat = flatMeshCheck();
+  const deterministic = typedEqual(mesh.positions, meshB.positions) &&
+    typedEqual(mesh.colors, meshB.colors);
+  const quads = mesh.triangleCount / 2;
+  const perCell = quads / (a.width * a.height);
+  const results = [
+    ['finite attributes', finite],
+    ['index range', indices],
+    ['flat-grid face culling', flat],
+    ['determinism (positions/colors)', deterministic]
+  ];
+  console.log('voxel mesh checks (seed 1337, 192²):');
+  for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+  console.log(`  mesh: ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles, ${buildMs.toFixed(1)} ms`);
+  console.log(`  density: ${quads} quads, ${perCell.toFixed(3)} quads/cell`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--mesh') {
+  runMeshChecks();
+} else if (process.argv[2] === '--sweep') {
   console.log('sea-level sweep (seed 1337, 192²) — island count should fall, not fragment:');
   for (const sea of [0.15, 0.25, 0.35, 0.45, 0.55, 0.62, 0.70]) {
     const r = run(1337, 192, sea);

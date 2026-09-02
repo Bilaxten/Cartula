@@ -31,6 +31,8 @@
   var anim = null; // live overlay animation state
   var camRot = 0;  // iso view rotation, 0..3 quarter turns
   var voxelRenderer = null;
+  var voxelMesh = null;
+  var voxelCamera = null;
   var voxelAnim = 0;
   var voxelUnavailable = false;
 
@@ -205,18 +207,29 @@
     $('riverfx').hidden = true;
     $('daynight').hidden = true;
     glCanvas.hidden = false;
-    $('isohint').textContent = 'Faz 0: reference grid \u2014 camera controls land in Faz 3';
+    $('isohint').textContent = 'Faz 1: terrain mesh \u2014 camera controls land in Faz 3';
     resizeVoxel();
     if (voxelAnim) return true;
     var started = performance.now();
     function frame(now) {
       var seconds = (now - started) / 1000;
-      voxelRenderer.setCamera({ yaw: 35 + seconds * 10, pitch: 42, zoom: 9, tx: 0, ty: 0, tz: 0 });
+      var c = voxelCamera || { yaw: 35, pitch: 42, zoom: 9, tx: 0, ty: 0, tz: 0 };
+      voxelRenderer.setCamera({ yaw: c.yaw + seconds * 10, pitch: c.pitch,
+        zoom: c.zoom, tx: c.tx, ty: c.ty, tz: c.tz });
       voxelRenderer.render();
       voxelAnim = requestAnimationFrame(frame);
     }
     voxelAnim = requestAnimationFrame(frame);
     return true;
+  }
+
+  function rebuildVoxelMesh() {
+    if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
+    voxelMesh = SM.buildVoxelMesh(grid);
+    voxelRenderer.setVerticalScale(isoExag());
+    voxelRenderer.setSun(sunModel(parseFloat($('sun').value)).iso);
+    voxelRenderer.setMesh(voxelMesh);
+    voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
   }
 
   function animHash(x, y) {
@@ -732,7 +745,10 @@
   function refresh(refit) {
     if (!grid) return;
     if (isVoxelMode()) {
-      if (startVoxel()) return;
+      if (startVoxel()) {
+        rebuildVoxelMesh();
+        return;
+      }
     }
     stopVoxel();
     isoJustBaked = false;
@@ -1226,7 +1242,7 @@
     QS_KEYS.forEach(function (id) {
       if (q.has(id)) $(id).value = q.get(id);
     });
-    if (q.get('view') === 'iso') {
+    if (q.get('view') === 'iso' || RENDERER === 'voxel') {
       view = 'iso';
       $('viewTop').classList.remove('active');
       $('viewIso').classList.add('active');
@@ -1278,10 +1294,17 @@
   });
   ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias', 'rivers']
     .forEach(function (id) { $(id).addEventListener('change', regenerate); });
-  $('isoexag').addEventListener('change', function () { refresh(true); });
+  $('isoexag').addEventListener('change', function () {
+    if (isVoxelMode() && voxelRenderer && voxelMesh) {
+      voxelRenderer.setVerticalScale(isoExag());
+      voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
+    } else refresh(true);
+  });
   $('sun').addEventListener('input', applyDayNight);
   $('sun').addEventListener('change', function () {
-    if (view === 'iso') refresh(false);   // re-bake the shadows
+    if (isVoxelMode() && voxelRenderer) {
+      voxelRenderer.setSun(sunModel(parseFloat($('sun').value)).iso);
+    } else if (view === 'iso') refresh(false);   // re-bake the shadows
     applyDayNight();
   });
 

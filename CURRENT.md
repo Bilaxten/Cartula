@@ -7,11 +7,13 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 **Güncellendi:** 2026-09-02
 **Dal:** `master`
-**Çalışma alanı:** temiz
+**Çalışma alanı:** temiz. Faz 1 düzeltme turu da
+commitlenmedi.
 
 ## Şu anki görev
 
-**İso 2D → WebGL voxel 3D ikamesi.** Beş fazlık iş, Faz 0 bitti.
+**İso 2D → WebGL voxel 3D ikamesi.** Beş fazlık iş; Faz 0 ve Faz 1 bitti ve
+commit'lendi.
 
 Neden: `iso.js` rotasyonu yalnızca 90°'lik dört adım verebiliyor ve her adım tam
 bir yeniden bake — projeksiyon piksellere gömülü olduğu için kamera açısı
@@ -30,7 +32,7 @@ Değişen tek şey projeksiyon aşaması.
 
 - [x] **Faz 0 — iskele.** `src/render/voxel3d.js`: WebGL2 context, ortho orbit
       kamera, mat4 yardımcıları (bağımlılık yok). `#gl` canvas'ı, opt-in yol.
-- [ ] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme ← **sıradaki**
+- [x] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme
 - [ ] Faz 2 — cast shadow + gün döngüsü paritesi
 - [ ] Faz 3 — orbit/pan/zoom etkileşimi, varsayılanın çevrilmesi
 - [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
@@ -56,11 +58,39 @@ daha güvenli olduğu için ters çevrildi.
 geçici referans geometrisi (renkli eksenler + 10×10 tel-kafes ızgara), Faz 1'de
 silinecek. `?renderer=voxel` ile açıp orbit'in döndüğünü gözle görmek gerekiyor.
 
-### Faz 1'e taşınan bilinen borç
+### Faz 1 teslimi (2026-09-02)
 
-- `render()` içinde `distance = 100` ve ortho `near/far = -200..200` sabit —
-  gerçek harita (192²) geldiğinde kırpar, harita sınırlarına göre ölçeklenmeli
-- Vertex attribute'ları her karede bağlanıyor; gerçek mesh gelince VAO'ya geçilmeli
+- `SM.buildVoxelMesh(grid)` saf fonksiyon olarak eklendi: merkezli XZ dünya
+  koordinatları, seviye farkına göre dört yönlü yüz eleme, kömür border ring ve
+  kapalı taban. GL/DOM kullanmadan Node altında çalışır.
+- WebGL yolu gerçek mesh için VAO + Uint32 index buffer kullanıyor. Dikey ölçek
+  (`uVScale`) ve güneş yönü uniform; mesh yeniden yüklenmeden slider güncellenir.
+  Kamera mesh sınırlarından ortho zoom/distance/near/far hesaplar.
+- `?renderer=voxel` doğrudan voxel/iso görünümünü açar ve grid her değiştiğinde
+  mesh'i yeniden kurar. Parametresiz varsayılan iso yolu değiştirilmedi.
+  Otomatik yavaş 360 derece dönüş sürüyor.
+- `node tools/headless.js --mesh` eklendi: finite buffer, index sınırı, düz-grid
+      yüz eleme, positions/colors determinism'i ve 192² maliyetini denetler.
+
+### Faz 1 düzeltme turu (2026-09-02, commit bekliyor)
+
+- `src/render/voxel3d.js` portfolyo okunabilirliği standardına getirildi:
+  tek ifadeli satırlar, en uzun satır 84 karakter, 66 yorum satırı / 787 toplam
+  satır (%8,39). GLSL kaynakları okunabilir, çok satırlı stringlerdir.
+- Mesh kurucu salt biçimsel olarak yeniden düzenlendi; `--mesh` maliyeti ve
+  geometri sayıları değişmedi: **248068 vertex, 124034 üçgen**.
+- `fitCamera` artık o anki orbit açısını ölçmüyor. XZ yarı-köşegeni tüm yaw'ları,
+  XZ + ölçekli Y destek fonksiyonu 10–89° tüm pitch'leri kapsar; köşe-küre
+  yarıçapı yalnız near/far derinlik aralığı için tutulur.
+- Shader'a Faz 2 notu eklendi: alçak güneşte yan yüzlerin aşırı aydınlanması
+  gün-döngüsü paritesinde ele alınacak.
+
+Doğrulandı: `scripts/checks.sh`, normal `tools/headless.js`, ve `--mesh` temiz.
+Ek doğrulama: tüm mesh üçgenlerinin normaline göre CCW sarımı temiz.
+
+**Görsel doğrulanmadı:** Bu session'da tarayıcı/WebGL canvas gözle kontrol
+yapılmadı. `?renderer=voxel` ile gerçek map, border/base, 360 derece dönüş,
+tüm orbit açıları ve slider tepkisi tarayıcıda bakılmalı.
 
 ### Bu işin dışında, aynı session'da yapılan
 
