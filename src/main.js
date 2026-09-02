@@ -170,24 +170,54 @@
   // Drifting clouds with a rain curtain and a shadow cast onto the surface.
   // Screen-space (drawn on the overlay, which shares the map's CSS transform),
   // so a shadow blob at (x, y) darkens whatever terrain is under that point.
+  // Big chunky voxel clouds — a blobby footprint of little prism cubes with a
+  // flat bottom and a lumpy domed top, rendered in the same iso voxel language
+  // as the terrain so they read as part of the world.
+  var CW2 = 24, CH2 = 12, CVH = 16;   // cloud voxel half-width / half-depth / height
+
+  function makeCloudCells() {
+    var disks = 3 + Math.floor(Math.random() * 3);
+    var acc = {}, keys = [];
+    for (var d = 0; d < disks; d++) {
+      var ox = (Math.random() - 0.5) * 12, oy = (Math.random() - 0.5) * 6;
+      var rr = 3.2 + Math.random() * 4;
+      var lo = Math.ceil(-rr), hi = Math.floor(rr);
+      for (var gy = lo; gy <= hi; gy++) for (var gx = lo; gx <= hi; gx++) {
+        var cx = gx - ox, cy = gy - oy;
+        if (cx * cx + cy * cy > rr * rr) continue;
+        var k = gx + ',' + gy;
+        if (!(k in acc)) { acc[k] = { gx: gx, gy: gy, near: 0 }; keys.push(k); }
+        acc[k].near += 1 - Math.sqrt(cx * cx + cy * cy) / rr;
+      }
+    }
+    var cells = [], maxN = 0.001, i;
+    for (i = 0; i < keys.length; i++) if (acc[keys[i]].near > maxN) maxN = acc[keys[i]].near;
+    for (i = 0; i < keys.length; i++) {
+      var c = acc[keys[i]];
+      c.h = 1 + Math.round((c.near / maxN) * 2.4 + Math.random() * 0.6); // domed, lumpy
+      cells.push(c);
+    }
+    cells.sort(function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); });
+    var minX = 1e9, maxX = -1e9;
+    for (i = 0; i < cells.length; i++) {
+      var sx = (cells[i].gx - cells[i].gy) * CW2;
+      if (sx < minX) minX = sx; if (sx > maxX) maxX = sx;
+    }
+    return { cells: cells, halfSpan: (maxX - minX) / 2 + CW2 * 2 };
+  }
+
   function makeWeather(vw, vh) {
-    var clouds = [], n = 3 + Math.floor(Math.random() * 3);
-    var drift = 9 + Math.random() * 9;                  // px/s, all clouds same way
-    var dirY = (Math.random() - 0.5) * 3;
+    var clouds = [], n = 2 + Math.floor(Math.random() * 3);
+    var drift = 7 + Math.random() * 7;                  // px/s, all clouds one way
+    var dirY = (Math.random() - 0.5) * 2.5;
     for (var i = 0; i < n; i++) {
-      var puffs = [], np = 4 + Math.floor(Math.random() * 4);
-      var scale = 24 + Math.random() * 28;
-      for (var p = 0; p < np; p++) puffs.push({
-        dx: (Math.random() - 0.5) * scale * 2.4,
-        dy: (Math.random() - 0.5) * scale * 0.8,
-        r: scale * (0.55 + Math.random() * 0.7)
-      });
+      var cc = makeCloudCells();
       clouds.push({
-        x: Math.random() * (vw + 400) - 200,
-        y: vh * (-0.04 + Math.random() * 0.28),          // up in the sky
+        x: Math.random() * (vw + 500) - 250,
+        y: vh * (-0.06 + Math.random() * 0.24),          // up in the sky
         vx: drift, vy: dirY,
-        puffs: puffs, span: scale * 3,
-        rain: Math.random() < 0.5,
+        cells: cc.cells, span: cc.halfSpan,
+        rain: Math.random() < 0.45,
         seed: Math.random() * 100
       });
     }
@@ -314,11 +344,11 @@
     var seconds = (now - anim.t0) / 1000;
     var sun = sunModel(parseFloat($('sun').value)).iso;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    stepWeather(now);
-    drawCloudShadows(ctx, sun);
+    var clouds = $('showClouds').checked;
+    if (clouds) { stepWeather(now); drawCloudShadows(ctx, sun); }
     if (anim.mode === 'iso') tickIso(now, ctx);
     else tickTop(now, ctx);
-    drawClouds(ctx, seconds);
+    if (clouds) drawClouds(ctx, seconds);
   }
 
   // top-down: a moving sheen slides downstream over the baked river tiles; lava
@@ -388,15 +418,17 @@
 
   function drawCloudShadows(ctx, sun) {
     var wx = anim.weather;
-    var drop = 150 + 200 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
-    var skew = sun.dx * 130;
-    ctx.fillStyle = 'rgba(30,40,64,0.13)';   // soft cool wash, layered for a fade
+    var drop = 170 + 200 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
+    var skew = sun.dx * 140;
+    ctx.fillStyle = 'rgba(28,38,60,0.11)';
     for (var i = 0; i < wx.clouds.length; i++) {
       var c = wx.clouds[i];
-      for (var p = 0; p < c.puffs.length; p++) {
-        var pf = c.puffs[p];
+      for (var p = 0; p < c.cells.length; p++) {
+        var cell = c.cells[p];
+        var sx = c.x + (cell.gx - cell.gy) * CW2 + skew;
+        var sy = c.y + (cell.gx + cell.gy) * CH2 + drop;
         ctx.beginPath();
-        ctx.ellipse(c.x + pf.dx + skew, c.y + pf.dy + drop, pf.r * 1.5, pf.r * 0.9, 0, 0, 6.283);
+        ctx.ellipse(sx, sy, CW2 * 1.9, CH2 * 1.9, 0, 0, 6.283);
         ctx.fill();
       }
     }
@@ -406,33 +438,40 @@
     var wx = anim.weather;
     for (var i = 0; i < wx.clouds.length; i++) {
       var c = wx.clouds[i];
-      // rain curtain first, so the cloud body sits on top of it
+      var bob = Math.sin(seconds * 0.5 + c.seed) * 2.5;
       if (c.rain) {
-        var x0 = c.x - c.span * 0.7, x1 = c.x + c.span * 0.7;
-        var top = c.y + 6, bot = c.y + 190;
-        ctx.strokeStyle = 'rgba(150,175,210,0.22)';
+        var top = c.y + 20, bot = c.y + 210, span = c.span * 0.75;
+        ctx.strokeStyle = 'rgba(150,175,210,0.20)';
         ctx.lineWidth = 1;
-        for (var d = 0; d < 34; d++) {
-          var rx = x0 + (x1 - x0) * ((d * 0.618 + c.seed) % 1);
-          var fall = ((seconds * 260 + d * 40 + c.seed * 100) % (bot - top));
-          var ry = top + fall;
-          ctx.beginPath();
-          ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 11);
-          ctx.stroke();
+        for (var d = 0; d < 40; d++) {
+          var rx = c.x - span + (2 * span) * ((d * 0.618 + c.seed) % 1);
+          var ry = top + ((seconds * 280 + d * 37 + c.seed * 90) % (bot - top));
+          ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 11); ctx.stroke();
         }
       }
-      for (var p = 0; p < c.puffs.length; p++) {
-        var pf = c.puffs[p];
-        var wob = Math.sin(seconds * 0.6 + c.seed + p) * 2;
-        var grd = ctx.createRadialGradient(c.x + pf.dx, c.y + pf.dy + wob, 0,
-          c.x + pf.dx, c.y + pf.dy + wob, pf.r);
-        grd.addColorStop(0, 'rgba(246,248,252,0.62)');
-        grd.addColorStop(0.6, 'rgba(232,238,246,0.34)');
-        grd.addColorStop(1, 'rgba(214,222,234,0)');
-        ctx.fillStyle = grd;
+      // voxel cloud body — flat bottom, lumpy domed top, in painter order
+      for (var p = 0; p < c.cells.length; p++) {
+        var cell = c.cells[p];
+        var cx = c.x + (cell.gx - cell.gy) * CW2;
+        var baseY = c.y + (cell.gx + cell.gy) * CH2 + bob;
+        var topY = baseY - cell.h * CVH;
+        var botY = baseY + CVH * 1.3;   // a little skirt below so cubes read solid
+        // left / right faces (subtle grey), then the bright top diamond
+        ctx.fillStyle = 'rgba(207,214,226,0.9)';
         ctx.beginPath();
-        ctx.arc(c.x + pf.dx, c.y + pf.dy + wob, pf.r, 0, 6.283);
-        ctx.fill();
+        ctx.moveTo(cx - CW2, topY); ctx.lineTo(cx, topY + CH2);
+        ctx.lineTo(cx, botY + CH2); ctx.lineTo(cx - CW2, botY);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(188,197,212,0.9)';
+        ctx.beginPath();
+        ctx.moveTo(cx, topY + CH2); ctx.lineTo(cx + CW2, topY);
+        ctx.lineTo(cx + CW2, botY); ctx.lineTo(cx, botY + CH2);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(250,251,254,0.96)';
+        ctx.beginPath();
+        ctx.moveTo(cx, topY - CH2); ctx.lineTo(cx + CW2, topY);
+        ctx.lineTo(cx, topY + CH2); ctx.lineTo(cx - CW2, topY);
+        ctx.closePath(); ctx.fill();
       }
     }
   }
@@ -525,15 +564,50 @@
     drawBirds(ctx, now, seconds);
   }
 
+  // --- pre-baked iso rotations, so Q/E is an instant blit not a re-render ---
+  var rotCache = [null, null, null, null];
+  var rotBakeTimer = 0;
+
+  function isoOpts() {
+    return {
+      tile: ISO_TILE,
+      levelHeight: ISO_BASE_LH * isoExag(),
+      sun: sunModel(parseFloat($('sun').value)).iso
+    };
+  }
+  function clearRotCache() {
+    rotCache = [null, null, null, null];
+    if (rotBakeTimer) { clearTimeout(rotBakeTimer); rotBakeTimer = 0; }
+  }
+  function scheduleRotBakes() {
+    if (rotBakeTimer) { clearTimeout(rotBakeTimer); rotBakeTimer = 0; }
+    if (!grid || view !== 'iso' || !content) return;
+    if (content.width * content.height > 9.5e6) return; // too big to hold 4 copies
+    var todo = [];
+    for (var r = 0; r < 4; r++) if (r !== camRot && !rotCache[r]) todo.push(r);
+    function step() {
+      rotBakeTimer = 0;
+      if (view !== 'iso' || !todo.length) return;
+      var r = todo.shift();
+      var oc = document.createElement('canvas');
+      var ct = SM.renderIso(oc, rotateGridView(grid, r), isoOpts());
+      rotCache[r] = { canvas: oc, content: ct };
+      if (todo.length) rotBakeTimer = setTimeout(step, 120);
+    }
+    if (todo.length) rotBakeTimer = setTimeout(step, 140);
+  }
+
   function drawContent() {
     if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
     stopAnim();
     if (view === 'iso') {
-      content = SM.renderIso(map, rotateGridView(grid, camRot), {
-        tile: ISO_TILE,
-        levelHeight: ISO_BASE_LH * isoExag(),
-        sun: sunModel(parseFloat($('sun').value)).iso
-      });
+      clearRotCache();
+      content = SM.renderIso(map, rotateGridView(grid, camRot), isoOpts());
+      var snap = document.createElement('canvas');
+      snap.width = map.width; snap.height = map.height;
+      snap.getContext('2d').drawImage(map, 0, 0);
+      rotCache[camRot] = { canvas: snap, content: content };
+      scheduleRotBakes();
     } else {
       // shrink the tile for very large maps so the canvas stays GPU-friendly
       var tt = Math.max(3, Math.min(TOP_TILE,
@@ -578,10 +652,28 @@
   }
 
   function rotateView(dir) {
-    if (view !== 'iso') return;
+    if (view !== 'iso' || !grid) return;
     camRot = (camRot + dir + 4) % 4;
     $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
-    refresh(true);
+    var hit = rotCache[camRot];
+    if (hit) {
+      // instant: blit the pre-baked canvas onto #map, swap in its content
+      if (map.width !== hit.canvas.width || map.height !== hit.canvas.height) {
+        map.width = hit.canvas.width; map.height = hit.canvas.height;
+      }
+      var mc = map.getContext('2d');
+      mc.clearRect(0, 0, map.width, map.height);
+      mc.drawImage(hit.canvas, 0, 0);
+      content = hit.content;
+      stopAnim();
+      if (content.width !== lastW || content.height !== lastH) fitCam();
+      lastW = content.width; lastH = content.height;
+      applyCam();
+      startRiverAnim();
+      scheduleRotBakes();
+    } else {
+      refresh(true);   // not baked yet — do it now (also re-primes the cache)
+    }
   }
 
   function setView(mode) {

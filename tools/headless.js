@@ -95,6 +95,7 @@ function run(seed, size, sea) {
     builtup, roadTiles, bridges,
     labels: (grid.labels || []).length,
     waterfallTiles, waterfallDrops,
+    fluidSpread: grid.fluidSpread || { water: 0, lava: 0, pooled: 0 },
     biomes: hist, grid
   };
 }
@@ -103,10 +104,12 @@ if (process.argv[2] === '--sweep') {
   console.log('sea-level sweep (seed 1337, 192²) — island count should fall, not fragment:');
   for (const sea of [0.15, 0.25, 0.35, 0.45, 0.55, 0.62, 0.70]) {
     const r = run(1337, 192, sea);
-    console.log(`  sea=${sea.toFixed(2)}  land=${String(r.landPct).padStart(2)}%  ` +
+    console.log(`  sea=${sea.toFixed(2)}  land=${String(r.landPct).padStart(2)}% ` +
+      `water=${String(r.waterPct).padStart(2)}%  ` +
       `islands=${String(r.islands).padStart(3)}  top5=[${r.islandTop5.join(', ')}]  ` +
       `towns=${r.settlements} roads=${r.roadTiles}/${r.bridges}bridge ` +
       `labels=${r.labels} falls=${r.waterfallDrops}/${r.waterfallTiles}tiles ` +
+      `spread=${r.fluidSpread.water}/${r.fluidSpread.lava} ` +
       `towers=${r.towers}  ${r.dt}ms`);
   }
   // determinism

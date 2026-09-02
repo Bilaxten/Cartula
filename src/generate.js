@@ -7,6 +7,7 @@
  *   5. climate    moisture + temperature (latitude band + noise + altitude)
  *   6. classify   biome per cell, slope-aware coasts
  *   7. hydrology  distance-from-shore water depth, downhill rivers
+ *  7z. settle     bounded water/lava spreading and local pooling
  *   8. voxelize   signed discrete levels, clamp towers
  *
  * World-space sampling means terrain features keep a constant size — growing
@@ -823,6 +824,9 @@
     // --- 7h: roads — bounded terrain-aware paths over a sparse town graph ---
     buildRoads(grid, e, seaThresh, landSpan, cfg, B);
 
+    // --- 7z: fluid settle — bounded sideways spread and local pooling ---
+    settleFluids(grid, e, cfg, B);
+
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     var wd = cfg.waterDepth;
     var shelf = grid._shelf || 9;
@@ -883,6 +887,168 @@
   function quantLandLevel(ev, seaThresh, landSpan, levels) {
     var lf = clamp01((ev - seaThresh) / landSpan);
     return Math.round(Math.pow(lf, 0.82) * levels) + 1;
+  }
+
+  /* Bounded plus-stencil relaxation for inland water and lava. Fluid surfaces
+   * may rise locally to a nearby rim, but terrain is only ever lowered when
+   * the result is applied. Ocean, border, cliffs, beaches and towns are fixed. */
+  function settleFluids(grid, e, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var EPS = 0.006, POOL_STEP = 0.004, POOL_CAP = 0.05;
+    var WATER_ITERS = 6, LAVA_ITERS = 3;
+    var riverScale = Math.max(0, Math.min(2, cfg.rivers || 0));
+    var waterScale = 0.4 + riverScale * 0.6;
+    var WATER_REACH = Math.max(1, Math.round(10 * waterScale));
+    var LAVA_REACH = 7;
+    var waterBudget = riverScale > 0 ? Math.round(n * 0.20 * waterScale) : 0;
+    var lavaBudget = Math.round(n * 0.02);
+    var totalBudget = waterBudget + lavaBudget;
+    var spreadCount = 0, waterSpread = 0, lavaSpread = 0, pooled = 0;
+    var fluid = new Int8Array(n);       // 0 none, 1 water, 2 lava
+    var surf = new Float32Array(n);
+    var startSurf = new Float32Array(n);
+    var reach = new Int16Array(n);
+    var newWater = new Uint8Array(n);
+    var i;
+
+    for (i = 0; i < n; i++) reach[i] = -1;
+    for (i = 0; i < n; i++) {
+      if (grid.lava[i]) {
+        fluid[i] = 2; surf[i] = e[i]; startSurf[i] = e[i]; reach[i] = 0;
+      } else if (grid.water[i] && (grid.biome[i] === B.river || grid.biome[i] === B.lake)) {
+        fluid[i] = 1; surf[i] = e[i]; startSurf[i] = e[i]; reach[i] = 0;
+      }
+    }
+
+    function fixedCell(ni) {
+      var nx = ni % w, ny = (ni / w) | 0;
+      return nx === 0 || ny === 0 || nx === w - 1 || ny === h - 1 ||
+        (grid.water[ni] && (grid.biome[ni] === B.deep_water || grid.biome[ni] === B.shallow_water)) ||
+        grid.biome[ni] === B.beach || grid.biome[ni] === B.cliff ||
+        grid.biome[ni] === B.town || (grid.builtup && grid.builtup[ni]);
+    }
+
+    // Removing a one-tile neck can turn harmless bank expansion into a spray
+    // of tiny islands. Keep the orthogonal land neighbours connected through
+    // the surrounding 3x3 ring before allowing water to claim the centre.
+    function splitsLocalLand(ci) {
+      var ring = [ci - w - 1, ci - w, ci - w + 1, ci + 1,
+        ci + w + 1, ci + w, ci + w - 1, ci - 1];
+      var land = new Uint8Array(8), needed = 0, first = -1;
+      for (var r = 0; r < 8; r++) {
+        var ri = ring[r];
+        if (!grid.water[ri] && fluid[ri] !== 1) land[r] = 1;
+      }
+      var orth = [1, 3, 5, 7];
+      for (r = 0; r < 4; r++) if (land[orth[r]]) {
+        needed++; if (first < 0) first = orth[r];
+      }
+      if (needed < 2) return false;
+      var seenRing = new Uint8Array(8), rq = [first], rh = 0; seenRing[first] = 1;
+      while (rh < rq.length) {
+        var rp = rq[rh++], prev = (rp + 7) % 8, next = (rp + 1) % 8;
+        if (land[prev] && !seenRing[prev]) { seenRing[prev] = 1; rq.push(prev); }
+        if (land[next] && !seenRing[next]) { seenRing[next] = 1; rq.push(next); }
+      }
+      for (r = 0; r < 4; r++) if (land[orth[r]] && !seenRing[orth[r]]) return true;
+      return false;
+    }
+
+    function settleType(type, maxIters, maxReach, flowDrop, budget) {
+      if (budget <= 0 || spreadCount >= totalBudget) return;
+      for (var iter = 0; iter < maxIters && spreadCount < totalBudget; iter++) {
+        var changed = false;
+        var add = [], addSurf = [], addReach = [];
+        for (var ci = 0; ci < n && spreadCount + add.length < totalBudget; ci++) {
+          if (fluid[ci] !== type) continue;
+          var cx = ci % w, cy = (ci / w) | 0;
+          if (cx === 0 || cy === 0 || cx === w - 1 || cy === h - 1) continue;
+          var S = surf[ci];
+          var nb = [ci - 1, ci + 1, ci - w, ci + w];
+          var closed = 0, rim = Infinity;
+          for (var j = 0; j < 4; j++) {
+            var ni = nb[j], gt;
+            if (fixedCell(ni) || (fluid[ni] && fluid[ni] !== type)) {
+              gt = e[ni];
+              closed++;
+              if (gt < rim) rim = gt;
+              continue;
+            }
+            gt = fluid[ni] === type ? surf[ni] : e[ni];
+            if (gt > S + EPS) {
+              closed++;
+              if (gt < rim) rim = gt;
+              continue;
+            }
+            if (!fluid[ni] && !grid.water[ni] && !grid.lava[ni] && reach[ci] < maxReach) {
+              var ns = Math.max(e[ni], S - flowDrop);
+              add.push(ni); addSurf.push(ns); addReach.push(reach[ci] + 1);
+            } else if (fluid[ni] === type && reach[ci] + 1 < reach[ni]) {
+              reach[ni] = reach[ci] + 1;
+            }
+          }
+          if (closed === 4 && rim < Infinity) {
+            var raised = Math.min(S + POOL_STEP, rim, startSurf[ci] + POOL_CAP);
+            if (raised > S + 0.000001) {
+              surf[ci] = raised; pooled++; changed = true;
+            }
+          }
+        }
+
+        for (var ai = 0; ai < add.length && spreadCount < totalBudget && (type === 1 ? waterSpread : lavaSpread) < budget; ai++) {
+          var dst = add[ai];
+          if (fluid[dst] || grid.water[dst] || grid.lava[dst] || fixedCell(dst)) continue;
+          if (type === 1 && splitsLocalLand(dst)) continue;
+          fluid[dst] = type;
+          surf[dst] = addSurf[ai]; startSurf[dst] = addSurf[ai]; reach[dst] = addReach[ai];
+          spreadCount++;
+          if (type === 1) { waterSpread++; newWater[dst] = 1; }
+          else lavaSpread++;
+          changed = true;
+        }
+        if (!changed) break;
+      }
+    }
+
+    // Lava claims contested low ground first; existing water/lava cells always
+    // block the other type, so neither fluid overwrites the other.
+    settleType(2, LAVA_ITERS, LAVA_REACH, 0.012, lavaBudget);
+    if (riverScale > 0) settleType(1, WATER_ITERS, WATER_REACH, 0.02, waterBudget);
+
+    for (i = 0; i < n; i++) {
+      if (fluid[i] === 1 && newWater[i]) {
+        grid.water[i] = 1; grid.lava[i] = 0; grid.biome[i] = B.river;
+        if (grid._shoreDist) grid._shoreDist[i] = 2;
+      } else if (fluid[i] === 2 && !grid.lava[i]) {
+        grid.water[i] = 0; grid.lava[i] = 1; grid.biome[i] = B.lava;
+      }
+      if (fluid[i]) {
+        e[i] = Math.min(e[i], surf[i]);
+        grid.elevation[i] = e[i];
+      }
+    }
+
+    // Broad contiguous additions read as pools; narrow additions remain rivers.
+    var relabelSeen = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      if (!newWater[i] || relabelSeen[i]) continue;
+      var body = [i], head = 0; relabelSeen[i] = 1;
+      while (head < body.length) {
+        var c = body[head++], x = c % w, y = (c / w) | 0;
+        var n4 = [x > 0 ? c - 1 : -1, x < w - 1 ? c + 1 : -1,
+          y > 0 ? c - w : -1, y < h - 1 ? c + w : -1];
+        for (var k = 0; k < 4; k++) {
+          var nn = n4[k];
+          if (nn >= 0 && newWater[nn] && !relabelSeen[nn]) {
+            relabelSeen[nn] = 1; body.push(nn);
+          }
+        }
+      }
+      if (body.length >= 8) {
+        for (var bi = 0; bi < body.length; bi++) grid.biome[body[bi]] = B.lake;
+      }
+    }
+    grid.fluidSpread = { water: waterSpread, lava: lavaSpread, pooled: pooled };
   }
 
   function markWaterfalls(grid, e, seaThresh, landSpan, cfg, B) {
