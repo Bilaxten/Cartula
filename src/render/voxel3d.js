@@ -12,6 +12,52 @@
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
+  function buildShadowMap(grid, sun) {
+    // This mirrors the iso pre-pass so both projections agree on cast shade.
+    var W = grid.width;
+    var H = grid.height;
+    var level = grid.level;
+    var waterDepth = (grid.config && grid.config.waterDepth) || 3;
+    var floorLevel = -waterDepth - 1;
+    var s = sun || {};
+    var SUN_DX = +s.dx || 0;
+    var SUN_DY = +s.dy || 0;
+    var SUN_RISE = Math.max(0.12, +s.rise || 0);
+    var SUN_STEPS = 12;
+    var shadow = new Uint8Array(W * H);
+
+    function levelAt(x, y) {
+      if (x < 0 || y < 0 || x >= W || y >= H) return floorLevel;
+      return level[y * W + x];
+    }
+
+    for (var sy = 0; sy < H; sy++) {
+      for (var sx = 0; sx < W; sx++) {
+        var si = sy * W + sx;
+        var base;
+        var sh = 0;
+
+        if (level[si] <= floorLevel) continue;
+        base = level[si];
+        for (var st = 1; st <= SUN_STEPS; st++) {
+          var ol = levelAt(
+            Math.round(sx + SUN_DX * st),
+            Math.round(sy + SUN_DY * st)
+          );
+          var over = ol - (base + SUN_RISE * st);
+
+          if (over > 0) {
+            var contrib = Math.min(1, over / 2.2) *
+              (1 - (st - 1) / SUN_STEPS);
+            if (contrib > sh) sh = contrib;
+          }
+        }
+        shadow[si] = Math.round(sh * 255);
+      }
+    }
+    return shadow;
+  }
+
   /* Build independent quad vertices. Keeping faces independent permits a
    * material, normal, and depth discontinuity on every voxel edge. */
   function buildVoxelMesh(grid, opts) {
@@ -29,6 +75,8 @@
     var norm = [];
     var color = [];
     var depth = [];
+    var cellUV = [];
+    var emissive = [];
     var indices = [];
     var minX = Infinity;
     var minY = Infinity;
@@ -41,8 +89,9 @@
       return hexToRgb(biome.color);
     });
     var shallow = SM.BIOME_IDX.shallow_water;
+    var lava = grid.lava || [];
 
-    function addVertex(x, y, z, nx, ny, nz, c, d) {
+    function addVertex(x, y, z, nx, ny, nz, c, d, cellX, cellY, glow) {
       // Positions preserve the raw integer level. uVScale later exaggerates Y
       // without invalidating the mesh topology.
       pos.push(x, y, z);
@@ -52,6 +101,10 @@
       color.push(Math.max(0, Math.min(1, c[2] / 255)));
       // Depth is a shader-only tonal cue, not geometry or baked lighting.
       depth.push(d);
+      cellUV.push((Math.max(0, Math.min(W - 1, cellX)) + 0.5) / W);
+      cellUV.push((Math.max(0, Math.min(H - 1, cellY)) + 0.5) / H);
+      // A scalar keeps lava emission independent from daylight in the shader.
+      emissive.push(glow);
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -62,25 +115,37 @@
 
     /* Each quad is CCW from its outward-facing side. CULL_FACE can therefore
      * discard its back face without exposing the terrain interior. */
-    function addQuad(vertices, normal, faceColor, sideDepth) {
+    function addQuad(
+      vertices,
+      normal,
+      faceColor,
+      sideDepth,
+      cellX,
+      cellY,
+      glow
+    ) {
       var base = pos.length / 3;
 
       // Duplicating the four vertices lets adjacent faces retain hard normals.
       addVertex(
         vertices[0], vertices[1], vertices[2],
-        normal[0], normal[1], normal[2], faceColor, sideDepth[0]
+        normal[0], normal[1], normal[2], faceColor, sideDepth[0],
+        cellX, cellY, glow
       );
       addVertex(
         vertices[3], vertices[4], vertices[5],
-        normal[0], normal[1], normal[2], faceColor, sideDepth[1]
+        normal[0], normal[1], normal[2], faceColor, sideDepth[1],
+        cellX, cellY, glow
       );
       addVertex(
         vertices[6], vertices[7], vertices[8],
-        normal[0], normal[1], normal[2], faceColor, sideDepth[2]
+        normal[0], normal[1], normal[2], faceColor, sideDepth[2],
+        cellX, cellY, glow
       );
       addVertex(
         vertices[9], vertices[10], vertices[11],
-        normal[0], normal[1], normal[2], faceColor, sideDepth[3]
+        normal[0], normal[1], normal[2], faceColor, sideDepth[3],
+        cellX, cellY, glow
       );
       indices.push(base, base + 1, base + 2);
       indices.push(base, base + 2, base + 3);
@@ -149,7 +214,7 @@
       };
     }
 
-    function addTop(x, y, L, c) {
+    function addTop(x, y, L, c, glow) {
       var x0 = x - W / 2;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
@@ -160,11 +225,14 @@
         [x0, L, z0, x0, L, z1, x1, L, z1, x1, L, z0],
         [0, 1, 0],
         c,
-        [0, 0, 0, 0]
+        [0, 0, 0, 0],
+        x,
+        y,
+        glow
       );
     }
 
-    function addSide(x, y, L, NL, dir, c) {
+    function addSide(x, y, L, NL, dir, c, glow) {
       var x0 = x - W / 2;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
@@ -178,28 +246,40 @@
           [x0, L, z0, x0, NL, z0, x0, NL, z1, x0, L, z1],
           [-1, 0, 0],
           c,
-          [0, d, d, 0]
+          [0, d, d, 0],
+          x,
+          y,
+          glow
         );
       } else if (dir === 1) {
         addQuad(
           [x1, L, z1, x1, NL, z1, x1, NL, z0, x1, L, z0],
           [1, 0, 0],
           c,
-          [0, d, d, 0]
+          [0, d, d, 0],
+          x,
+          y,
+          glow
         );
       } else if (dir === 2) {
         addQuad(
           [x1, L, z0, x1, NL, z0, x0, NL, z0, x0, L, z0],
           [0, 0, -1],
           c,
-          [0, d, d, 0]
+          [0, d, d, 0],
+          x,
+          y,
+          glow
         );
       } else {
         addQuad(
           [x0, L, z1, x0, NL, z1, x1, NL, z1, x1, L, z1],
           [0, 0, 1],
           c,
-          [0, d, d, 0]
+          [0, d, d, 0],
+          x,
+          y,
+          glow
         );
       }
     }
@@ -216,17 +296,18 @@
         var east;
         var north;
         var south;
+        var glow = lava[i] ? 1 : 0;
 
         // Top and sides share one material decision so biome seams stay sharp.
-        addTop(x, y, L, material.top);
+        addTop(x, y, L, material.top, glow);
         west = levelAt(x - 1, y);
         east = levelAt(x + 1, y);
         north = levelAt(x, y - 1);
         south = levelAt(x, y + 1);
-        if (west < L) addSide(x, y, L, west, 0, material.side);
-        if (east < L) addSide(x, y, L, east, 1, material.side);
-        if (north < L) addSide(x, y, L, north, 2, material.side);
-        if (south < L) addSide(x, y, L, south, 3, material.side);
+        if (west < L) addSide(x, y, L, west, 0, material.side, glow);
+        if (east < L) addSide(x, y, L, east, 1, material.side, glow);
+        if (north < L) addSide(x, y, L, north, 2, material.side, glow);
+        if (south < L) addSide(x, y, L, south, 3, material.side, glow);
       }
     }
 
@@ -242,26 +323,26 @@
         // Only the perimeter cells belong to the display plinth.
         if (x >= 0 && x < W && y >= 0 && y < H) continue;
         L = borderTop(x, y);
-        addTop(x, y, L, BORD);
+        addTop(x, y, L, BORD, 0);
         edgeWest = x === -1;
         edgeEast = x === W;
         edgeNorth = y === -1;
         edgeSouth = y === H;
-        if (edgeWest) addSide(x, y, L, floorLevel, 0, BORD);
-        if (edgeEast) addSide(x, y, L, floorLevel, 1, BORD);
-        if (edgeNorth) addSide(x, y, L, floorLevel, 2, BORD);
-        if (edgeSouth) addSide(x, y, L, floorLevel, 3, BORD);
+        if (edgeWest) addSide(x, y, L, floorLevel, 0, BORD, 0);
+        if (edgeEast) addSide(x, y, L, floorLevel, 1, BORD, 0);
+        if (edgeNorth) addSide(x, y, L, floorLevel, 2, BORD, 0);
+        if (edgeSouth) addSide(x, y, L, floorLevel, 3, BORD, 0);
         if (!edgeWest && borderTop(x - 1, y) < L) {
-          addSide(x, y, L, borderTop(x - 1, y), 0, BORD);
+          addSide(x, y, L, borderTop(x - 1, y), 0, BORD, 0);
         }
         if (!edgeEast && borderTop(x + 1, y) < L) {
-          addSide(x, y, L, borderTop(x + 1, y), 1, BORD);
+          addSide(x, y, L, borderTop(x + 1, y), 1, BORD, 0);
         }
         if (!edgeNorth && borderTop(x, y - 1) < L) {
-          addSide(x, y, L, borderTop(x, y - 1), 2, BORD);
+          addSide(x, y, L, borderTop(x, y - 1), 2, BORD, 0);
         }
         if (!edgeSouth && borderTop(x, y + 1) < L) {
-          addSide(x, y, L, borderTop(x, y + 1), 3, BORD);
+          addSide(x, y, L, borderTop(x, y + 1), 3, BORD, 0);
         }
       }
     }
@@ -281,7 +362,10 @@
       ],
       [0, -1, 0],
       BORD,
-      [0, 0, 0, 0]
+      [0, 0, 0, 0],
+      0,
+      0,
+      0
     );
     void o;
     return {
@@ -289,6 +373,8 @@
       normals: new Float32Array(norm),
       colors: new Float32Array(color),
       sideDepth: new Float32Array(depth),
+      cellUV: new Float32Array(cellUV),
+      emissive: new Float32Array(emissive),
       indices: new Uint32Array(indices),
       vertexCount: pos.length / 3,
       triangleCount: indices.length / 3,
@@ -451,16 +537,22 @@
       'in vec3 aNormal;',
       'in vec3 aColor;',
       'in float aSideDepth;',
+      'in vec2 aCellUV;',
+      'in float aEmissive;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
+      'out vec2 vCellUV;',
+      'out float vEmissive;',
       '',
       'void main() {',
       '  vNormal = aNormal;',
       '  vColor = aColor;',
       '  vSideDepth = aSideDepth;',
+      '  vCellUV = aCellUV;',
+      '  vEmissive = aEmissive;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
       '  gl_Position = uViewProjection * vec4(',
@@ -477,20 +569,27 @@
       'in vec3 vNormal;',
       'in vec3 vColor;',
       'in float vSideDepth;',
+      'in vec2 vCellUV;',
+      'in float vEmissive;',
       'uniform vec3 uSunDirection;',
+      'uniform float uSunStrength;',
+      'uniform sampler2D uShadowMap;',
       'out vec4 outColor;',
       '',
       'void main() {',
       '  vec3 light = normalize(uSunDirection);',
-      '  // Dividing by light.y pins a horizontal top face at full 1.0 light.',
-      '  float ndl = max(',
-      '    0.0,',
-      '    dot(normalize(vNormal), light) / max(light.y, 0.001)',
-      '  );',
-      '  // Faz 2: low sun over-brightens side faces here.',
-      '  float lambert = min(1.0, 0.47 + 0.53 * ndl);',
+      '  float ndl = max(0.0, dot(normalize(vNormal), light));',
+      '  // True Lambert plus daylight-scaled ambient keeps low sun directional.',
+      '  float daylight = clamp(uSunStrength / 0.42, 0.0, 1.0);',
+      '  float ambient = mix(0.38, 0.47, daylight);',
+      '  float lambert = ambient + 0.61 * daylight * ndl;',
+      '  float topFace = step(0.5, vNormal.y);',
+      '  float shadow = texture(uShadowMap, vCellUV).r;',
+      '  float shadowHit = mix(0.55, 1.0, topFace);',
+      '  float shadowFactor = 1.0 - uSunStrength * shadowHit * shadow;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
-      '  outColor = vec4(vColor * lambert * gradient, 1.0);',
+      '  vec3 emission = vColor * vEmissive * 0.65;',
+      '  outColor = vec4(vColor * lambert * gradient * shadowFactor + emission, 1.0);',
       '}'
     ].join('\n');
     // Vertex scale and fragment lighting are uniforms, not baked attributes.
@@ -542,15 +641,22 @@
     var normalBuffer = gl.createBuffer();
     var colorBuffer = gl.createBuffer();
     var sideDepthBuffer = gl.createBuffer();
+    var cellUVBuffer = gl.createBuffer();
+    var emissiveBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
+    var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
     var position = gl.getAttribLocation(program, 'aPosition');
     var normal = gl.getAttribLocation(program, 'aNormal');
     var color = gl.getAttribLocation(program, 'aColor');
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
+    var cellUV = gl.getAttribLocation(program, 'aCellUV');
+    var emission = gl.getAttribLocation(program, 'aEmissive');
     var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
     var verticalScale = gl.getUniformLocation(program, 'uVScale');
     var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
+    var sunStrength = gl.getUniformLocation(program, 'uSunStrength');
+    var shadowMap = gl.getUniformLocation(program, 'uShadowMap');
     var projection = new Float32Array(16);
     var view = new Float32Array(16);
     var combined = new Float32Array(16);
@@ -558,6 +664,7 @@
     var fit = { distance: 100, near: 0.1, far: 300 };
     var vScale = 1.6;
     var sun = [0.5, 1.0, 0.74];
+    var strength = 0.34;
     var indexCount = 0;
     var clearColor = [0.055, 0.075, 0.11, 1];
     var width = 1;
@@ -581,8 +688,27 @@
     setupAttrib(normalBuffer, normal, 3);
     setupAttrib(colorBuffer, color, 3);
     setupAttrib(sideDepthBuffer, sideDepth, 1);
+    setupAttrib(cellUVBuffer, cellUV, 2);
+    setupAttrib(emissiveBuffer, emission, 1);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
+    gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.R8,
+      1,
+      1,
+      0,
+      gl.RED,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([0])
+    );
+    gl.bindTexture(gl.TEXTURE_2D, null);
 
     function resize(cssW, cssH, dpr) {
       if (disposed) return;
@@ -625,6 +751,25 @@
       sun[0] = -(+s.dx || 0);
       sun[1] = Math.max(0.12, +s.rise || 0.12);
       sun[2] = -(+s.dy || 0);
+      strength = Math.max(0, Math.min(1, +s.strength || 0));
+    }
+
+    function setShadowMap(data, mapWidth, mapHeight) {
+      if (!data || !mapWidth || !mapHeight || disposed) return;
+      // Only this R8 texture changes when the day-cycle slider moves.
+      gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.R8,
+        mapWidth,
+        mapHeight,
+        0,
+        gl.RED,
+        gl.UNSIGNED_BYTE,
+        data
+      );
+      gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     function setMesh(mesh) {
@@ -640,6 +785,10 @@
       gl.bufferData(gl.ARRAY_BUFFER, mesh.colors, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, sideDepthBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.sideDepth, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, cellUVBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.cellUV, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, emissiveBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.emissive, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
@@ -751,6 +900,10 @@
       gl.uniformMatrix4fv(viewProjection, false, combined);
       gl.uniform1f(verticalScale, vScale);
       gl.uniform3fv(sunDirection, sun);
+      gl.uniform1f(sunStrength, strength);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+      gl.uniform1i(shadowMap, 0);
       gl.bindVertexArray(vao);
       gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
@@ -763,7 +916,10 @@
       gl.deleteBuffer(normalBuffer);
       gl.deleteBuffer(colorBuffer);
       gl.deleteBuffer(sideDepthBuffer);
+      gl.deleteBuffer(cellUVBuffer);
+      gl.deleteBuffer(emissiveBuffer);
       gl.deleteBuffer(indexBuffer);
+      gl.deleteTexture(shadowTexture);
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
       disposed = true;
@@ -776,6 +932,7 @@
       setMesh: setMesh,
       setVerticalScale: setVerticalScale,
       setSun: setSun,
+      setShadowMap: setShadowMap,
       fitCamera: fitCamera,
       render: render,
       dispose: dispose
@@ -783,5 +940,6 @@
   }
 
   SM.buildVoxelMesh = buildVoxelMesh;
+  SM.buildShadowMap = buildShadowMap;
   SM.Voxel3D = { isSupported: isSupported, create: create };
 })(window.SM = window.SM || {});

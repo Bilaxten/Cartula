@@ -130,6 +130,7 @@
     $('daynight').style.background = s.overlay;
     map.style.filter = s.filter;
     $('riverfx').style.filter = s.filter;
+    glCanvas.style.filter = s.filter;
   }
 
   function readConfig() {
@@ -205,9 +206,9 @@
     }
     map.hidden = true;
     $('riverfx').hidden = true;
-    $('daynight').hidden = true;
+    $('daynight').hidden = false;
     glCanvas.hidden = false;
-    $('isohint').textContent = 'Faz 1: terrain mesh \u2014 camera controls land in Faz 3';
+    $('isohint').textContent = 'Faz 2: sun + shadows \u2014 camera controls land in Faz 3';
     resizeVoxel();
     if (voxelAnim) return true;
     var started = performance.now();
@@ -227,9 +228,18 @@
     if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
     voxelMesh = SM.buildVoxelMesh(grid);
     voxelRenderer.setVerticalScale(isoExag());
-    voxelRenderer.setSun(sunModel(parseFloat($('sun').value)).iso);
+    updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);
     voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
+  }
+
+  function updateVoxelSun() {
+    var sun;
+
+    if (!voxelRenderer || !grid || !SM.buildShadowMap) return;
+    sun = sunModel(parseFloat($('sun').value)).iso;
+    voxelRenderer.setSun(sun);
+    voxelRenderer.setShadowMap(SM.buildShadowMap(grid, sun), grid.width, grid.height);
   }
 
   function animHash(x, y) {
@@ -1300,11 +1310,12 @@
       voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
     } else refresh(true);
   });
-  $('sun').addEventListener('input', applyDayNight);
+  $('sun').addEventListener('input', function () {
+    applyDayNight();
+    if (isVoxelMode()) updateVoxelSun();
+  });
   $('sun').addEventListener('change', function () {
-    if (isVoxelMode() && voxelRenderer) {
-      voxelRenderer.setSun(sunModel(parseFloat($('sun').value)).iso);
-    } else if (view === 'iso') refresh(false);   // re-bake the shadows
+    if (!isVoxelMode() && view === 'iso') refresh(false); // re-bake shadows
     applyDayNight();
   });
 

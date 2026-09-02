@@ -129,31 +129,90 @@ function flatMeshCheck() {
   return mesh.triangleCount === expectedQuads * 2;
 }
 
+function makeFlatGrid(W, H, fill) {
+  const n = W * H;
+  const level = new Int8Array(n);
+  const water = new Uint8Array(n);
+  const biome = new Uint8Array(n);
+  const moisture = new Float32Array(n);
+  const elevation = new Float32Array(n);
+  level.fill(fill);
+  biome.fill(SM.BIOME_IDX.grassland);
+  moisture.fill(0.5);
+  elevation.fill(0.5);
+  return {
+    width: W, height: H, level, water, biome, moisture, elevation,
+    config: { waterDepth: 3, levels: 10 }
+  };
+}
+
+function runShadowChecks() {
+  const sun = { dx: 1, dy: 0, rise: 0.12, strength: 0.42 };
+  const flat = makeFlatGrid(9, 9, 2);
+  const a = SM.buildShadowMap(flat, sun);
+  const b = SM.buildShadowMap(flat, sun);
+  const high = makeFlatGrid(9, 9, 2);
+  high.level[4 * high.width + 4] = 8;
+  const cast = SM.buildShadowMap(high, sun);
+  const typeAndLength = a instanceof Uint8Array && a.length === flat.width * flat.height;
+  const range = Array.prototype.every.call(a, v => v >= 0 && v <= 255);
+  const deterministic = typedEqual(a, b);
+  const flatClear = Array.prototype.every.call(a, v => v === 0);
+  const castShadow = Array.prototype.some.call(cast, v => v > 0);
+  return [
+    ['shadow map type, length, and range', typeAndLength && range],
+    ['shadow determinism', deterministic],
+    ['flat grid has no cast shadow', flatClear],
+    ['high column casts a shadow', castShadow]
+  ];
+}
+
 function runMeshChecks() {
   const a = run(1337, 192, 0.38).grid;
   const t0 = performance.now();
   const mesh = SM.buildVoxelMesh(a);
   const buildMs = performance.now() - t0;
+  const shadowStart = performance.now();
+  const shadow = SM.buildShadowMap(a, {
+    dx: 0.5, dy: -0.7, rise: 1.1, strength: 0.4
+  });
+  const shadowMs = performance.now() - shadowStart;
   const b = run(1337, 192, 0.38).grid;
   const meshB = SM.buildVoxelMesh(b);
-  const attributes = [mesh.positions, mesh.normals, mesh.colors, mesh.sideDepth];
+  const attributes = [
+    mesh.positions,
+    mesh.normals,
+    mesh.colors,
+    mesh.sideDepth,
+    mesh.cellUV,
+    mesh.emissive
+  ];
   const finite = attributes.every(arr => Array.prototype.every.call(arr, Number.isFinite));
   const indices = Array.prototype.every.call(mesh.indices, i => i < mesh.vertexCount);
   const flat = flatMeshCheck();
   const deterministic = typedEqual(mesh.positions, meshB.positions) &&
-    typedEqual(mesh.colors, meshB.colors);
+    typedEqual(mesh.colors, meshB.colors) &&
+    typedEqual(mesh.cellUV, meshB.cellUV) &&
+    typedEqual(mesh.emissive, meshB.emissive);
+  const cellUV = mesh.cellUV.length === mesh.vertexCount * 2 &&
+    Array.prototype.every.call(mesh.cellUV, uv => uv >= 0 && uv <= 1);
+  const triangleCount = mesh.triangleCount === 124034;
+  const shadowChecks = runShadowChecks();
   const quads = mesh.triangleCount / 2;
   const perCell = quads / (a.width * a.height);
   const results = [
     ['finite attributes', finite],
     ['index range', indices],
     ['flat-grid face culling', flat],
-    ['determinism (positions/colors)', deterministic]
-  ];
+    ['determinism (mesh attributes)', deterministic],
+    ['cell UV range and length', cellUV],
+    ['triangle count (Faz 1 baseline)', triangleCount]
+  ].concat(shadowChecks);
   console.log('voxel mesh checks (seed 1337, 192²):');
   for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
   console.log(`  mesh: ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles, ${buildMs.toFixed(1)} ms`);
   console.log(`  density: ${quads} quads, ${perCell.toFixed(3)} quads/cell`);
+  console.log(`  shadow map: ${shadow.byteLength} bytes, ${shadowMs.toFixed(1)} ms`);
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 

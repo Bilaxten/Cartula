@@ -7,8 +7,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 **Güncellendi:** 2026-09-02
 **Dal:** `master`
-**Çalışma alanı:** temiz. Faz 1 düzeltme turu da
-commitlenmedi.
+**Çalışma alanı:** temiz
 
 ## Şu anki görev
 
@@ -33,7 +32,7 @@ Değişen tek şey projeksiyon aşaması.
 - [x] **Faz 0 — iskele.** `src/render/voxel3d.js`: WebGL2 context, ortho orbit
       kamera, mat4 yardımcıları (bağımlılık yok). `#gl` canvas'ı, opt-in yol.
 - [x] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme
-- [ ] Faz 2 — cast shadow + gün döngüsü paritesi
+- [x] Faz 2 — cast shadow + gün döngüsü paritesi (commit bekliyor)
 - [ ] Faz 3 — orbit/pan/zoom etkileşimi, varsayılanın çevrilmesi
 - [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
 - [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
@@ -91,6 +90,26 @@ Ek doğrulama: tüm mesh üçgenlerinin normaline göre CCW sarımı temiz.
 **Görsel doğrulanmadı:** Bu session'da tarayıcı/WebGL canvas gözle kontrol
 yapılmadı. `?renderer=voxel` ile gerçek map, border/base, 360 derece dönüş,
 tüm orbit açıları ve slider tepkisi tarayıcıda bakılmalı.
+
+### Faz 2 teslimi (2026-09-02, commit bekliyor)
+
+- `SM.buildShadowMap(grid, sun)` saf `Uint8Array` ön-geçişi eklendi; sabitleri
+  `iso.js` ile aynı (`SUN_STEPS = 12`, `SUN_RISE`, katkı eğrisi). Gölge doku
+  olarak `R8/RED`, `NEAREST`, `CLAMP_TO_EDGE` ile yükleniyor.
+- Mesh artık hücre merkezi `cellUV` ve lav için tek skaler `emissive` attribute
+  taşıyor. Yan yüzler UV/emissive açısından yüksek (sahip) hücreye bağlı.
+- Güneş slider'ı voxel modunda mesh'i yeniden kurmadan yalnızca yeni gölge
+  haritasını yükler; shader gerçek Lambert + ortam ışığıyla alçak güneş yan
+  yüzlerini doğal olarak üst yüzlerden daha parlak kılar. `#daynight` ve CSS
+  gün/gece filtresi `#gl` için tekrar etkin.
+- `node tools/headless.js --mesh` gölge türü/boyutu/aralığı, determinism, düz
+  grid ve yüksek sütun durumlarını denetliyor. Faz 1 geometri tabanı korundu:
+  **248068 vertex, 124034 üçgen**. Bu makinede 192² gölge haritası 2.9 ms ve
+  36.864 bayt ölçüldü.
+
+**Görsel doğrulanmadı:** Tarayıcı/WebGL canvas gözle kontrol edilmedi. Özellikle
+`?renderer=voxel` altında gece lav parlaklığı, alçak güneş gölge yönü ve renk
+yıkaması tarayıcıda teyit edilmeli.
 
 ### Bu işin dışında, aynı session'da yapılan
 
