@@ -4,9 +4,8 @@
 (function (SM) {
   'use strict';
 
-  // Faz 3: flip this default to 'voxel' once the WebGL view is visually approved.
-  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'voxel'
-    ? 'voxel' : 'iso';
+  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'iso'
+    ? 'iso' : 'voxel';
 
   var $ = function (id) { return document.getElementById(id); };
   var map = $('map');
@@ -39,6 +38,8 @@
   var voxelDirty = false;
   var voxelSnap = null;
   var voxelCameraQuery = null;
+  var voxelBounds = null;
+  var voxelNeedsFit = false;
   var voxelUnavailable = false;
 
   // A rotated *view* of the grid for the iso bake — the real grid is never
@@ -95,16 +96,14 @@
     brushSize: { label: 'brushSizeVal', fmt: function (v) { return v; } },
     brushStrength: { label: 'brushStrengthVal', fmt: function (v) { return (+v).toFixed(1); } },
     isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } },
-    sun: { label: 'sunVal', fmt: function (v) {
-      var h = Math.floor(v), m = Math.round((v - h) * 60);
-      return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
-    } }
+    sun: { label: 'sunVal', fmt: SM.formatClock }
   };
 
   // Time of day -> shadow direction for the iso bake, plus a colour wash and a
   // canvas filter for the live look. Daylight is 6:00-18:00; outside that the
   // sun is below the horizon (night).
   function sunModel(hour) {
+    hour = ((+hour % 24) + 24) % 24;
     var day = (hour - 6) / 12;                    // 0 sunrise .. 1 sunset
     var up = day > 0 && day < 1;
     var elev = up ? Math.sin(day * Math.PI) : 0;  // 0 horizon .. 1 noon
@@ -194,6 +193,7 @@
     map.hidden = false;
     $('riverfx').hidden = false;
     $('daynight').hidden = false;
+    $('yawControl').hidden = true;
     $('isohint').textContent = 'drag to pan \u00b7 scroll to zoom';
     updateRotationLabel();
   }
@@ -203,6 +203,8 @@
 
     if (isVoxelMode() && voxelCamera) {
       yaw = SM.VoxelCamera.wrapYaw(voxelCamera.yaw);
+      $('rotSlider').value = String(Math.round(yaw));
+      paintRange($('rotSlider'));
       $('rotVal').textContent = String(Math.round(yaw)).padStart(3, '0') + '°';
       return;
     }
@@ -283,6 +285,7 @@
     map.hidden = true;
     $('riverfx').hidden = true;
     $('daynight').hidden = false;
+    $('yawControl').hidden = false;
     glCanvas.hidden = false;
     $('isohint').textContent =
       'drag to orbit \u00b7 shift+drag to pan \u00b7 scroll to zoom \u00b7 Q/E snap';
@@ -291,20 +294,36 @@
     return true;
   }
 
-  function rebuildVoxelMesh() {
+  function sameVoxelFootprint(a, b) {
+    if (!a || !b) return false;
+    return a.minX === b.minX && a.maxX === b.maxX &&
+      a.minZ === b.minZ && a.maxZ === b.maxZ;
+  }
+
+  function rebuildVoxelMesh(forceFit) {
+    var shouldFit;
+
     if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
     voxelMesh = SM.buildVoxelMesh(grid);
     voxelRenderer.setVerticalScale(isoExag());
     updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);
-    voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
-    if (voxelCameraQuery) {
-      voxelCamera.yaw = voxelCameraQuery.yaw;
-      voxelCamera.pitch = voxelCameraQuery.pitch;
-      voxelCamera.zoom = voxelCameraQuery.zoom;
-      voxelCameraQuery = null;
-      voxelRenderer.setCamera(voxelCamera);
+    // Terrain edits can alter height, but only a new grid or XZ footprint
+    // needs refitting.
+    shouldFit = forceFit || voxelNeedsFit || !voxelCamera ||
+      !sameVoxelFootprint(voxelBounds, voxelMesh.bounds);
+    if (shouldFit) {
+      voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
+      if (voxelCameraQuery) {
+        voxelCamera.yaw = voxelCameraQuery.yaw;
+        voxelCamera.pitch = voxelCameraQuery.pitch;
+        voxelCamera.zoom = voxelCameraQuery.zoom;
+        voxelCameraQuery = null;
+        voxelRenderer.setCamera(voxelCamera);
+      }
     }
+    voxelBounds = voxelMesh.bounds;
+    voxelNeedsFit = false;
     updateRotationLabel();
     requestVoxelRender();
   }
@@ -829,11 +848,11 @@
   // content changed size (e.g. map dimensions or iso exaggeration).
   var wantReveal = false;
 
-  function refresh(refit) {
+  function refresh(refit, fitVoxel) {
     if (!grid) return;
     if (isVoxelMode()) {
       if (startVoxel()) {
-        rebuildVoxelMesh();
+        rebuildVoxelMesh(fitVoxel);
         return;
       }
     }
@@ -857,9 +876,10 @@
     undoStack = [];
     redoStack = [];
     editedSinceRender = false;
+    voxelNeedsFit = true;
     updateUndoButtons();
     wantReveal = true;
-    refresh(false);
+    refresh(true, true);
 
     var s = SM.summarize(grid);
     statsBase =
@@ -1384,11 +1404,28 @@
     'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'yaw',
     'pitch', 'zoom'];
 
+  function applyQueryValue(input, value) {
+    var min;
+    var max;
+    var number;
+
+    if (input.type !== 'range') {
+      input.value = value;
+      return;
+    }
+    number = parseFloat(value);
+    if (!isFinite(number)) return;
+    if (input.id === 'sun' && number >= 0 && number < 6) number += 24;
+    min = parseFloat(input.min);
+    max = parseFloat(input.max);
+    input.value = Math.max(min, Math.min(max, number));
+  }
+
   function applyQueryString() {
     if (!location.search) return;
     var q = new URLSearchParams(location.search);
     QS_KEYS.forEach(function (id) {
-      if (q.has(id) && $(id)) $(id).value = q.get(id);
+      if (q.has(id) && $(id)) applyQueryValue($(id), q.get(id));
     });
     if (RENDERER === 'voxel' && q.has('yaw') && q.has('pitch') && q.has('zoom')) {
       voxelCameraQuery = {
@@ -1460,8 +1497,6 @@
   $('isoexag').addEventListener('change', function () {
     if (isVoxelMode() && voxelRenderer && voxelMesh) {
       voxelRenderer.setVerticalScale(isoExag());
-      voxelCamera = voxelRenderer.fitCamera(voxelMesh.bounds);
-      updateRotationLabel();
       requestVoxelRender();
     } else refresh(true);
   });
@@ -1480,8 +1515,12 @@
     $('seed').value = Math.floor(Math.random() * 1e6);
     regenerate();
   });
-  $('showGrid').addEventListener('change', function () { refresh(false); });
-  $('showShade').addEventListener('change', function () { refresh(false); });
+  $('showGrid').addEventListener('change', function () {
+    if (view === 'top') refresh(false);
+  });
+  $('showShade').addEventListener('change', function () {
+    if (view === 'top') refresh(false);
+  });
   $('editTool').addEventListener('change', syncEditControls);
   $('brushSize').addEventListener('input', hideBrushCursor);
   $('editUndo').addEventListener('click', undoEdit);
@@ -1489,8 +1528,18 @@
   $('editReset').addEventListener('click', regenerate);
   $('viewTop').addEventListener('click', function () { setView('top'); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
-  $('rotL').addEventListener('click', function () { rotateView(-1); });
-  $('rotR').addEventListener('click', function () { rotateView(1); });
+  $('rotSlider').addEventListener('input', function () {
+    if (!isVoxelMode() || !voxelCamera) return;
+    voxelSnap = null;
+    setVoxelCamera({
+      yaw: parseFloat(this.value),
+      pitch: voxelCamera.pitch,
+      zoom: voxelCamera.zoom,
+      tx: voxelCamera.tx,
+      ty: voxelCamera.ty,
+      tz: voxelCamera.tz
+    });
+  });
   $('exportPng').addEventListener('click', exportPng);
   $('shareLink').addEventListener('click', shareLink);
   window.addEventListener('resize', function () {

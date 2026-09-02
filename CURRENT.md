@@ -11,8 +11,8 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ## Şu anki görev
 
-**İso 2D → WebGL voxel 3D ikamesi.** Beş fazlık iş; Faz 0 ve Faz 1 bitti ve
-commit'lendi.
+**İso 2D → WebGL voxel 3D ikamesi.** Beş fazlık iş; Faz 0-3 commit'lendi.
+Faz 3.5 kullanıcı geri bildirimi çalışma ağacında, commit beklemeden tamamlandı.
 
 Neden: `iso.js` rotasyonu yalnızca 90°'lik dört adım verebiliyor ve her adım tam
 bir yeniden bake — projeksiyon piksellere gömülü olduğu için kamera açısı
@@ -34,16 +34,16 @@ Değişen tek şey projeksiyon aşaması.
 - [x] Faz 1 — mesh builder (saf, GL'siz) + temel gölgeleme
 - [x] Faz 2 — cast shadow + gün döngüsü paritesi (commit bekliyor)
 - [x] Faz 3 — voxel orbit/pan/zoom etkileşimi (varsayılan bilinçli olarak iso kaldı)
+- [x] Faz 3.5 — voxel varsayılanı, stage yaw slider'ı, gölge cilası ve kamera
+      korunması (commit bekliyor)
 - [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
 - [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
 
-### ⚠️ Geçiş güvenliği: varsayılan HÂLÂ iso
+### Geçiş güvenliği: varsayılan voxel, iso kaçış kapısı
 
-`?renderer=voxel` yeni yola **opt-in** girer; parametresiz açılışta eski iso
-yolu çalışır ve hiçbir davranış değişmez. Bu bilinçli — uygulama hiçbir fazda
-kırık görünmesin diye. **Varsayılan Faz 3 bitince çevrilecek**, `iso.js` Faz 5'te
-silinecek. Plan `?renderer=iso` kaçış kapısı diyordu; erken fazlarda tersi
-daha güvenli olduğu için ters çevrildi.
+Parametresiz açılış ve `?renderer=voxel` WebGL voxel görünümünü açar.
+`?renderer=iso` klasik canvas izometrik yolu için Faz 5'e kadar erişilebilir
+kaçış kapısıdır; `iso.js` o fazda silinecek.
 
 ### Faz 0'da doğrulananlar
 
@@ -133,6 +133,29 @@ Doğrulandı: `bash scripts/checks.sh`, `node tools/headless.js` ve
 edilemedi. `?renderer=voxel` altında orbit yönü, Shift-pan yönü, zoom sınırları,
 Q/E ease'i ve paylaşılan URL'nin açılışı tarayıcıda teyit edilmeli.
 
+### Faz 3.5 teslimi (2026-09-02, commit bekliyor)
+
+- Varsayılan renderer artık WebGL voxel; klasik canvas izometrik yol yalnız
+  `?renderer=iso` ile açılır. Paneldeki dönüş düğmeleri kaldırıldı; stage içi
+  yaw slider'ı canlı 0-360 derece sürükleme, Q/E snap ve mouse orbit ile çift
+  yönlü senkron çalışır. Slider sadece voxel görünümünde görünür.
+- Gün saati slider'ı 06:00-ertesi gün 05:30 aralığına taşındı. Saf
+  `SM.formatClock` sarmalamayı taşır; eski `sun=0..5.5` paylaşım değerleri
+  24 saat eklenerek korunur, diğer aralık dışı range değerleri clamp edilir.
+- Shader gölge kazancı 1.28, yan-yüz katsayısı 0.70 oldu. En güçlü gündüz
+  gölgesinde bile çarpan yaklaşık %46'da kaldığından arazi detayını ezmemesi
+  hedeflendi; Faz 4.5 AO bunun yerine geçmeyecek.
+- `rebuildVoxelMesh()` mevcut kamerayı korur. Yeni grid, ilk kamera veya XZ
+  map footprint değişimi fit gerektirir; brush yüksekliği ve viewport seçenekleri
+  gerektirmez. `showGrid`/`showShade` yalnız top-down render'ı tazeler.
+- Doğrulandı: `bash scripts/checks.sh`, `node tools/headless.js` ve
+  `node tools/headless.js --mesh` temiz; mesh 124034 üçgen. `--mesh` ayrıca
+  06:00, 26:00 ve 29.5 saat gösterim sarmasını denetliyor.
+
+**Görsel/etkileşim doğrulanmadı:** Tarayıcı/WebGL gözle kontrolü bu ortamda
+yapılmadı. Uğur voxel kamerayı döndürüp grid-lines, height brush, slider drag,
+mouse orbit ve Q/E sırasında yerinde kaldığını tarayıcıda teyit etmeli.
+
 ### Bu işin dışında, aynı session'da yapılan
 
 Depo Uğur'un ikinci beynine (`BilaxtenOS` vault) bağlandı — `AGENTS.md`, bu dosya,
@@ -168,6 +191,7 @@ onaylanmıştı; Mac'te bakılmadı. Kod aynı, risk düşük — ama "doğrulan
 
 ## Sonraki adım
 
-`TODO.md` NOW'a bak. Kuyruğun başı belirlenmedi — Uğur'un yönü lazım:
-M3 (fırça düzenleme) mi, coğrafi kurallar tur 2'nin kalanı mı, yoksa mevcut
-haliyle ilk `bilaxten.art` vaka çalışması mı yazılsın.
+Faz 3.5 için tarayıcı/WebGL görsel-işlevsel kontrolü: varsayılan voxel açılışı,
+`?renderer=iso`, stage yaw slider'ı, Q/E, mouse orbit, grid-lines ve edit sonrası
+kamera korunması. Ardından bu çalışma ağacı user'ın istediği checkpoint akışına
+göre commit'lenebilir; milestone kuyruğu için `TODO.md` NOW'a bak.

@@ -176,7 +176,8 @@ details.group .body { padding: 2px 18px 18px; }
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-#panel input[type=range] {
+#panel input[type=range],
+#yawControl input[type=range] {
   width: 100%;
   height: 24px;
   margin: 0;
@@ -185,22 +186,26 @@ details.group .body { padding: 2px 18px 18px; }
   background: transparent;
   cursor: pointer;
 }
-#panel input[type=range]::-webkit-slider-runnable-track {
+#panel input[type=range]::-webkit-slider-runnable-track,
+#yawControl input[type=range]::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 999px;
   background: linear-gradient(90deg, var(--accent) 0 var(--fill, 50%), #ded8ca var(--fill, 50%) 100%);
 }
-#panel input[type=range]::-moz-range-track {
+#panel input[type=range]::-moz-range-track,
+#yawControl input[type=range]::-moz-range-track {
   height: 6px;
   border-radius: 999px;
   background: #ded8ca;
 }
-#panel input[type=range]::-moz-range-progress {
+#panel input[type=range]::-moz-range-progress,
+#yawControl input[type=range]::-moz-range-progress {
   height: 6px;
   border-radius: 999px;
   background: var(--accent);
 }
-#panel input[type=range]::-webkit-slider-thumb {
+#panel input[type=range]::-webkit-slider-thumb,
+#yawControl input[type=range]::-webkit-slider-thumb {
   width: 16px;
   height: 16px;
   margin-top: -5px;
@@ -212,7 +217,8 @@ details.group .body { padding: 2px 18px 18px; }
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
   transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
 }
-#panel input[type=range]::-moz-range-thumb {
+#panel input[type=range]::-moz-range-thumb,
+#yawControl input[type=range]::-moz-range-thumb {
   width: 16px;
   height: 16px;
   border: 1px solid #cbbfa8;
@@ -222,12 +228,21 @@ details.group .body { padding: 2px 18px 18px; }
   transition: background 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease;
 }
 #panel input[type=range]:hover::-webkit-slider-thumb,
-#panel input[type=range]:hover::-moz-range-thumb { transform: scale(1.08); }
+#yawControl input[type=range]:hover::-webkit-slider-thumb,
+#panel input[type=range]:hover::-moz-range-thumb,
+#yawControl input[type=range]:hover::-moz-range-thumb { transform: scale(1.08); }
 #panel input[type=range]:active::-webkit-slider-thumb,
-#panel input[type=range]:active::-moz-range-thumb { background: var(--accent); }
-#panel input[type=range]:focus-visible { outline: none; }
+#yawControl input[type=range]:active::-webkit-slider-thumb,
+#panel input[type=range]:active::-moz-range-thumb,
+#yawControl input[type=range]:active::-moz-range-thumb { background: var(--accent); }
+#panel input[type=range]:focus-visible,
+#yawControl input[type=range]:focus-visible { outline: none; }
 #panel input[type=range]:focus-visible::-webkit-slider-thumb,
-#panel input[type=range]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-soft); }
+#yawControl input[type=range]:focus-visible::-webkit-slider-thumb,
+#panel input[type=range]:focus-visible::-moz-range-thumb,
+#yawControl input[type=range]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
 
 #panel button,
 #tools .toolrow button {
@@ -247,9 +262,6 @@ details.group .body { padding: 2px 18px 18px; }
 #panel button:disabled,
 #tools .toolrow button:disabled { opacity: 0.4; cursor: default; }
 #panel #randomSeed { flex: none; }
-#panel .rot-row button { flex: 1; font-size: 15px; line-height: 1; padding: 6px 0; }
-body:not(.iso) #panel .rot-row { opacity: 0.4; pointer-events: none; }
-
 #panel button.primary {
   margin: 13px 18px;
   padding: 10px;
@@ -344,6 +356,29 @@ body:not(.iso) #panel .rot-row { opacity: 0.4; pointer-events: none; }
   font-size: 11px;
   pointer-events: none;
 }
+
+#yawControl {
+  position: absolute;
+  bottom: 13px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(260px, calc(100% - 42px));
+  padding: 7px 11px;
+  border: 1px solid rgba(211, 201, 179, 0.24);
+  border-radius: 999px;
+  background: rgba(17, 21, 28, 0.76);
+  color: #e9e1d4;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+#yawControl[hidden] { display: none; }
+#yawControl input[type=range] { flex: 1; min-width: 0; }
+#yawControl span { min-width: 31px; text-align: right; }
 body.iso #hover { display: none; }
 
 #brushCursor {

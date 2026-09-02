@@ -15,7 +15,8 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'render/topdown.js', 'render/iso.js', 'render/voxel3d.js']) {
+                 'render/topdown.js', 'render/iso.js', 'render/voxel3d.js',
+                 'time.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // strip canvas-only renderers of their getContext calls is unnecessary — we
   // just never call renderIso/renderTopDown here.
@@ -204,6 +205,9 @@ function runMeshChecks() {
     SM.VoxelCamera.snapYaw(47) === 90 &&
     SM.VoxelCamera.snapYaw(44) === 0 &&
     SM.VoxelCamera.snapYaw(316) === 270;
+  const clockWrap = SM.formatClock(6) === '06:00' &&
+    SM.formatClock(26) === '02:00' &&
+    SM.formatClock(29.5) === '05:30';
   const shadowChecks = runShadowChecks();
   const quads = mesh.triangleCount / 2;
   const perCell = quads / (a.width * a.height);
@@ -214,6 +218,7 @@ function runMeshChecks() {
     ['determinism (mesh attributes)', deterministic],
     ['cell UV range and length', cellUV],
     ['camera yaw, pitch, and snap helpers', cameraHelpers],
+    ['clock display wraps after midnight', clockWrap],
     ['triangle count (Faz 1 baseline)', triangleCount]
   ].concat(shadowChecks);
   console.log('voxel mesh checks (seed 1337, 192²):');
