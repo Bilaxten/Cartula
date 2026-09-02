@@ -173,30 +173,35 @@
   // Big chunky voxel clouds — a blobby footprint of little prism cubes with a
   // flat bottom and a lumpy domed top, rendered in the same iso voxel language
   // as the terrain so they read as part of the world.
-  var CW2 = 24, CH2 = 12, CVH = 16;   // cloud voxel half-width / half-depth / height
+  var CW2 = 22, CH2 = 11, CVH = 22;   // cloud voxel half-width / half-depth / height
 
   function makeCloudCells() {
-    var disks = 3 + Math.floor(Math.random() * 3);
-    var acc = {}, keys = [];
-    for (var d = 0; d < disks; d++) {
-      var ox = (Math.random() - 0.5) * 12, oy = (Math.random() - 0.5) * 6;
-      var rr = 3.2 + Math.random() * 4;
-      var lo = Math.ceil(-rr), hi = Math.floor(rr);
-      for (var gy = lo; gy <= hi; gy++) for (var gx = lo; gx <= hi; gx++) {
-        var cx = gx - ox, cy = gy - oy;
-        if (cx * cx + cy * cy > rr * rr) continue;
-        var k = gx + ',' + gy;
-        if (!(k in acc)) { acc[k] = { gx: gx, gy: gy, near: 0 }; keys.push(k); }
-        acc[k].near += 1 - Math.sqrt(cx * cx + cy * cy) / rr;
+    // a few overlapping spherical lumps — each cell's height is the tallest
+    // spherical-cap it falls under, so the cloud reads as round & puffy
+    var lumps = [], nl = 3 + Math.floor(Math.random() * 3);
+    for (var l = 0; l < nl; l++) lumps.push({
+      cx: (Math.random() - 0.5) * 6,
+      cy: (Math.random() - 0.5) * 3,
+      r: 2.2 + Math.random() * 1.8,
+      peak: 3.5 + Math.random() * 2.5
+    });
+    var acc = {}, keys = [], lo = -12, hi = 12;
+    for (var gy = lo; gy <= hi; gy++) for (var gx = lo; gx <= hi; gx++) {
+      var h = 0;
+      for (var m = 0; m < lumps.length; m++) {
+        var lm = lumps[m], ddx = gx - lm.cx, ddy = gy - lm.cy;
+        var dr = Math.sqrt(ddx * ddx + ddy * ddy) / lm.r;
+        if (dr >= 1) continue;
+        var lh = lm.peak * Math.sqrt(1 - dr * dr);   // spherical cap
+        if (lh > h) h = lh;
       }
+      if (h < 0.75) continue;
+      var k = gx + ',' + gy;
+      acc[k] = { gx: gx, gy: gy, h: Math.max(1, Math.round(h)) };
+      keys.push(k);
     }
-    var cells = [], maxN = 0.001, i;
-    for (i = 0; i < keys.length; i++) if (acc[keys[i]].near > maxN) maxN = acc[keys[i]].near;
-    for (i = 0; i < keys.length; i++) {
-      var c = acc[keys[i]];
-      c.h = 1 + Math.round((c.near / maxN) * 2.4 + Math.random() * 0.6); // domed, lumpy
-      cells.push(c);
-    }
+    var cells = [], i;
+    for (i = 0; i < keys.length; i++) cells.push(acc[keys[i]]);
     cells.sort(function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); });
     var minX = 1e9, maxX = -1e9;
     for (i = 0; i < cells.length; i++) {
@@ -344,7 +349,7 @@
     var seconds = (now - anim.t0) / 1000;
     var sun = sunModel(parseFloat($('sun').value)).iso;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    var clouds = $('showClouds').checked;
+    var clouds = anim.mode === 'iso' && $('showClouds').checked;  // iso only
     if (clouds) { stepWeather(now); drawCloudShadows(ctx, sun); }
     if (anim.mode === 'iso') tickIso(now, ctx);
     else tickTop(now, ctx);
@@ -456,21 +461,23 @@
         var baseY = c.y + (cell.gx + cell.gy) * CH2 + bob;
         var topY = baseY - cell.h * CVH;
         var botY = baseY + CVH * 1.3;   // a little skirt below so cubes read solid
-        // left / right faces (subtle grey), then the bright top diamond
-        ctx.fillStyle = 'rgba(207,214,226,0.9)';
+        // opaque voxel cloud — left / right faces (soft grey), bright top.
+        // small outset closes seams between adjacent puff cubes.
+        var O = 0.6;
+        ctx.fillStyle = '#d6dbe6';
         ctx.beginPath();
-        ctx.moveTo(cx - CW2, topY); ctx.lineTo(cx, topY + CH2);
-        ctx.lineTo(cx, botY + CH2); ctx.lineTo(cx - CW2, botY);
+        ctx.moveTo(cx - CW2 - O, topY); ctx.lineTo(cx, topY + CH2);
+        ctx.lineTo(cx, botY + CH2); ctx.lineTo(cx - CW2 - O, botY);
         ctx.closePath(); ctx.fill();
-        ctx.fillStyle = 'rgba(188,197,212,0.9)';
+        ctx.fillStyle = '#c2c8d5';
         ctx.beginPath();
-        ctx.moveTo(cx, topY + CH2); ctx.lineTo(cx + CW2, topY);
-        ctx.lineTo(cx + CW2, botY); ctx.lineTo(cx, botY + CH2);
+        ctx.moveTo(cx, topY + CH2); ctx.lineTo(cx + CW2 + O, topY);
+        ctx.lineTo(cx + CW2 + O, botY); ctx.lineTo(cx, botY + CH2);
         ctx.closePath(); ctx.fill();
-        ctx.fillStyle = 'rgba(250,251,254,0.96)';
+        ctx.fillStyle = '#fbfcfe';
         ctx.beginPath();
-        ctx.moveTo(cx, topY - CH2); ctx.lineTo(cx + CW2, topY);
-        ctx.lineTo(cx, topY + CH2); ctx.lineTo(cx - CW2, topY);
+        ctx.moveTo(cx, topY - CH2 - O); ctx.lineTo(cx + CW2 + O, topY);
+        ctx.lineTo(cx, topY + CH2 + O); ctx.lineTo(cx - CW2 - O, topY);
         ctx.closePath(); ctx.fill();
       }
     }
@@ -599,8 +606,45 @@
     if (todo.length) rotBakeTimer = setTimeout(step, 140);
   }
 
+  var isoJustBaked = false;
+  var revealRAF = 0;
+
+  // Game-juice reveal: the freshly baked iso terrain wipes in row by row from
+  // the back (top of screen) with a soft light frontier — makes the ~0.5 s bake
+  // feel deliberate instead of a freeze-then-pop.
+  function revealIso() {
+    if (revealRAF) cancelAnimationFrame(revealRAF);
+    var src = rotCache[camRot] && rotCache[camRot].canvas;
+    if (!src) { startRiverAnim(); return; }
+    var mc = map.getContext('2d'), W = map.width, Hh = map.height;
+    var DUR = 460, t0 = performance.now();
+    mc.clearRect(0, 0, W, Hh);
+    function frame() {
+      var e = Math.min(1, (performance.now() - t0) / DUR);
+      var k = 1 - Math.pow(1 - e, 3);                 // ease-out
+      var yy = Math.max(1, Math.round(k * Hh));
+      mc.clearRect(0, 0, W, Hh);
+      mc.drawImage(src, 0, 0, W, yy, 0, 0, W, yy);
+      if (e < 1) {
+        var g = mc.createLinearGradient(0, yy - 30, 0, yy + 3);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(1, 'rgba(255,255,255,0.55)');
+        mc.fillStyle = g;
+        mc.fillRect(0, Math.max(0, yy - 30), W, 33);
+        revealRAF = requestAnimationFrame(frame);
+      } else {
+        revealRAF = 0;
+        mc.clearRect(0, 0, W, Hh);
+        mc.drawImage(src, 0, 0);
+        startRiverAnim();
+      }
+    }
+    frame();
+  }
+
   function drawContent() {
     if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
+    if (revealRAF) { cancelAnimationFrame(revealRAF); revealRAF = 0; }
     stopAnim();
     if (view === 'iso') {
       clearRotCache();
@@ -609,6 +653,7 @@
       snap.width = map.width; snap.height = map.height;
       snap.getContext('2d').drawImage(map, 0, 0);
       rotCache[camRot] = { canvas: snap, content: content };
+      isoJustBaked = true;
       scheduleRotBakes();
     } else {
       // shrink the tile for very large maps so the canvas stays GPU-friendly
@@ -625,14 +670,19 @@
 
   // refit = force re-centering; otherwise the camera is kept unless the
   // content changed size (e.g. map dimensions or iso exaggeration).
+  var wantReveal = false;
+
   function refresh(refit) {
     if (!grid) return;
+    isoJustBaked = false;
     drawContent();
     if (refit || content.width !== lastW || content.height !== lastH) fitCam();
     lastW = content.width;
     lastH = content.height;
     applyCam();
-    startRiverAnim();
+    if (isoJustBaked && wantReveal) { wantReveal = false; revealIso(); }
+    else startRiverAnim();
+    wantReveal = false;
   }
 
   function regenerate() {
@@ -644,6 +694,7 @@
     redoStack = [];
     editedSinceRender = false;
     updateUndoButtons();
+    wantReveal = true;
     refresh(false);
 
     var s = SM.summarize(grid);
@@ -688,6 +739,7 @@
     hoverEl.hidden = true;
     hideBrushCursor();
     updateStageCursor();
+    if (mode === 'iso') wantReveal = true;
     refresh(true);
   }
 

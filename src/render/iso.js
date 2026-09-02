@@ -65,6 +65,9 @@
     var E = 0;       // detailed terrain faces meet on their exact shared edges
     var UE = 1.0;    // flat-colour silhouette underfill, px
     var BE = 0.75;   // preserve the border-ring geometry outset
+    var SE = 0.6;    // side-face horizontal overlap, px
+    var SIDE_GRAD = 0.28;
+    var SIDE_GRAD_LEVELS = 2.6;
     var RIVER = SM.BIOME_IDX.river;
     var SHALLOW = SM.BIOME_IDX.shallow_water;
     var LAVA = SM.BIOME_IDX.lava != null ? SM.BIOME_IDX.lava : -1;
@@ -210,15 +213,24 @@
         // left face — down to the (x, y+1) neighbour (or the floor at the edge)
         if (leftDrop > 0) {
           var leftShade = 0.70 * sv * shSide;
-          var leftGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + lhp);
+          // Keep the gradient fixed in the wall plane. Its axis is normal to
+          // the sloping top edge, so coplanar neighbouring faces sample the
+          // same shade at their shared edge instead of restarting per tile.
+          var sideSlope = TH2 / TW2;
+          var gradAxisY = SIDE_GRAD_LEVELS * LH /
+            (1 + sideSlope * sideSlope);
+          var leftGrad = ctx.createLinearGradient(
+            cx - TW2, cy,
+            cx - TW2 - sideSlope * gradAxisY, cy + gradAxisY
+          );
           leftGrad.addColorStop(0, shade(c, leftShade));
-          leftGrad.addColorStop(1, shade(c, leftShade * 0.72));
+          leftGrad.addColorStop(1, shade(c, leftShade * (1 - SIDE_GRAD)));
           ctx.fillStyle = leftGrad;
           ctx.beginPath();
-          ctx.moveTo(cx - TW2 - E, cy);
-          ctx.lineTo(cx, cy + TH2);
-          ctx.lineTo(cx, cy + TH2 + lhp);
-          ctx.lineTo(cx - TW2 - E, cy + lhp);
+          ctx.moveTo(cx - TW2 - SE, cy);
+          ctx.lineTo(cx + SE, cy + TH2);
+          ctx.lineTo(cx + SE, cy + TH2 + lhp);
+          ctx.lineTo(cx - TW2 - SE, cy + lhp);
           ctx.closePath();
           ctx.fill();
         }
@@ -226,15 +238,21 @@
         // right face — down to the (x+1, y) neighbour
         if (rightDrop > 0) {
           var rightShade = 0.50 * sv * shSide;
-          var rightGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + rhp);
+          var sideSlopeR = TH2 / TW2;
+          var gradAxisYR = SIDE_GRAD_LEVELS * LH /
+            (1 + sideSlopeR * sideSlopeR);
+          var rightGrad = ctx.createLinearGradient(
+            cx + TW2, cy,
+            cx + TW2 + sideSlopeR * gradAxisYR, cy + gradAxisYR
+          );
           rightGrad.addColorStop(0, shade(c, rightShade));
-          rightGrad.addColorStop(1, shade(c, rightShade * 0.72));
+          rightGrad.addColorStop(1, shade(c, rightShade * (1 - SIDE_GRAD)));
           ctx.fillStyle = rightGrad;
           ctx.beginPath();
-          ctx.moveTo(cx, cy + TH2);
-          ctx.lineTo(cx + TW2 + E, cy);
-          ctx.lineTo(cx + TW2 + E, cy + rhp);
-          ctx.lineTo(cx, cy + TH2 + rhp);
+          ctx.moveTo(cx - SE, cy + TH2);
+          ctx.lineTo(cx + TW2 + SE, cy);
+          ctx.lineTo(cx + TW2 + SE, cy + rhp);
+          ctx.lineTo(cx - SE, cy + TH2 + rhp);
           ctx.closePath();
           ctx.fill();
         }
