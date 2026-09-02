@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "defaultMode": "auto",
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git fetch:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(scripts/sync.sh:*)",
+      "Bash(scripts/checks.sh:*)",
+      "Bash(node tools/headless.js:*)",
+      "Bash(node --check:*)"
+    ],
+    "deny": [
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(git clean -d:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git checkout -- :*)",
+      "Bash(git restore --worktree:*)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Read(**/auth.json)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session-context.sh\"",
+            "timeout": 20,
+            "statusMessage": "Depo durumu yükleniyor..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/stop-state-guard.sh\"",
+            "timeout": 15,
+            "statusMessage": "Devir durumu kontrol ediliyor..."
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/session-end-breadcrumb.sh\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/agent-notify.sh\" \"Claude Code — StilizedMaps\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

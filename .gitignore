@@ -6,3 +6,7 @@ desktop.ini
 .vscode/
 .idea/
 dist/
+
+# Claude Code — makineye özel, commit edilmez
+.claude/.state/
+.claude/settings.local.json
