@@ -26,6 +26,39 @@
   var ISO_BASE_LH = 13;
 
   var anim = null; // live overlay animation state
+  var camRot = 0;  // iso view rotation, 0..3 quarter turns
+
+  // A rotated *view* of the grid for the iso bake — the real grid is never
+  // mutated. The iso projection can't be spun with a CSS transform (it would
+  // rotate the diamonds, not re-project), so a rotation is a re-bake off a
+  // transposed copy. ~1-2 ms of array shuffling; the bake is the real cost.
+  function rotateGridView(g, r) {
+    if (!r) return g;
+    var W = g.width, H = g.height;
+    var nW = (r % 2) ? H : W, nH = (r % 2) ? W : H, n = nW * nH;
+    function src(nx, ny) {
+      var ox, oy;
+      if (r === 1) { ox = ny; oy = H - 1 - nx; }
+      else if (r === 2) { ox = W - 1 - nx; oy = H - 1 - ny; }
+      else { ox = W - 1 - ny; oy = nx; }
+      return oy * W + ox;
+    }
+    var out = {
+      width: nW, height: nH, config: g.config,
+      seaThresh: g.seaThresh, landSpan: g.landSpan,
+      index: function (x, y) { return y * this.width + x; },
+      inBounds: function (x, y) { return x >= 0 && y >= 0 && x < this.width && y < this.height; }
+    };
+    var keys = ['elevation', 'moisture', 'temperature', 'water', 'biome', 'level', 'lava', 'builtup'];
+    for (var k = 0; k < keys.length; k++) {
+      var arr = g[keys[k]];
+      if (!arr) continue;
+      var na = new arr.constructor(n);
+      for (var ny = 0; ny < nH; ny++) for (var nx = 0; nx < nW; nx++) na[ny * nW + nx] = arr[src(nx, ny)];
+      out[keys[k]] = na;
+    }
+    return out;
+  }
 
   function isoExag() { return parseFloat($('isoexag').value); }
 
@@ -496,7 +529,7 @@
     if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
     stopAnim();
     if (view === 'iso') {
-      content = SM.renderIso(map, grid, {
+      content = SM.renderIso(map, rotateGridView(grid, camRot), {
         tile: ISO_TILE,
         levelHeight: ISO_BASE_LH * isoExag(),
         sun: sunModel(parseFloat($('sun').value)).iso
@@ -542,6 +575,13 @@
       cfg.width + '×' + cfg.height + ' · ' +
       dt.toFixed(1) + ' ms · land ' + s.landPct + '%';
     $('stats').textContent = statsBase;
+  }
+
+  function rotateView(dir) {
+    if (view !== 'iso') return;
+    camRot = (camRot + dir + 4) % 4;
+    $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
+    refresh(true);
   }
 
   function setView(mode) {
@@ -1049,6 +1089,8 @@
   $('editReset').addEventListener('click', regenerate);
   $('viewTop').addEventListener('click', function () { setView('top'); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
+  $('rotL').addEventListener('click', function () { rotateView(-1); });
+  $('rotR').addEventListener('click', function () { rotateView(1); });
   $('exportPng').addEventListener('click', exportPng);
   $('shareLink').addEventListener('click', shareLink);
   window.addEventListener('resize', function () { if (grid) applyCam(); });
@@ -1062,14 +1104,17 @@
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
   window.addEventListener('keydown', function (ev) {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    var tn = ev.target && ev.target.tagName;
+    if (tn === 'INPUT' || tn === 'SELECT' || tn === 'TEXTAREA') return;
     var key = (ev.key || '').toLowerCase();
-    if (key === 'z') {
-      ev.preventDefault();
-      if (ev.shiftKey) redoEdit(); else undoEdit();
-    } else if (key === 'y') {
-      ev.preventDefault(); redoEdit();
+    if (ev.ctrlKey || ev.metaKey) {
+      if (ev.altKey) return;
+      if (key === 'z') { ev.preventDefault(); if (ev.shiftKey) redoEdit(); else undoEdit(); }
+      else if (key === 'y') { ev.preventDefault(); redoEdit(); }
+      return;
     }
+    if (key === 'q') rotateView(-1);
+    else if (key === 'e') rotateView(1);
   });
   stage.addEventListener('wheel', onWheel, { passive: false });
 

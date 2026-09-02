@@ -64,6 +64,7 @@
     var level = grid.level;
     var E = 0.75; // geometry outset, px — fills anti-alias seams
     var RIVER = SM.BIOME_IDX.river;
+    var SHALLOW = SM.BIOME_IDX.shallow_water;
     var LAVA = SM.BIOME_IDX.lava != null ? SM.BIOME_IDX.lava : -1;
     var lavaFlag = grid.lava || null;
     var rivers = []; // {cx, cy, elev, i} of each river tile's top diamond, for animation
@@ -151,7 +152,11 @@
         var leftDrop = L - lvl(x, y + 1);
         if (leftDrop > 0) {
           var lhp = leftDrop * LH + 1;
-          ctx.fillStyle = shade(c, 0.70 * sv * shSide);
+          var leftShade = 0.70 * sv * shSide;
+          var leftGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + lhp);
+          leftGrad.addColorStop(0, shade(c, leftShade));
+          leftGrad.addColorStop(1, shade(c, leftShade * 0.72));
+          ctx.fillStyle = leftGrad;
           ctx.beginPath();
           ctx.moveTo(cx - TW2 - E, cy);
           ctx.lineTo(cx, cy + TH2);
@@ -165,7 +170,11 @@
         var rightDrop = L - lvl(x + 1, y);
         if (rightDrop > 0) {
           var rhp = rightDrop * LH + 1;
-          ctx.fillStyle = shade(c, 0.50 * sv * shSide);
+          var rightShade = 0.50 * sv * shSide;
+          var rightGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + rhp);
+          rightGrad.addColorStop(0, shade(c, rightShade));
+          rightGrad.addColorStop(1, shade(c, rightShade * 0.72));
+          ctx.fillStyle = rightGrad;
           ctx.beginPath();
           ctx.moveTo(cx, cy + TH2);
           ctx.lineTo(cx + TW2 + E, cy);
@@ -177,8 +186,33 @@
 
         // top diamond (outset slightly to close AA seams between tiles) —
         // a touch lighter with height so relief reads at a glance
+        var topC = c;
+        if (grid.biome[i] === SHALLOW) {
+          var shoreN = 0, shoreDiag = 0;
+          if (x > 0 && !grid.water[i - 1]) shoreN++;
+          if (x < W - 1 && !grid.water[i + 1]) shoreN++;
+          if (y > 0 && !grid.water[i - W]) shoreN++;
+          if (y < H - 1 && !grid.water[i + W]) shoreN++;
+          if (x > 0 && y > 0 && !grid.water[i - W - 1]) shoreDiag++;
+          if (x < W - 1 && y > 0 && !grid.water[i - W + 1]) shoreDiag++;
+          if (x > 0 && y < H - 1 && !grid.water[i + W - 1]) shoreDiag++;
+          if (x < W - 1 && y < H - 1 && !grid.water[i + W + 1]) shoreDiag++;
+          var wt = Math.min(1, shoreN * 0.5 + shoreDiag * 0.125) * 0.55;
+          topC = [
+            c[0] + (122 - c[0]) * wt,
+            c[1] + (196 - c[1]) * wt,
+            c[2] + (201 - c[2]) * wt
+          ];
+        }
+        var taller = 0;
+        if (lvl(x - 1, y) > L) taller++;
+        if (lvl(x + 1, y) > L) taller++;
+        if (lvl(x, y - 1) > L) taller++;
+        if (lvl(x, y + 1) > L) taller++;
+        var ao = 1 - 0.06 * Math.min(3, taller);
         var topF = grid.water[i] ? 1.0 : (0.90 + 0.15 * (L / maxLevel));
-        ctx.fillStyle = shade(c, topF * sv * shf);
+        var topShade = topF * sv * shf * ao;
+        ctx.fillStyle = shade(topC, topShade);
         ctx.beginPath();
         ctx.moveTo(cx, cy - TH2 - E);
         ctx.lineTo(cx + TW2 + E, cy);
@@ -186,6 +220,18 @@
         ctx.lineTo(cx - TW2 - E, cy);
         ctx.closePath();
         ctx.fill();
+
+        // A narrow lit ridge keeps the upper block edges crisp. Water stays
+        // unstroked so adjacent sea tiles continue to read as one surface.
+        if (!grid.water[i]) {
+          ctx.strokeStyle = shade(topC, topShade * 1.16);
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(cx - TW2 - E, cy);
+          ctx.lineTo(cx, cy - TH2 - E);
+          ctx.lineTo(cx + TW2 + E, cy);
+          ctx.stroke();
+        }
 
         // Tiny deterministic prisms give each built-up cell its own compact
         // roofline without consuming another random stream during rendering.

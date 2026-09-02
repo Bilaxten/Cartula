@@ -29,6 +29,7 @@
 
     var rgb = biomeRgb();
     var RIVER = SM.BIOME_IDX.river;
+    var SHALLOW = SM.BIOME_IDX.shallow_water;
     var LAVA = SM.BIOME_IDX.lava != null ? SM.BIOME_IDX.lava : -1;
     var lavaFlag = grid.lava || null;
     var rivers = [], lavas = [];
@@ -37,6 +38,23 @@
       for (var x = 0; x < w; x++) {
         var i = y * w + x;
         var c = rgb[grid.biome[i]];
+        if (grid.biome[i] === SHALLOW) {
+          var shoreN = 0, shoreDiag = 0;
+          if (x > 0 && !grid.water[i - 1]) shoreN++;
+          if (x < w - 1 && !grid.water[i + 1]) shoreN++;
+          if (y > 0 && !grid.water[i - w]) shoreN++;
+          if (y < h - 1 && !grid.water[i + w]) shoreN++;
+          if (x > 0 && y > 0 && !grid.water[i - w - 1]) shoreDiag++;
+          if (x < w - 1 && y > 0 && !grid.water[i - w + 1]) shoreDiag++;
+          if (x > 0 && y < h - 1 && !grid.water[i + w - 1]) shoreDiag++;
+          if (x < w - 1 && y < h - 1 && !grid.water[i + w + 1]) shoreDiag++;
+          var wt = Math.min(1, shoreN * 0.5 + shoreDiag * 0.125) * 0.55;
+          c = [
+            c[0] + (122 - c[0]) * wt,
+            c[1] + (196 - c[1]) * wt,
+            c[2] + (201 - c[2]) * wt
+          ];
+        }
         ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
         ctx.fillRect(x * ts, y * ts, ts, ts);
 
