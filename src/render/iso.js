@@ -26,9 +26,9 @@
     return RGB;
   }
 
-  // Chrome drops GPU acceleration for large canvases and falls back to very
-  // slow software rendering. Keep the baked canvas comfortably under that.
-  var MAX_CANVAS_PX = 8e6;
+  // Modern Chrome tolerates roughly 13-16MP before dropping GPU acceleration;
+  // above that it falls back to software rendering and bakes get slow.
+  var MAX_CANVAS_PX = 13e6;
 
   function renderIso(canvas, grid, opts) {
     var o = Object.assign({ tile: 26, levelHeight: 20 }, opts || {});
@@ -62,7 +62,9 @@
 
     var rgb = biomeRgb();
     var level = grid.level;
-    var E = 0.75; // geometry outset, px — fills anti-alias seams
+    var E = 0;       // detailed terrain faces meet on their exact shared edges
+    var UE = 1.0;    // flat-colour silhouette underfill, px
+    var BE = 0.75;   // preserve the border-ring geometry outset
     var RIVER = SM.BIOME_IDX.river;
     var SHALLOW = SM.BIOME_IDX.shallow_water;
     var LAVA = SM.BIOME_IDX.lava != null ? SM.BIOME_IDX.lava : -1;
@@ -124,18 +126,18 @@
           var bDrop = (bL - floorLevel) * LH + 1;
           ctx.fillStyle = shade(BORD, 0.55);        // left face
           ctx.beginPath();
-          ctx.moveTo(cx - TW2 - E, bcy); ctx.lineTo(cx, bcy + TH2);
-          ctx.lineTo(cx, bcy + TH2 + bDrop); ctx.lineTo(cx - TW2 - E, bcy + bDrop);
+          ctx.moveTo(cx - TW2 - BE, bcy); ctx.lineTo(cx, bcy + TH2);
+          ctx.lineTo(cx, bcy + TH2 + bDrop); ctx.lineTo(cx - TW2 - BE, bcy + bDrop);
           ctx.closePath(); ctx.fill();
           ctx.fillStyle = shade(BORD, 0.4);         // right face
           ctx.beginPath();
-          ctx.moveTo(cx, bcy + TH2); ctx.lineTo(cx + TW2 + E, bcy);
-          ctx.lineTo(cx + TW2 + E, bcy + bDrop); ctx.lineTo(cx, bcy + TH2 + bDrop);
+          ctx.moveTo(cx, bcy + TH2); ctx.lineTo(cx + TW2 + BE, bcy);
+          ctx.lineTo(cx + TW2 + BE, bcy + bDrop); ctx.lineTo(cx, bcy + TH2 + bDrop);
           ctx.closePath(); ctx.fill();
           ctx.fillStyle = shade(BORD, 1.4);         // top — legible from above
           ctx.beginPath();
-          ctx.moveTo(cx, bcy - TH2 - E); ctx.lineTo(cx + TW2 + E, bcy);
-          ctx.lineTo(cx, bcy + TH2 + E); ctx.lineTo(cx - TW2 - E, bcy);
+          ctx.moveTo(cx, bcy - TH2 - BE); ctx.lineTo(cx + TW2 + BE, bcy);
+          ctx.lineTo(cx, bcy + TH2 + BE); ctx.lineTo(cx - TW2 - BE, bcy);
           ctx.closePath(); ctx.fill();
           continue;
         }
@@ -148,44 +150,8 @@
         var shf = 1 - STR * shadow[i];         // top-face darkening from cast shadow
         var shSide = 1 - STR * 0.55 * shadow[i]; // sides take a lighter hit
 
-        // left face — down to the (x, y+1) neighbour (or the floor at the edge)
-        var leftDrop = L - lvl(x, y + 1);
-        if (leftDrop > 0) {
-          var lhp = leftDrop * LH + 1;
-          var leftShade = 0.70 * sv * shSide;
-          var leftGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + lhp);
-          leftGrad.addColorStop(0, shade(c, leftShade));
-          leftGrad.addColorStop(1, shade(c, leftShade * 0.72));
-          ctx.fillStyle = leftGrad;
-          ctx.beginPath();
-          ctx.moveTo(cx - TW2 - E, cy);
-          ctx.lineTo(cx, cy + TH2);
-          ctx.lineTo(cx, cy + TH2 + lhp);
-          ctx.lineTo(cx - TW2 - E, cy + lhp);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        // right face — down to the (x+1, y) neighbour
-        var rightDrop = L - lvl(x + 1, y);
-        if (rightDrop > 0) {
-          var rhp = rightDrop * LH + 1;
-          var rightShade = 0.50 * sv * shSide;
-          var rightGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + rhp);
-          rightGrad.addColorStop(0, shade(c, rightShade));
-          rightGrad.addColorStop(1, shade(c, rightShade * 0.72));
-          ctx.fillStyle = rightGrad;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy + TH2);
-          ctx.lineTo(cx + TW2 + E, cy);
-          ctx.lineTo(cx + TW2 + E, cy + rhp);
-          ctx.lineTo(cx, cy + TH2 + rhp);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        // top diamond (outset slightly to close AA seams between tiles) —
-        // a touch lighter with height so relief reads at a glance
+        // Work out the final top colour before painting anything: the same
+        // flat colour underfills the complete visible prism silhouette.
         var topC = c;
         if (grid.biome[i] === SHALLOW) {
           var shoreN = 0, shoreDiag = 0;
@@ -212,6 +178,69 @@
         var ao = 1 - 0.06 * Math.min(3, taller);
         var topF = grid.water[i] ? 1.0 : (0.90 + 0.15 * (L / maxLevel));
         var topShade = topF * sv * shf * ao;
+
+        var leftDrop = L - lvl(x, y + 1);
+        var rightDrop = L - lvl(x + 1, y);
+        var lhp = leftDrop > 0 ? leftDrop * LH + 1 : 0;
+        var rhp = rightDrop > 0 ? rightDrop * LH + 1 : 0;
+
+        // One continuous, generously outset path covers the union of the top
+        // diamond and whichever front faces are visible. Any AA left by the
+        // detailed polygons can therefore reveal only this tile's own colour.
+        ctx.fillStyle = shade(topC, topShade);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - TH2 - UE);
+        ctx.lineTo(cx + TW2 + UE, cy);
+        if (rightDrop > 0) {
+          ctx.lineTo(cx + TW2 + UE, cy + rhp + UE);
+          ctx.lineTo(cx, cy + TH2 + rhp + UE);
+        } else {
+          ctx.lineTo(cx, cy + TH2 + UE);
+        }
+        if (leftDrop > 0) {
+          ctx.lineTo(cx, cy + TH2 + lhp + UE);
+          ctx.lineTo(cx - TW2 - UE, cy + lhp + UE);
+        } else {
+          if (rightDrop > 0) ctx.lineTo(cx, cy + TH2 + UE);
+          ctx.lineTo(cx - TW2 - UE, cy);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // left face — down to the (x, y+1) neighbour (or the floor at the edge)
+        if (leftDrop > 0) {
+          var leftShade = 0.70 * sv * shSide;
+          var leftGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + lhp);
+          leftGrad.addColorStop(0, shade(c, leftShade));
+          leftGrad.addColorStop(1, shade(c, leftShade * 0.72));
+          ctx.fillStyle = leftGrad;
+          ctx.beginPath();
+          ctx.moveTo(cx - TW2 - E, cy);
+          ctx.lineTo(cx, cy + TH2);
+          ctx.lineTo(cx, cy + TH2 + lhp);
+          ctx.lineTo(cx - TW2 - E, cy + lhp);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // right face — down to the (x+1, y) neighbour
+        if (rightDrop > 0) {
+          var rightShade = 0.50 * sv * shSide;
+          var rightGrad = ctx.createLinearGradient(cx, cy, cx, cy + TH2 + rhp);
+          rightGrad.addColorStop(0, shade(c, rightShade));
+          rightGrad.addColorStop(1, shade(c, rightShade * 0.72));
+          ctx.fillStyle = rightGrad;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy + TH2);
+          ctx.lineTo(cx + TW2 + E, cy);
+          ctx.lineTo(cx + TW2 + E, cy + rhp);
+          ctx.lineTo(cx, cy + TH2 + rhp);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Top diamond sits on the exact tile footprint; the underfill closes
+        // anti-alias seams without letting this colour bleed over neighbours.
         ctx.fillStyle = shade(topC, topShade);
         ctx.beginPath();
         ctx.moveTo(cx, cy - TH2 - E);
@@ -221,15 +250,20 @@
         ctx.closePath();
         ctx.fill();
 
-        // A narrow lit ridge keeps the upper block edges crisp. Water stays
-        // unstroked so adjacent sea tiles continue to read as one surface.
+        // A narrow lit ridge accents real ledges only. Water stays unstroked
+        // so adjacent sea tiles continue to read as one surface.
         if (!grid.water[i]) {
-          ctx.strokeStyle = shade(topC, topShade * 1.16);
+          ctx.strokeStyle = shade(topC, topShade * 1.14);
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(cx - TW2 - E, cy);
-          ctx.lineTo(cx, cy - TH2 - E);
-          ctx.lineTo(cx + TW2 + E, cy);
+          if (lvl(x - 1, y) < L) {
+            ctx.moveTo(cx - TW2, cy);
+            ctx.lineTo(cx, cy - TH2);
+          }
+          if (lvl(x, y - 1) < L) {
+            ctx.moveTo(cx, cy - TH2);
+            ctx.lineTo(cx + TW2, cy);
+          }
           ctx.stroke();
         }
 

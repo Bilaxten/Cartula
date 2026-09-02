@@ -22,7 +22,7 @@
   var statsBase = '';
 
   var TOP_TILE = 9;
-  var ISO_TILE = 24;
+  var ISO_TILE = 32;
   var ISO_BASE_LH = 13;
 
   var anim = null; // live overlay animation state
@@ -582,7 +582,9 @@
   function scheduleRotBakes() {
     if (rotBakeTimer) { clearTimeout(rotBakeTimer); rotBakeTimer = 0; }
     if (!grid || view !== 'iso' || !content) return;
-    if (content.width * content.height > 9.5e6) return; // too big to hold 4 copies
+    // holding 4 baked copies costs ~4·W·H·4 bytes — fine for the ~14 MP default,
+    // skipped for cranked-up map sizes (rotation there falls back to a sync bake)
+    if (content.width * content.height > 15.5e6) return;
     var todo = [];
     for (var r = 0; r < 4; r++) if (r !== camRot && !rotCache[r]) todo.push(r);
     function step() {
