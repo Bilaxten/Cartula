@@ -214,6 +214,8 @@ function runMeshChecks() {
     mesh.sideDepth,
     mesh.cellUV,
     mesh.emissive,
+    mesh.water,
+    mesh.shore,
     mesh.ao
   ];
   const finite = attributes.every(arr => Array.prototype.every.call(arr, Number.isFinite));
@@ -222,7 +224,22 @@ function runMeshChecks() {
   const deterministic = typedEqual(mesh.positions, meshB.positions) &&
     typedEqual(mesh.colors, meshB.colors) &&
     typedEqual(mesh.cellUV, meshB.cellUV) &&
-    typedEqual(mesh.emissive, meshB.emissive);
+    typedEqual(mesh.emissive, meshB.emissive) &&
+    typedEqual(mesh.water, meshB.water) &&
+    typedEqual(mesh.shore, meshB.shore);
+  const waterFlags = mesh.water.length === mesh.vertexCount &&
+    Array.prototype.every.call(mesh.water, value => value === 0 || value === 1);
+  const waterOnTopFaces = Array.prototype.every.call(mesh.water, (value, i) => {
+    if (!value) return true;
+    const uv = i * 2;
+    const x = Math.floor(mesh.cellUV[uv] * a.width);
+    const y = Math.floor(mesh.cellUV[uv + 1] * a.height);
+    const cell = y * a.width + x;
+    return mesh.normals[i * 3 + 1] === 1 && !!a.water[cell];
+  });
+  const shoreRange = mesh.shore.length === mesh.vertexCount &&
+    Array.prototype.every.call(mesh.shore, value => value >= 0 && value <= 1);
+  const shoreDeterministic = typedEqual(mesh.shore, meshB.shore);
   const aoRange = mesh.ao.length === mesh.vertexCount &&
     Array.prototype.every.call(mesh.ao, value =>
       value >= 0 && value <= 3 && Number.isInteger(value));
@@ -256,6 +273,10 @@ function runMeshChecks() {
     ['index range', indices],
     ['flat-grid face culling', flat],
     ['determinism (mesh attributes)', deterministic],
+    ['water flag length and binary range', waterFlags],
+    ['water flags occur only on water top faces', waterOnTopFaces],
+    ['shore length and range', shoreRange],
+    ['shore determinism', shoreDeterministic],
     ['AO type, length, integer range', aoRange],
     ['AO determinism', aoDeterministic],
     ['flat grid AO is fully open', flatAO],

@@ -36,6 +36,8 @@
   var voxelCamera = null;
   var voxelAnim = 0;
   var voxelDirty = false;
+  var voxelTime = 0;
+  var voxelTimeLast = 0;
   var voxelSnap = null;
   var voxelCameraQuery = null;
   var voxelBounds = null;
@@ -179,6 +181,10 @@
     return view === 'iso' && RENDERER === 'voxel' && !voxelUnavailable;
   }
 
+  function voxelAnimationEnabled() {
+    return $('showAnim').checked;
+  }
+
   function resizeVoxel() {
     if (!voxelRenderer) return;
     voxelRenderer.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
@@ -188,12 +194,15 @@
   function stopVoxel() {
     if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
     voxelDirty = false;
+    voxelTimeLast = 0;
     voxelSnap = null;
     glCanvas.hidden = true;
     map.hidden = false;
     $('riverfx').hidden = false;
     $('daynight').hidden = false;
     $('yawControl').hidden = true;
+    $('cloudControl').hidden = false;
+    $('showClouds').disabled = false;
     $('isohint').textContent = 'drag to pan \u00b7 scroll to zoom';
     updateRotationLabel();
   }
@@ -221,6 +230,7 @@
     var elapsed;
     var eased;
     var delta;
+    var frameSeconds;
 
     voxelAnim = 0;
     if (!voxelRenderer || !isVoxelMode()) return;
@@ -234,10 +244,22 @@
       voxelDirty = true;
       if (elapsed === 1) voxelSnap = null;
     }
+    if (voxelAnimationEnabled()) {
+      if (!voxelTimeLast) voxelTimeLast = now;
+      frameSeconds = Math.max(0, now - voxelTimeLast) / 1000;
+      voxelTime += frameSeconds;
+      voxelTimeLast = now;
+      voxelRenderer.setTime(voxelTime);
+      voxelDirty = true;
+    } else {
+      voxelTimeLast = 0;
+    }
     if (!voxelDirty) return;
     voxelDirty = false;
     voxelRenderer.render();
-    if (voxelSnap) requestVoxelRender();
+    if (voxelSnap || voxelAnimationEnabled()) {
+      voxelAnim = requestAnimationFrame(renderVoxelFrame);
+    }
   }
 
   function setVoxelCamera(next) {
@@ -282,10 +304,13 @@
       }
       voxelRenderer.setClearColor(0.055, 0.075, 0.11, 1);
     }
+    voxelRenderer.setTime(voxelTime);
     map.hidden = true;
     $('riverfx').hidden = true;
     $('daynight').hidden = false;
     $('yawControl').hidden = false;
+    $('cloudControl').hidden = true;
+    $('showClouds').disabled = true;
     glCanvas.hidden = false;
     $('isohint').textContent =
       'drag to orbit \u00b7 shift+drag to pan \u00b7 scroll to zoom \u00b7 Q/E snap';
@@ -1520,6 +1545,16 @@
   });
   $('showShade').addEventListener('change', function () {
     if (view === 'top') refresh(false);
+  });
+  $('showAnim').addEventListener('change', function () {
+    if (!isVoxelMode()) return;
+    voxelTimeLast = 0;
+    if (this.checked) {
+      requestVoxelRender();
+    } else if (voxelAnim && !voxelDirty && !voxelSnap) {
+      cancelAnimationFrame(voxelAnim);
+      voxelAnim = 0;
+    }
   });
   $('editTool').addEventListener('change', syncEditControls);
   $('brushSize').addEventListener('input', hideBrushCursor);

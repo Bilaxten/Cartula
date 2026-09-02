@@ -38,7 +38,9 @@ Değişen tek şey projeksiyon aşaması.
       korunması (commit bekliyor)
 - [x] Faz 4.5 — per-vertex ambient occlusion, AO uyumlu quad diagonal seçimi
       ve headless mesh denetimleri (commit bekliyor)
-- [ ] Faz 4 — canlı efektler (nehir, lav, foam, bulut, kuş, duman)
+- [x] Faz 4a — voxel arazi animasyonu: su dalgası, lav nabzı ve kıyı foam'u
+      (commit bekliyor)
+- [ ] Faz 4b — bulutlar ve kuşlar (ayrı geometri/sistem)
 - [ ] Faz 5 — export, `iso.js` silinir, dokümanlar
 
 ### Geçiş güvenliği: varsayılan voxel, iso kaçış kapısı
@@ -181,6 +183,33 @@ mouse orbit ve Q/E sırasında yerinde kaldığını tarayıcıda teyit etmeli.
 edilemedi. `?renderer=voxel` altında AO'nun üst köşelerdeki koyuluğu, yüksek
 basamakların yan dikişleri, açık alandaki düz yüzlerin değişmemesi ve gün
 slider'ında cast-shadow ile AO'nun dengesi tarayıcıda kontrol edilmeli.
+
+### Faz 4a teslimi (2026-09-02, commit bekliyor)
+
+- Voxel görünümünde varsayılan açık `Terrain animation` anahtarı eklendi. Açık
+  olduğunda her RAF'ta `uTime` güncellenir; kapalı olduğunda son WebGL karesi
+  kalır ve yalnız kirli sahne ya da kamera snap'i tekrar bir kare ister.
+  `showClouds` voxel modunda gizlenir ve devre dışı kalır; eski iso yoluna
+  dönülünce geri gelir.
+- Saf `SM.buildVoxelMesh(grid)` artık yalnız su hücresi üstlerinde 1 olan
+  `water` ve yalnız sığ kıyılarda `terrainColor()` içindeki `wt` değerini
+  taşıyan `shore` attribute'larını üretir. Yan yüzler, border ve taban ikisi
+  için de 0'dır; eski kullanılmayan `opts` parametresi kaldırıldı.
+- Vertex shader suyu `0.036` ham seviye genliği, `1.40` hız ve dünya-konumu
+  fazıyla hareket ettirir. `shore` ağırlığı genliği `1 - wt` ile söndürür;
+  varsayılan 1.6 dikey ölçekte en büyük hareket 0.058 voxel olduğundan kıyı
+  dikişi riski küçük tutulur. Fragment shader lavı hücre UV fazı ve `2.40`
+  hızıyla nabızlandırır;
+  foam `1.60` hızla kıyı ağırlığı üzerinde ince bir parlak banttır.
+- Doğrulandı: `bash scripts/checks.sh`, `node tools/headless.js` ve
+  `node tools/headless.js --mesh` temiz. Mesh denetimi su bayrağı uzunluğu,
+  ikili aralığı ve yalnız su üst yüzlerinde oluşmasını; `shore` uzunluk/aralık
+  ve determinism'ini denetler. Geometri tabanı **124034 üçgen** kaldı.
+
+**Görsel doğrulanmadı:** Tarayıcı/WebGL canvas bu ortamda gözle kontrol
+edilmedi. `?renderer=voxel` altında dalganın kıyıda yarık açmadığı, foam'un
+okunurluğu, lavların bağımsız nabzı ve animasyon anahtarı kapatılınca son
+karenin donduğu gözle kontrol edilmeli.
 
 ### Bu işin dışında, aynı session'da yapılan
 

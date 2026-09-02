@@ -102,10 +102,9 @@
 
   /* Build independent quad vertices. Keeping faces independent permits a
    * material, normal, and depth discontinuity on every voxel edge. */
-  function buildVoxelMesh(grid, opts) {
+  function buildVoxelMesh(grid) {
     // This function deliberately receives no GL object: headless checks can
     // compare its deterministic typed arrays without browser state.
-    var o = opts || {};
     var W = grid.width;
     var H = grid.height;
     var level = grid.level;
@@ -119,6 +118,8 @@
     var depth = [];
     var cellUV = [];
     var emissive = [];
+    var water = [];
+    var shore = [];
     var ao = [];
     var indices = [];
     var minX = Infinity;
@@ -134,7 +135,10 @@
     var shallow = SM.BIOME_IDX.shallow_water;
     var lava = grid.lava || [];
 
-    function addVertex(x, y, z, nx, ny, nz, c, d, cellX, cellY, glow, vertexAo) {
+    function addVertex(
+      x, y, z, nx, ny, nz, c, d, cellX, cellY, glow, waterTop, shoreWeight,
+      vertexAo
+    ) {
       // Positions preserve the raw integer level. uVScale later exaggerates Y
       // without invalidating the mesh topology.
       pos.push(x, y, z);
@@ -148,6 +152,9 @@
       cellUV.push((Math.max(0, Math.min(H - 1, cellY)) + 0.5) / H);
       // A scalar keeps lava emission independent from daylight in the shader.
       emissive.push(glow);
+      // Water moves only on its top face; shore weight softens its edge motion.
+      water.push(waterTop);
+      shore.push(shoreWeight);
       // AO remains a discrete 0..3 visibility count until fragment lighting.
       ao.push(vertexAo);
       if (x < minX) minX = x;
@@ -168,6 +175,8 @@
       cellX,
       cellY,
       glow,
+      waterTop,
+      shoreWeight,
       vertexAo
     ) {
       var base = pos.length / 3;
@@ -176,22 +185,22 @@
       addVertex(
         vertices[0], vertices[1], vertices[2],
         normal[0], normal[1], normal[2], faceColor, sideDepth[0],
-        cellX, cellY, glow, vertexAo[0]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[0]
       );
       addVertex(
         vertices[3], vertices[4], vertices[5],
         normal[0], normal[1], normal[2], faceColor, sideDepth[1],
-        cellX, cellY, glow, vertexAo[1]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[1]
       );
       addVertex(
         vertices[6], vertices[7], vertices[8],
         normal[0], normal[1], normal[2], faceColor, sideDepth[2],
-        cellX, cellY, glow, vertexAo[2]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[2]
       );
       addVertex(
         vertices[9], vertices[10], vertices[11],
         normal[0], normal[1], normal[2], faceColor, sideDepth[3],
-        cellX, cellY, glow, vertexAo[3]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[3]
       );
       if (shouldFlipVoxelQuad(vertexAo[0], vertexAo[1], vertexAo[2], vertexAo[3])) {
         indices.push(base, base + 1, base + 3);
@@ -288,7 +297,7 @@
       var topC = c;
       var shoreN = 0;
       var shoreDiag = 0;
-      var wt;
+      var wt = 0;
       var sv;
       var topF;
 
@@ -318,11 +327,12 @@
           topC[1] * topF * sv,
           topC[2] * topF * sv
         ],
-        side: [c[0] * sv, c[1] * sv, c[2] * sv]
+        side: [c[0] * sv, c[1] * sv, c[2] * sv],
+        shore: wt
       };
     }
 
-    function addTop(x, y, L, c, glow) {
+    function addTop(x, y, L, c, glow, waterTop, shoreWeight) {
       var x0 = x - W / 2;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
@@ -337,6 +347,8 @@
         x,
         y,
         glow,
+        waterTop,
+        shoreWeight,
         topAO(x, y, L)
       );
     }
@@ -360,6 +372,8 @@
           x,
           y,
           glow,
+          0,
+          0,
           vertexAo
         );
       } else if (dir === 1) {
@@ -371,6 +385,8 @@
           x,
           y,
           glow,
+          0,
+          0,
           vertexAo
         );
       } else if (dir === 2) {
@@ -382,6 +398,8 @@
           x,
           y,
           glow,
+          0,
+          0,
           vertexAo
         );
       } else {
@@ -393,6 +411,8 @@
           x,
           y,
           glow,
+          0,
+          0,
           vertexAo
         );
       }
@@ -413,7 +433,9 @@
         var glow = lava[i] ? 1 : 0;
 
         // Top and sides share one material decision so biome seams stay sharp.
-        addTop(x, y, L, material.top, glow);
+        addTop(
+          x, y, L, material.top, glow, grid.water[i] ? 1 : 0, material.shore
+        );
         west = levelAt(x - 1, y);
         east = levelAt(x + 1, y);
         north = levelAt(x, y - 1);
@@ -437,7 +459,7 @@
         // Only the perimeter cells belong to the display plinth.
         if (x >= 0 && x < W && y >= 0 && y < H) continue;
         L = borderTop(x, y);
-        addTop(x, y, L, BORD, 0);
+        addTop(x, y, L, BORD, 0, 0, 0);
         edgeWest = x === -1;
         edgeEast = x === W;
         edgeNorth = y === -1;
@@ -480,9 +502,10 @@
       0,
       0,
       0,
+      0,
+      0,
       [3, 3, 3, 3]
     );
-    void o;
     return {
       positions: new Float32Array(pos),
       normals: new Float32Array(norm),
@@ -490,6 +513,8 @@
       sideDepth: new Float32Array(depth),
       cellUV: new Float32Array(cellUV),
       emissive: new Float32Array(emissive),
+      water: new Uint8Array(water),
+      shore: new Float32Array(shore),
       ao: new Uint8Array(ao),
       indices: new Uint32Array(indices),
       vertexCount: pos.length / 3,
@@ -655,14 +680,18 @@
       'in float aSideDepth;',
       'in vec2 aCellUV;',
       'in float aEmissive;',
+      'in float aWater;',
+      'in float aShore;',
       'in float aAO;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
+      'uniform float uTime;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
       'out vec2 vCellUV;',
       'out float vEmissive;',
+      'out float vShore;',
       'out float vAO;',
       '',
       'void main() {',
@@ -671,12 +700,16 @@
       '  vSideDepth = aSideDepth;',
       '  vCellUV = aCellUV;',
       '  vEmissive = aEmissive;',
+      '  vShore = aShore;',
       '  vAO = aAO;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
+      '  // Shore damping keeps a deliberately small wave from opening a seam.',
+      '  float wave = sin(uTime * 1.40 + aPosition.x * 0.72 +',
+      '    aPosition.z * 0.48) * 0.036 * aWater * (1.0 - aShore);',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
-      '    aPosition.y * uVScale,',
+      '    (aPosition.y + wave) * uVScale,',
       '    aPosition.z,',
       '    1.0',
       '  );',
@@ -690,9 +723,11 @@
       'in float vSideDepth;',
       'in vec2 vCellUV;',
       'in float vEmissive;',
+      'in float vShore;',
       'in float vAO;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
+      'uniform float uTime;',
       'uniform sampler2D uShadowMap;',
       'out vec4 outColor;',
       '',
@@ -714,9 +749,19 @@
       '  float shadowHit = mix(0.70, 1.0, topFace);',
       '  float shadowFactor = 1.0 - uSunStrength * SHADOW_GAIN * shadowHit * shadow;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
-      '  vec3 emission = vColor * vEmissive * 0.65;',
+      '  // Cell UV offsets lava so an entire volcano never pulses in lockstep.',
+      '  float lavaPhase = dot(vCellUV, vec2(113.0, 173.0));',
+      '  float lavaPulse = 0.55 + 0.45 * sin(uTime * 2.40 + lavaPhase);',
+      '  vec3 emission = vColor * vEmissive * (0.42 + 0.42 * lavaPulse);',
+      '  // Foam is a narrow, moving shoreline highlight rather than new geometry.',
+      '  float foamPhase = sin(uTime * 1.60 + vCellUV.x * 47.0 +',
+      '    vCellUV.y * 31.0);',
+      '  float foam = topFace * vShore * smoothstep(0.15, 0.78,',
+      '    0.5 + 0.5 * foamPhase);',
+      '  vec3 foamColor = vec3(0.22, 0.31, 0.33) * foam;',
       '  outColor = vec4(',
-      '    vColor * lambert * gradient * shadowFactor * aoFactor + emission,',
+      '    vColor * lambert * gradient * shadowFactor * aoFactor + emission +',
+      '      foamColor,',
       '    1.0',
       '  );',
       '}'
@@ -772,6 +817,8 @@
     var sideDepthBuffer = gl.createBuffer();
     var cellUVBuffer = gl.createBuffer();
     var emissiveBuffer = gl.createBuffer();
+    var waterBuffer = gl.createBuffer();
+    var shoreBuffer = gl.createBuffer();
     var aoBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
@@ -782,11 +829,14 @@
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
     var cellUV = gl.getAttribLocation(program, 'aCellUV');
     var emission = gl.getAttribLocation(program, 'aEmissive');
+    var water = gl.getAttribLocation(program, 'aWater');
+    var shore = gl.getAttribLocation(program, 'aShore');
     var ambientOcclusion = gl.getAttribLocation(program, 'aAO');
     var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
     var verticalScale = gl.getUniformLocation(program, 'uVScale');
     var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
     var sunStrength = gl.getUniformLocation(program, 'uSunStrength');
+    var time = gl.getUniformLocation(program, 'uTime');
     var shadowMap = gl.getUniformLocation(program, 'uShadowMap');
     var projection = new Float32Array(16);
     var view = new Float32Array(16);
@@ -796,6 +846,7 @@
     var vScale = 1.6;
     var sun = [0.5, 1.0, 0.74];
     var strength = 0.34;
+    var elapsedTime = 0;
     var indexCount = 0;
     var clearColor = [0.055, 0.075, 0.11, 1];
     var width = 1;
@@ -821,6 +872,8 @@
     setupAttrib(sideDepthBuffer, sideDepth, 1);
     setupAttrib(cellUVBuffer, cellUV, 2);
     setupAttrib(emissiveBuffer, emission, 1);
+    setupAttrib(waterBuffer, water, 1, gl.UNSIGNED_BYTE);
+    setupAttrib(shoreBuffer, shore, 1);
     setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
@@ -886,6 +939,11 @@
       strength = Math.max(0, Math.min(1, +s.strength || 0));
     }
 
+    function setTime(seconds) {
+      // Time is render state, so mesh buffers remain immutable between frames.
+      elapsedTime = Math.max(0, +seconds || 0);
+    }
+
     function setShadowMap(data, mapWidth, mapHeight) {
       if (!data || !mapWidth || !mapHeight || disposed) return;
       // Only this R8 texture changes when the day-cycle slider moves.
@@ -921,6 +979,10 @@
       gl.bufferData(gl.ARRAY_BUFFER, mesh.cellUV, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, emissiveBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.emissive, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, waterBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.water, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, shoreBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, mesh.shore, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, aoBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.ao, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
@@ -1035,6 +1097,7 @@
       gl.uniform1f(verticalScale, vScale);
       gl.uniform3fv(sunDirection, sun);
       gl.uniform1f(sunStrength, strength);
+      gl.uniform1f(time, elapsedTime);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
       gl.uniform1i(shadowMap, 0);
@@ -1052,6 +1115,8 @@
       gl.deleteBuffer(sideDepthBuffer);
       gl.deleteBuffer(cellUVBuffer);
       gl.deleteBuffer(emissiveBuffer);
+      gl.deleteBuffer(waterBuffer);
+      gl.deleteBuffer(shoreBuffer);
       gl.deleteBuffer(aoBuffer);
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
@@ -1067,6 +1132,7 @@
       setMesh: setMesh,
       setVerticalScale: setVerticalScale,
       setSun: setSun,
+      setTime: setTime,
       setShadowMap: setShadowMap,
       fitCamera: fitCamera,
       render: render,

@@ -86,7 +86,12 @@
           <label for="sun">Time of day <span id="sunVal">14:00</span></label>
           <input type="range" id="sun" min="6" max="29.5" step="0.5" value="14">
 
-          <label class="check"><input type="checkbox" id="showClouds" checked> Clouds</label>
+          <label class="check" id="cloudControl">
+            <input type="checkbox" id="showClouds" checked> Clouds
+          </label>
+          <label class="check">
+            <input type="checkbox" id="showAnim" checked> Terrain animation
+          </label>
           <label class="check"><input type="checkbox" id="showGrid"> Grid lines</label>
           <label class="check"><input type="checkbox" id="showShade" checked> Hillshade</label>
         </div>
