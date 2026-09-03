@@ -1396,7 +1396,7 @@
       } else {
         setVoxelCamera({
           yaw: voxelCamera.yaw + dx * 360 / Math.max(1, stage.clientWidth),
-          pitch: voxelCamera.pitch - dy * 180 / Math.max(1, stage.clientHeight),
+          pitch: voxelCamera.pitch + dy * 180 / Math.max(1, stage.clientHeight), // Uğur: dikey eksen ters (2026-09-03)
           zoom: voxelCamera.zoom,
           tx: voxelCamera.tx,
           ty: voxelCamera.ty,
