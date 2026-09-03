@@ -189,13 +189,28 @@
     return $('showAnim').checked;
   }
 
+  var autoRotating = false;
+
   function autoRotateEnabled() {
-    return $('autoRotate').checked;
+    return autoRotating;
+  }
+
+  function setAutoRotate(on) {
+    if (autoRotating === on) return;
+    autoRotating = on;
+    voxelRotateLast = 0;
+    $('autoRotateBtn').setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (on) {
+      voxelSnap = null; // don't fight an in-progress Q/E snap
+      requestVoxelRender();
+    } else if (voxelAnim && !voxelDirty && !voxelSnap && !voxelAnimationEnabled()) {
+      cancelAnimationFrame(voxelAnim);
+      voxelAnim = 0;
+    }
   }
 
   function stopAutoRotate() {
-    voxelRotateLast = 0;
-    if ($('autoRotate').checked) $('autoRotate').checked = false;
+    setAutoRotate(false);
   }
 
   function resizeVoxel() {
@@ -1588,16 +1603,9 @@
       voxelAnim = 0;
     }
   });
-  $('autoRotate').addEventListener('change', function () {
-    if (!isVoxelMode()) { this.checked = false; return; }
-    voxelRotateLast = 0;
-    if (this.checked) {
-      voxelSnap = null; // don't fight an in-progress Q/E snap
-      requestVoxelRender();
-    } else if (voxelAnim && !voxelDirty && !voxelSnap && !voxelAnimationEnabled()) {
-      cancelAnimationFrame(voxelAnim);
-      voxelAnim = 0;
-    }
+  $('autoRotateBtn').addEventListener('click', function () {
+    if (!isVoxelMode()) return;
+    setAutoRotate(!autoRotating);
   });
   $('editTool').addEventListener('change', syncEditControls);
   $('brushSize').addEventListener('input', hideBrushCursor);

@@ -92,9 +92,6 @@
           <label class="check">
             <input type="checkbox" id="showAnim" checked> Terrain animation
           </label>
-          <label class="check" id="autoRotateControl">
-            <input type="checkbox" id="autoRotate"> Auto-rotate (iso 3D)
-          </label>
           <label class="check"><input type="checkbox" id="showGrid"> Grid lines</label>
           <label class="check"><input type="checkbox" id="showShade" checked> Hillshade</label>
         </div>
@@ -157,6 +154,14 @@
       <input type="range" id="rotSlider" min="0" max="360" step="1" value="45"
         aria-label="Camera yaw">
       <span id="rotVal">045°</span>
+      <button id="autoRotateBtn" type="button" aria-pressed="false" title="Auto-rotate">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M13.2 8A5.2 5.2 0 1 1 10.6 3.4" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M10.2 1.6l0.9 2.6-2.7 0.5" fill="none" stroke="currentColor"
+            stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
     <canvas id="map"></canvas>
     <canvas id="gl" hidden></canvas>
