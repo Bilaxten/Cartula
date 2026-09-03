@@ -43,6 +43,10 @@
   var voxelBounds = null;
   var voxelNeedsFit = false;
   var voxelUnavailable = false;
+  var voxelRotateLast = 0;          // auto-rotate's own frame timestamp, separate
+                                     // from voxelTimeLast so toggling one doesn't
+                                     // disturb the other's delta baseline
+  var AUTOROTATE_DEG_PER_SEC = 5;   // one full turn every 72s -- "yavaş" per Uğur
 
   // A rotated *view* of the grid for the iso bake — the real grid is never
   // mutated. The iso projection can't be spun with a CSS transform (it would
@@ -185,6 +189,15 @@
     return $('showAnim').checked;
   }
 
+  function autoRotateEnabled() {
+    return $('autoRotate').checked;
+  }
+
+  function stopAutoRotate() {
+    voxelRotateLast = 0;
+    if ($('autoRotate').checked) $('autoRotate').checked = false;
+  }
+
   function resizeVoxel() {
     if (!voxelRenderer) return;
     voxelRenderer.resize(stage.clientWidth, stage.clientHeight, window.devicePixelRatio || 1);
@@ -254,10 +267,22 @@
     } else {
       voxelTimeLast = 0;
     }
+    if (autoRotateEnabled() && voxelCamera) {
+      if (!voxelRotateLast) voxelRotateLast = now;
+      frameSeconds = Math.max(0, now - voxelRotateLast) / 1000;
+      voxelRotateLast = now;
+      voxelCamera.yaw = SM.VoxelCamera.wrapYaw(
+        voxelCamera.yaw + AUTOROTATE_DEG_PER_SEC * frameSeconds);
+      voxelRenderer.setCamera(voxelCamera);
+      updateRotationLabel();
+      voxelDirty = true;
+    } else {
+      voxelRotateLast = 0;
+    }
     if (!voxelDirty) return;
     voxelDirty = false;
     voxelRenderer.render();
-    if (voxelSnap || voxelAnimationEnabled()) {
+    if (voxelSnap || voxelAnimationEnabled() || autoRotateEnabled()) {
       voxelAnim = requestAnimationFrame(renderVoxelFrame);
     }
   }
@@ -279,6 +304,7 @@
     var target;
 
     if (!isVoxelMode() || !voxelCamera) return;
+    stopAutoRotate();
     target = SM.VoxelCamera.snapYaw(voxelCamera.yaw);
     target = SM.VoxelCamera.wrapYaw(target + dir * 90);
     voxelSnap = {
@@ -1307,6 +1333,7 @@
     if (isVoxelMode()) {
       if (ev.button !== 0) return;
       ev.preventDefault();
+      if (!ev.shiftKey) stopAutoRotate(); // pan doesn't touch yaw, orbit does
       drag = { x: ev.clientX, y: ev.clientY, voxel: true, pan: ev.shiftKey };
       stage.classList.add('dragging');
       return;
@@ -1561,6 +1588,17 @@
       voxelAnim = 0;
     }
   });
+  $('autoRotate').addEventListener('change', function () {
+    if (!isVoxelMode()) { this.checked = false; return; }
+    voxelRotateLast = 0;
+    if (this.checked) {
+      voxelSnap = null; // don't fight an in-progress Q/E snap
+      requestVoxelRender();
+    } else if (voxelAnim && !voxelDirty && !voxelSnap && !voxelAnimationEnabled()) {
+      cancelAnimationFrame(voxelAnim);
+      voxelAnim = 0;
+    }
+  });
   $('editTool').addEventListener('change', syncEditControls);
   $('brushSize').addEventListener('input', hideBrushCursor);
   $('editUndo').addEventListener('click', undoEdit);
@@ -1570,6 +1608,7 @@
   $('viewIso').addEventListener('click', function () { setView('iso'); });
   $('rotSlider').addEventListener('input', function () {
     if (!isVoxelMode() || !voxelCamera) return;
+    stopAutoRotate();
     voxelSnap = null;
     setVoxelCamera({
       yaw: parseFloat(this.value),
@@ -1601,8 +1640,16 @@
   window.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
   window.addEventListener('keydown', function (ev) {
-    var tn = ev.target && ev.target.tagName;
-    if (tn === 'INPUT' || tn === 'SELECT' || tn === 'TEXTAREA') return;
+    var target = ev.target;
+    var tn = target && target.tagName;
+    // Only text-editable fields swallow keys (seed's type=number legitimately
+    // accepts "e" for scientific notation). A focused range slider (rotSlider
+    // included) or select/checkbox has no letter-key behaviour of its own, so
+    // it used to block Q/E globally just by holding focus -- clicking anything
+    // in the panel silently killed the rotate shortcut. Bug found 2026-09-03.
+    var textEditable = tn === 'TEXTAREA' || tn === 'SELECT' ||
+      (tn === 'INPUT' && target.type !== 'range' && target.type !== 'checkbox');
+    if (textEditable) return;
     var key = (ev.key || '').toLowerCase();
     if (ev.ctrlKey || ev.metaKey) {
       if (ev.altKey) return;
