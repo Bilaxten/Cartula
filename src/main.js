@@ -1447,8 +1447,13 @@
   }
 
   function applyQueryString() {
-    if (!location.search) return;
-    var q = new URLSearchParams(location.search);
+    // RENDERER defaults to 'voxel' with no query string at all (bare `index.html`
+    // load) -- that default must switch the view to iso on its own. Bug fixed
+    // 2026-09-03: this whole function used to bail out on `!location.search`,
+    // so a bare load kept `view = 'top'` forever and voxel never activated
+    // (isVoxelMode() requires view === 'iso') -- silent fallback to the old
+    // top-down 2D render, no console warning, nothing visibly wrong.
+    var q = location.search ? new URLSearchParams(location.search) : new URLSearchParams();
     QS_KEYS.forEach(function (id) {
       if (q.has(id) && $(id)) applyQueryValue($(id), q.get(id));
     });
