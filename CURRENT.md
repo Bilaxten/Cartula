@@ -101,17 +101,19 @@ bu turda kapatıldı.
 
 **Depo:** `master`, temiz, `origin/master` ile senkron.
 
-**Tarayıcı doğrulaması nasıl yapılır (2026-09-06'da bu şekilde yapıldı):**
-yerel sunucu + cache-buster. `python -m http.server <port>` ile aç, sayfayı
-`index.html?cb=N` ile yükle ve N'i her yeniden yüklemede artır — sunucu cache
-header'ı göndermiyor ve Chrome HTML/CSS/JS'i agresif cache'liyor, yoksa eski
-sürümü görüp "stale screenshot" sanırsın. Doğrulamayı ekran görüntüsüne değil
-ÖLÇÜME dayandır (`getImageData`, DOM sorgusu); ekran görüntüsü yalnız "genel
-görünüm doğru mu" için.
+**Tarayıcı doğrulaması: `python scripts/serve.py 8000`, başka bir şey değil.**
 
-⚠️ Bu dosyanın eski sürümünde "file:// ile açılıyor, yerel sunucu gerekmiyor"
-yazıyordu. Doğrulanmadı ve bu tur sunucuyla çalışıldı; `file://` yolunu
-kullanacaksan önce kendin dene.
+⚠️ `python -m http.server` KULLANMA ve `?cb=N` cache-buster'ına GÜVENME.
+Query string YALNIZCA onu taşıyan dosyayı tazeler: `index.html?cb=5` HTML'i
+yeniler ama `src/main.js` ve `src/render/*.js` ayrı URL'lerdir ve `http.server`
+cache header'ı göndermediği için Chrome onları saklar. Tarayıcıda eski kodu
+görüp "özellik çalışmıyor" sanırsın. Bu tuzak bu projede İKİ KEZ zaman yedi
+(2026-09-02 saatlerce, 2026-09-06 M4 turunda üç tur). `scripts/serve.py`
+`Cache-Control: no-store` gönderiyor ve sorunu kökten bitiriyor.
+
+Doğrulamayı ekran görüntüsüne değil ÖLÇÜME dayandır (`getImageData`, DOM
+sorgusu, `window.__glShaderErrors`); ekran görüntüsü yalnız "genel görünüm
+doğru mu" sorusu için.
 
 ## Sonraki adım
 

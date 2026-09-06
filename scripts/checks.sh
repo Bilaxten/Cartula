@@ -51,6 +51,19 @@ else
         n=$((n+1))
     done <<< "$js_files"
     [ "$errors" -eq 0 ] && ok "$n JS dosyası sözdizimi temiz"
+
+    # ---------- 1b. GLSL çapraz-aşama bildirim denetimi ----------
+    # Bu projenin İKİNCİ sessiz bozulma modu ve şimdiye kadar İKİ KEZ yaşandı
+    # (`uTime` 2026-09-03 Firefox, `uMode` 2026-09-06 M4). İki shader'da aynı
+    # uniform farklı hassasiyetle tanımlanırsa program LINK OLMAZ, `makeProgram`
+    # null döner ve o katman hiç görünmez — GL hatası yok, konsolda iz yok.
+    if out="$(node tools/headless.js --shaders 2>&1)"; then
+        ok "GLSL çapraz-aşama uniform bildirimleri tutarlı"
+    else
+        err "GLSL çapraz-aşama uniform bildirimi UYUŞMUYOR (program link olmaz)"
+        printf '%s
+' "$out" | grep -E 'FAIL|vs fragment' | sed 's/^/       /' >&2
+    fi
 fi
 
 # ---------- 2. index.html script etiketleri gerçekten var mı ----------

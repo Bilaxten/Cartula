@@ -6,6 +6,7 @@
  *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
  *   node tools/headless.js --river      # river brush channel planning (M3)
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
+ *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  */
 'use strict';
 const fs = require('fs');
@@ -516,7 +517,69 @@ function runSkyChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--sky') {
+/* GLSL cross-stage declaration lint.
+ *
+ * WHY THIS EXISTS: the same bug has now shipped twice. A uniform declared in
+ * BOTH the vertex and fragment shader must be declared IDENTICALLY -- if the
+ * precision differs the program fails to LINK, and a failed link is silent:
+ * `makeProgram` just returns null and the layer never appears. No GL error, no
+ * console output, nothing to search for.
+ *   * `uTime` -- fixed in `fix(render): uTime precision mismatch broke WebGL2
+ *     link on Firefox` (2026-09-03).
+ *   * `uMode` -- cost most of the M4 session (2026-09-06): `int` defaults to
+ *     highp in a vertex shader and mediump in a fragment shader.
+ *
+ * The check is textual on purpose: no GL context is needed, so it runs in the
+ * same place as every other check. It compares the DECLARATION LINE, which
+ * catches a type mismatch as well as a precision one.
+ */
+function runShaderChecks() {
+  const file = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+  const results = [];
+  // Each program is a `makeX(gl)` function holding a vertexSource and a
+  // fragmentSource array of quoted GLSL lines.
+  const programs = file.split(/function make(\w*[Pp]rogram)\(gl\)/).slice(1);
+  const pairs = [];
+  for (let i = 0; i < programs.length; i += 2) {
+    pairs.push([programs[i], programs[i + 1] || '']);
+  }
+
+  function uniformsIn(text) {
+    const found = new Map();
+    const re = /'\s*(uniform\s+[^;']+?\s+(u\w+)\s*(?:\[\d+\])?)\s*;'/g;
+    let m;
+    while ((m = re.exec(text))) found.set(m[2], m[1].replace(/\s+/g, ' ').trim());
+    return found;
+  }
+
+  for (const [name, body] of pairs) {
+    const cut = body.indexOf('fragmentSource');
+    if (cut < 0) continue;
+    const vertex = uniformsIn(body.slice(0, cut));
+    const fragment = uniformsIn(body.slice(cut));
+    const clashes = [];
+    for (const [uniform, decl] of vertex) {
+      if (fragment.has(uniform) && fragment.get(uniform) !== decl) {
+        clashes.push(`${uniform}: vertex "${decl}" vs fragment "${fragment.get(uniform)}"`);
+      }
+    }
+    results.push([`${name}: shared uniforms declared identically in both stages`,
+      clashes.length === 0, clashes]);
+  }
+
+  results.push(['at least two programs were inspected', pairs.length >= 2, []]);
+
+  console.log('shader declaration lint (src/render/voxel3d.js):');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    for (const line of detail) console.log(`         ${line}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--shaders') {
+  runShaderChecks();
+} else if (process.argv[2] === '--sky') {
   runSkyChecks();
 } else if (process.argv[2] === '--river') {
   runRiverChecks();
