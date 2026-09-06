@@ -5,6 +5,7 @@
  *   node tools/headless.js --sweep      # sea-level sweep, island-count check
  *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
  *   node tools/headless.js --river      # river brush channel planning (M3)
+ *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  */
 'use strict';
 const fs = require('fs');
@@ -16,8 +17,8 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'render/topdown.js', 'render/iso.js', 'render/voxel3d.js',
-                 'time.js']) {
+                 'render/topdown.js', 'render/iso.js', 'render/sky.js',
+                 'render/voxel3d.js', 'time.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // strip canvas-only renderers of their getContext calls is unnecessary — we
   // just never call renderIso/renderTopDown here.
@@ -401,7 +402,123 @@ function runRiverChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--river') {
+// M4 sky. Cloud BODY and cloud SHADOW are drawn by two different programs, so
+// the one thing that must never drift apart is their shared position. That is
+// why drift is computed once in JS -- and why it is checked here: a shadow
+// sliding out from under its own cloud looks plausible in a single screenshot
+// and only shows up as "something is off" in motion.
+function runSkyChecks() {
+  const results = [];
+  const bounds = { minX: -48, maxX: 48, minY: 0, maxY: 12, minZ: -48, maxZ: 48 };
+  const instances = SM.Sky.cloudInstances(bounds, 5, 1337);
+
+  results.push(['instance count honours the request', instances.length === 5]);
+  results.push(['count is capped at MAX_CLOUDS',
+    SM.Sky.cloudInstances(bounds, 99, 1).length === SM.Sky.MAX_CLOUDS]);
+  results.push(['instances are deterministic',
+    JSON.stringify(instances) === JSON.stringify(SM.Sky.cloudInstances(bounds, 5, 1337))]);
+
+  // Clouds must stay above the terrain at every vertical exaggeration,
+  // otherwise a mountain punches through a cloud at high isoexag.
+  let aboveTerrain = true;
+  for (const vScale of [0.6, 1.6, 3.0]) {
+    const now = SM.Sky.driftClouds(instances, 12.5, bounds, vScale);
+    if (now.some(c => c.y <= bounds.maxY * vScale)) aboveTerrain = false;
+  }
+  results.push(['clouds stay above the terrain at every vScale', aboveTerrain]);
+
+  // Drift must wrap, and wrapping must not teleport a cloud into view: the pad
+  // is a full diameter, so it leaves completely before it comes back.
+  const spanX = bounds.maxX - bounds.minX;
+  let inRange = true, moved = false;
+  let previous = SM.Sky.driftClouds(instances, 0, bounds, 1.6);
+  for (let t = 1; t <= 400; t++) {
+    const now = SM.Sky.driftClouds(instances, t * 0.5, bounds, 1.6);
+    for (let i = 0; i < now.length; i++) {
+      const pad = instances[i].radius * 2;
+      if (now[i].x < bounds.minX - pad - 1e-6 ||
+          now[i].x > bounds.maxX + pad + 1e-6) inRange = false;
+      if (Math.abs(now[i].x - previous[i].x) > 1e-6) moved = true;
+    }
+    previous = now;
+  }
+  results.push(['drift stays inside the padded span for 200s', inRange]);
+  results.push(['clouds actually move', moved]);
+
+  // The shadow follows the cloud. With the sun overhead it sits under it; as the
+  // sun drops the shadow slides AWAY, and it must never stop tracking.
+  const noon = SM.Sky.driftClouds(instances, 3, bounds, 1.6);
+  const overhead = SM.Sky.cloudShadowUniforms(noon, bounds, [0, 1, 0]);
+  let underCloud = true;
+  for (let i = 0; i < noon.length; i++) {
+    const u = (noon[i].x - bounds.minX) / spanX;
+    const v = (noon[i].z - bounds.minZ) / (bounds.maxZ - bounds.minZ);
+    if (Math.abs(overhead[i * 3] - u) > 1e-5) underCloud = false;
+    if (Math.abs(overhead[i * 3 + 1] - v) > 1e-5) underCloud = false;
+  }
+  results.push(['overhead sun puts the shadow directly under the cloud', underCloud]);
+
+  const low = SM.Sky.cloudShadowUniforms(noon, bounds, [0.9, 0.28, 0.0]);
+  results.push(['a low sun slides the shadow away from the cloud',
+    Math.abs(low[0] - overhead[0]) > 0.01]);
+
+  // A sun at the horizon must not send the shadow to infinity.
+  const horizon = SM.Sky.cloudShadowUniforms(noon, bounds, [1, 0, 0]);
+  results.push(['horizon sun stays finite',
+    Array.from(horizon).every(v => Number.isFinite(v))]);
+  results.push(['shadow array is padded to MAX_CLOUDS',
+    horizon.length === SM.Sky.MAX_CLOUDS * 3]);
+
+  // Geometry sanity: finite, indexed inside the buffer, deterministic.
+  const cloudMesh = SM.Sky.buildCloudMesh(instances);
+  const birdMesh = SM.Sky.buildBirdMesh(16, 4242);
+  results.push(['cloud mesh is non-empty and finite',
+    cloudMesh.triangleCount > 0 &&
+    cloudMesh.positions.every(v => Number.isFinite(v))]);
+  results.push(['cloud indices stay inside the vertex buffer',
+    cloudMesh.indices.every(i => i < cloudMesh.vertexCount)]);
+  results.push(['cloud index attribute matches the instance list',
+    Array.from(cloudMesh.cloudIndex).every(i => i >= 0 && i < instances.length)]);
+  results.push(['bird mesh has two triangles per bird',
+    birdMesh.triangleCount === 32 && birdMesh.vertexCount === 64]);
+  results.push(['bird indices stay inside the vertex buffer',
+    birdMesh.indices.every(i => i < birdMesh.vertexCount)]);
+  results.push(['bird wing flags are -1, 0 or 1',
+    Array.from(birdMesh.wing).every(w => w === -1 || w === 0 || w === 1)]);
+  // The render loop hands both helpers a buffer it owns, so a frame allocates
+  // nothing. If that contract breaks the sky quietly starts churning garbage at
+  // 60 fps -- invisible until a profiler is opened.
+  const reuseTarget = [];
+  const first = SM.Sky.driftClouds(instances, 1, bounds, 1.6, reuseTarget);
+  const second = SM.Sky.driftClouds(instances, 2, bounds, 1.6, reuseTarget);
+  results.push(['driftClouds writes into the caller buffer',
+    first === reuseTarget && second === reuseTarget &&
+    reuseTarget.length === instances.length]);
+  const shadowTarget = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+  results.push(['cloudShadowUniforms writes into the caller buffer',
+    SM.Sky.cloudShadowUniforms(first, bounds, [0, 1, 0], shadowTarget) === shadowTarget]);
+  // A shorter cloud list must not leave a previous cloud's shadow behind.
+  SM.Sky.cloudShadowUniforms(first, bounds, [0, 1, 0], shadowTarget);
+  SM.Sky.cloudShadowUniforms(first.slice(0, 1), bounds, [0, 1, 0], shadowTarget);
+  results.push(['reused shadow buffer is cleared, not left stale',
+    shadowTarget.slice(3).every(v => v === 0)]);
+
+  results.push(['sky meshes are deterministic',
+    JSON.stringify([...cloudMesh.positions]) ===
+      JSON.stringify([...SM.Sky.buildCloudMesh(instances).positions])]);
+
+  console.log('sky checks (96 unit span, 5 clouds, 16 birds):');
+  for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+  console.log(`  cloud mesh: ${cloudMesh.vertexCount} vertices, ` +
+    `${cloudMesh.triangleCount} triangles`);
+  console.log(`  bird mesh:  ${birdMesh.vertexCount} vertices, ` +
+    `${birdMesh.triangleCount} triangles`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--sky') {
+  runSkyChecks();
+} else if (process.argv[2] === '--river') {
   runRiverChecks();
 } else if (process.argv[2] === '--mesh') {
   runMeshChecks();

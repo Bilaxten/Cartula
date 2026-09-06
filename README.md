@@ -59,8 +59,13 @@ değil, kurallı:
   sonrası yalnızca değişen hücreler yeniden çizilir.
   Nehir planlayıcısı saf: `SM.planRiverChannel` (`src/grid.js`), doğrulaması
   `node tools/headless.js --river`.
-- [ ] **M4 — Animasyon (kalan).** Uçan kuşlar, gündüz/gece, bulut gölgesi,
-  kamera döndürme.
+- [x] **M4 — Animasyon (kalan).** Voxel görünümünde gerçek geometri olarak
+  sürüklenen **voxel bulutlar**, araziye düşen **bulut gölgesi** (arazi
+  shader'ında, hücre-UV uzayında) ve kanat çırpan **uçan kuşlar** (yörünge ve
+  çırpma tamamen vertex shader'da). Gündüz/gece ve kamera döndürme daha önce
+  gelmişti. `Clouds & birds` anahtarı görünürlüğü, `Terrain animation` hareketi
+  yönetir. Saf katman: `src/render/sky.js`, doğrulaması
+  `node tools/headless.js --sky`.
 
 ## Bağlam
 

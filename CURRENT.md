@@ -11,9 +11,42 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ## Şu anki görev
 
-**Yok — M3 kapandı, kuyruğun başı Uğur'un kararını bekliyor** (`TODO.md` NOW).
+**Yok — M1-M4'ün TAMAMI bitti (2026-09-06).** Kuyruğun başı artık ilk vaka
+çalışması (`bilaxten.art`), yani kod işi değil.
 
-## Bu turda ne oldu (2026-09-06)
+## M4 bitti (2026-09-06, ikinci tur)
+
+Voxel görünümüne **bulut + bulut gölgesi + uçan kuşlar** geldi; yeni saf katman
+`src/render/sky.js`, doğrulaması `node tools/headless.js --sky` (20 kontrol).
+
+- **Bulutlar gerçek geometri.** Eski iso yolunda boyanmış sprite'lardı; artık
+  dünya uzayında voxel blokları, yani kamera etraflarında dönüyor.
+- **Bulut gölgesini ARAZİ shader'ı çiziyor**, gökyüzü değil. Arazi shader'ının
+  dünya konumu yok ama `vCellUV`'si var, o yüzden gölge hücre-UV uzayında ifade
+  ediliyor. Güneş alçaldıkça gölge bulutun altından kayıyor.
+- ⚠️ **Tek kaynak kuralı:** bulut GÖVDESİ ile bulut GÖLGESİ iki ayrı program
+  tarafından çiziliyor. Her biri sürüklenmeyi kendi hesaplasaydı zamanla
+  ayrışırlardı — kendi bulutunun altından kayan bir gölge, tek ekran
+  görüntüsünde fark edilmeyen türden bir bug. Sürüklenme JS'te BİR KEZ
+  hesaplanıp ikisine de uniform olarak veriliyor.
+- **Kuşların JS tarafı yok.** Yörünge, yön ve kanat çırpma tamamen vertex
+  shader'da, her vertex'in taşıdığı kuş indeksinden türüyor.
+- **Kare başına ayırma yok:** `driftClouds` ve `cloudShadowUniforms` çağıranın
+  verdiği tampona yazıyor (testle kilitli).
+
+**Yol boyunca üç şey öğrenildi (detay `docs/DEVLOG.md`):**
+1. `?cb=N` cache-buster'ı YALNIZ index.html'i tazeliyor; `src/*.js` ayrı URL'ler
+   ve Chrome'da cache'te kalıyorlar. Kalıcı çözüm: `scripts/serve.py`
+   (`Cache-Control: no-store`). Artık `python -m http.server` KULLANMA.
+2. Gökyüzü ilk turda hiç görünmedi çünkü `fitCamera` yalnız araziyi çerçeveliyordu
+   ve ortho frustum gökyüzünü tamamen kırpıyordu — GL hatası yok, konsol temiz.
+   `SM.Sky.ceiling` artık kameranın bilmesi gereken tek yer.
+3. Sonra da görünmedi çünkü `uMode` iki shader'da farklı varsayılan hassasiyetle
+   tanımlıydı (`int` → vertex highp, fragment mediump) ve program SESSİZCE
+   link olmuyordu. Depoda bunun aynısı `uTime` ile bir kez yaşanmış. Shader
+   hataları artık `window.__glShaderErrors`'a da yazılıyor.
+
+## Önceki tur — M3 (2026-09-06)
 
 ⚠️ **Bu dosya 2026-09-02'de donmuştu ve YANLIŞ yönlendiriyordu.** "M3 fırça
 düzenleme — başlamadı" yazıyordu; fırça aslında `aa3b1cf` ile 2026-09-02'de
@@ -62,7 +95,7 @@ bu turda kapatıldı.
 - ✅ Coğrafi kurallar tur 1+2
 - 🔄 Animasyon kısmi — nehir dalgası, lav glow, gün/gece, kamera döndürme var
 - ✅ **M3 fırça düzenleme (2026-09-06)**
-- ⬜ M4 animasyonun kalanı — uçan kuşlar, bulut gölgesi
+- ✅ **M4 animasyon (2026-09-06)** — voxel bulutlar, bulut gölgesi, uçan kuşlar
 
 ## Bilinen durum
 
@@ -82,9 +115,8 @@ kullanacaksan önce kendin dene.
 
 ## Sonraki adım
 
-Kod tarafında bekleyen bir iş YOK. Kuyruğun başı Uğur'un yön kararı
-(`TODO.md` NOW): M4'ün kalanı (uçan kuşlar, bulut gölgesi) mı, yoksa
-`bilaxten.art` için ilk vaka çalışması mı.
+Kod tarafında bekleyen bir iş YOK. **M1-M4'ün tamamı bitti.** Kuyruğun başı
+`bilaxten.art` için ilk vaka çalışması (`TODO.md` NOW) — kod değil anlatı işi.
 
 Küçük ve bağımsız bir cila maddesi de kuyrukta: fırçalar yalnız üstten
 görünümde çalışıyor ama varsayılan açılış voxel — araç seçilince sekmeye

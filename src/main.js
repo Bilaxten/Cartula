@@ -350,8 +350,12 @@
     $('riverfx').hidden = true;
     $('daynight').hidden = false;
     $('yawControl').hidden = false;
-    $('cloudControl').hidden = true;
-    $('showClouds').disabled = true;
+    // M4: bulutlar artik voxel gorunumunde de var (gercek geometri + araziye
+    // dusen golge), o yuzden kontrol burada gizlenmiyor. Anahtar bir GORUNURLUK
+    // anahtari: hareketi `showAnim` yonetiyor, ikisi ayri sorular.
+    $('cloudControl').hidden = false;
+    $('showClouds').disabled = false;
+    if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     glCanvas.hidden = false;
     $('isohint').textContent =
       'drag to orbit \u00b7 shift+drag to pan \u00b7 scroll to zoom \u00b7 Q/E snap';
@@ -1640,6 +1644,13 @@
   });
   $('showShade').addEventListener('change', function () {
     if (view === 'top') refresh(false);
+  });
+  $('showClouds').addEventListener('change', function () {
+    // Voxel: gorunurluk anahtari. Iso yolu bu kutuyu her karede kendisi
+    // okuyor, orada dinleyiciye gerek yok.
+    if (!isVoxelMode() || !voxelRenderer || !voxelRenderer.setSky) return;
+    voxelRenderer.setSky(this.checked);
+    requestVoxelRender();
   });
   $('showAnim').addEventListener('change', function () {
     if (!isVoxelMode()) return;

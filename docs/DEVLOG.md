@@ -1,5 +1,58 @@
 # DEVLOG
 
+## 2026-09-06 — M4 bitti: voxel bulutlar, bulut gölgesi, uçan kuşlar
+
+**Ne yapıldı:** M4'ün kalan iki maddesi (uçan kuşlar, bulut gölgesi) WebGL voxel
+görünümüne eklendi. Yeni saf katman `src/render/sky.js` + `--sky` headless modu
+(20 kontrol). Bulutlar eski iso yolunda boyanmış sprite'lardı; burada dünya
+uzayında gerçek voxel geometri, yani orbit kamera etraflarında dönüyor.
+
+**Tasarım kararları:**
+
+- *Bulut gölgesini ARAZİ shader'ı çiziyor.* Gölge yere düşer, yani onu çizmesi
+  gereken arazi. Arazi shader'ının dünya konumu yok ama `vCellUV`'si var
+  (haritada 0..1), o yüzden gölge o uzayda ifade ediliyor — ekstra bir gölge
+  haritası ya da ikinci geçiş gerekmedi.
+- *Tek kaynak kuralı.* Bulut GÖVDESİ gökyüzü programında, GÖLGESİ arazi
+  programında çiziliyor. İkisi sürüklenmeyi ayrı hesaplasaydı zamanla
+  ayrışırlardı ve sonuç "kendi bulutunun altından kayan gölge" olurdu — tek
+  ekran görüntüsünde görünmeyen, yalnız harekette fark edilen bir bug.
+  Sürüklenme JS'te bir kez hesaplanıp ikisine de uniform veriliyor.
+- *Kuşların JS tarafı yok.* Buluttan farklı olarak kuşun nerede olduğunu sahnede
+  başka hiçbir şey bilmek zorunda değil, o yüzden yörünge/yön/kanat çırpma
+  tamamen vertex shader'da, vertex'in taşıdığı kuş indeksinden türüyor. Tek
+  buffer, tek draw call, JS'te sıfır iş.
+- *Kare başına ayırma yok.* `driftClouds` ve `cloudShadowUniforms` çağıranın
+  tamponuna yazıyor; sözleşme testle kilitli.
+
+**ÜÇ TUZAK — hepsi "hiçbir şey görünmüyor, hata da yok" ile başladı:**
+
+1. **Cache.** `index.html?cb=N` YALNIZ HTML'i tazeliyor. `src/*.js` ayrı
+   URL'ler ve `python -m http.server` cache header'ı göndermediği için Chrome
+   onları saklıyor — tarayıcıda eski kod koşuyordu. Bu tuzak bu projede
+   2026-09-02'de de saatler yemişti. Kalıcı çözüm bu turda geldi:
+   **`scripts/serve.py`**, `Cache-Control: no-store` gönderiyor. Bundan sonra
+   yerel test bununla açılmalı, `python -m http.server` ile değil.
+2. **Frustum kırpması.** Gökyüzü kuruldu, yüklendi, çizildi — ve ortho frustum
+   onu tamamen kırptı, çünkü `fitCamera` yalnız ARAZİYİ çerçeveliyordu. GL
+   hatası yok, konsol temiz, sonuç boş gökyüzü: "özellik hiç yazılmamış" gibi
+   görünen bir başarısızlık. `SM.Sky.ceiling` artık gökyüzünün ne kadar
+   yükseldiğini bilen tek yer ve `fitCamera` onu okuyor.
+3. **Sessiz shader link hatası.** `uMode` uniform'u iki shader'da tanımlıydı ama
+   `int`in varsayılan hassasiyeti vertex'te `highp`, fragment'te `mediump` —
+   GLSL ES'te bu bir LINK HATASI. `makeSkyProgram` null dönüyor, `buildSky`
+   sessizce çıkıyor, hiçbir şey olmuyordu. ⚠️ **Depoda bunun tam aynısı daha
+   önce yaşanmış:** `fix(render): uTime precision mismatch broke WebGL2 link on
+   Firefox`. İki kez ısırdığı için artık shader derleme/link hataları
+   `console.warn` YANINDA `window.__glShaderErrors`'a da yazılıyor — sayfa
+   yüklenirken olan bir hata, konsol okuyucusu bağlanana kadar kaybolur.
+
+**Doğrulama:** `scripts/checks.sh` temiz (12 JS), `node tools/headless.js`
+normal/`--sky`/`--river`/`--mesh` dördü de temiz. Tarayıcıda gözle ve ölçerek:
+bulutlar sürükleniyor, kuşlar kanat çırparak dönüyor, ve bulut anahtarı
+kapatılıp açılarak gölgenin gerçekten araziyi karartığı iki ekran görüntüsü
+karşılaştırılarak doğrulandı.
+
 ## 2026-09-06 — M3 kapandı: nehir fırçası + belge sürüklenmesinin düzeltilmesi
 
 **Ne oldu:** Uğur "M3 fırçayı falan da yapmış olmamız lazım, kontrol eder misin"

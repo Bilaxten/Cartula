@@ -660,10 +660,20 @@
   function compileShader(gl, type, source) {
     var shader = gl.createShader(type);
 
-    // Return null on failure so the optional voxel route can fail closed.
+    // Return null on failure so the optional voxel route can fail closed --
+    // but NEVER silently. A GLSL error that only removes a layer looks like
+    // "the feature was not implemented" from the outside; the log is the
+    // difference between a five-minute fix and an afternoon (AGENTS.md: a
+    // swallowed failure must still be visible).
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      // Recorded on `window` as well as logged: a compile error that happens
+      // during page load is gone by the time a console reader attaches, and
+      // then the only symptom is a layer that never appears.
+      window.__glShaderErrors = window.__glShaderErrors || [];
+      window.__glShaderErrors.push(gl.getShaderInfoLog(shader));
+      console.warn('voxel3d: shader compile failed\n' + gl.getShaderInfoLog(shader));
       gl.deleteShader(shader);
       return null;
     }
@@ -729,6 +739,12 @@
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
       'uniform sampler2D uShadowMap;',
+      // Cloud shadow rides in cell-UV space because this shader has no world
+      // position. Fixed-size array: GLSL uniform arrays cannot be dynamic, and
+      // `SM.Sky.MAX_CLOUDS` is the JS half of the same contract.
+      'uniform vec3 uClouds[6];',
+      'uniform int uCloudCount;',
+      'uniform float uCloudShadow;',
       'out vec4 outColor;',
       '',
       'void main() {',
@@ -759,9 +775,26 @@
       '  float foam = topFace * vShore * smoothstep(0.15, 0.78,',
       '    0.5 + 0.5 * foamPhase);',
       '  vec3 foamColor = vec3(0.22, 0.31, 0.33) * foam;',
+      '  // Cloud shadow: soft-edged discs sliding over the map. Side faces take',
+      '  // less of it, the same split the sun shadow uses -- a wall in shade',
+      '  // from a passing cloud should not read darker than the ground.',
+      '  float cloudCover = 0.0;',
+      '  for (int c = 0; c < 6; c++) {',
+      '    if (c >= uCloudCount) break;',
+      '    vec2 delta = vCellUV - uClouds[c].xy;',
+      '    float radius = max(1e-4, uClouds[c].z);',
+      '    cloudCover = max(cloudCover,',
+      '      1.0 - smoothstep(radius * 0.45, radius, length(delta)));',
+      '  }',
+      '  // `daylight`, not raw uSunStrength: the raw value is ~0.34 at noon and',
+      '  // multiplying by it left the shadow at ~12% -- present in the numbers,',
+      '  // invisible on screen. Daylight is the same 0..1 factor the rest of',
+      '  // the lighting uses, so the shadow still fades out at dusk.',
+      '  float cloudFactor = 1.0 - uCloudShadow * cloudCover *',
+      '    mix(0.55, 1.0, topFace) * daylight;',
       '  outColor = vec4(',
-      '    vColor * lambert * gradient * shadowFactor * aoFactor + emission +',
-      '      foamColor,',
+      '    vColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor +',
+      '      emission + foamColor,',
       '    1.0',
       '  );',
       '}'
@@ -773,6 +806,130 @@
 
     /* Albedo stays unlit in the mesh. Light is evaluated in the shader so a
      * Faz 2 sun change does not require rebuilding and uploading terrain. */
+    if (!vertex || !fragment) {
+      if (vertex) gl.deleteShader(vertex);
+      if (fragment) gl.deleteShader(fragment);
+      return null;
+    }
+    program = gl.createProgram();
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      window.__glShaderErrors = window.__glShaderErrors || [];
+      window.__glShaderErrors.push('link: ' + gl.getProgramInfoLog(program));
+      console.warn('voxel3d: sky program link failed\n' +
+        gl.getProgramInfoLog(program));
+      gl.deleteProgram(program);
+      return null;
+    }
+    return program;
+  }
+
+
+  /* Sky program: clouds and birds share one shader.
+   *
+   * They are drawn together because they want the same thing — flat unlit
+   * geometry above the terrain, depth-tested against it so a hill can occlude a
+   * low bird. `uMode` picks the placement rule: clouds are moved by a JS-driven
+   * uniform (the terrain shader needs the same numbers for the shadow), birds
+   * derive their entire path in the shader from their index (nothing else in the
+   * scene cares where a bird is). */
+  function makeSkyProgram(gl) {
+    var vertexSource = [
+      '#version 300 es',
+      'in vec3 aPosition;',
+      'in vec3 aNormal;',
+      'in float aCloudIndex;',
+      'in float aWing;',
+      'uniform mat4 uViewProjection;',
+      'uniform highp float uTime;',
+      'uniform vec3 uCloudPos[6];',
+      // ⚠️ EXPLICIT PRECISION ON BOTH STAGES. `int` defaults to highp in the
+      // vertex shader and mediump in the fragment shader, and a uniform of the
+      // same name with different precision is a LINK ERROR -- silent, because
+      // the program simply comes back null. This repo has already been bitten
+      // once by exactly this (`uTime precision mismatch broke WebGL2 link on
+      // Firefox`); leave the qualifier in.
+      'uniform highp int uMode;',      // 0 = cloud, 1 = bird
+      'uniform vec3 uFlockCenter;',
+      'uniform vec2 uFlockSpan;',      // orbit radius, height above terrain
+      'out vec3 vNormal;',
+      'out float vShade;',
+      '',
+      'float birdHash(float i, float salt) {',
+      '  return fract(sin(i * 12.9898 + salt * 78.233) * 43758.5453);',
+      '}',
+      '',
+      'void main() {',
+      '  vec3 world;',
+      '  if (uMode == 0) {',
+      '    world = aPosition + uCloudPos[int(aCloudIndex)];',
+      '    vShade = 1.0;',
+      '  } else {',
+      '    float id = aCloudIndex;',
+      '    // Each bird keeps its own orbit radius, height and phase, so the',
+      '    // flock spreads instead of flying as one rigid ring.',
+      '    float radius = uFlockSpan.x * (0.55 + birdHash(id, 1.0) * 0.5);',
+      '    float lift = uFlockSpan.y * (0.75 + birdHash(id, 2.0) * 0.7);',
+      '    float speed = 0.16 + birdHash(id, 3.0) * 0.10;',
+      '    float phase = birdHash(id, 4.0) * 6.2831853;',
+      '    float angle = uTime * speed + phase;',
+      '    // Flap first, in the local frame: wing tips rotate around the',
+      '    // body axis, body vertices (aWing == 0) stay put.',
+      '    float flap = sin(uTime * 7.5 + phase) * 0.55 * abs(aWing);',
+      '    vec3 local = vec3(aPosition.x, aPosition.y + flap * abs(aPosition.z),',
+      '      aPosition.z * cos(flap));',
+      '    // Then face along the tangent of the orbit.',
+      '    float heading = angle + 1.5707963;',
+      '    vec3 turned = vec3(',
+      '      local.x * cos(heading) - local.z * sin(heading),',
+      '      local.y,',
+      '      local.x * sin(heading) + local.z * cos(heading)',
+      '    );',
+      '    // A slow bob keeps the ring from looking like a turntable.',
+      '    float bob = sin(uTime * 0.9 + phase) * uFlockSpan.y * 0.06;',
+      '    world = uFlockCenter + turned + vec3(',
+      '      cos(angle) * radius, lift + bob, sin(angle) * radius);',
+      '    vShade = 1.0;',
+      '  }',
+      '  vNormal = aNormal;',
+      '  gl_Position = uViewProjection * vec4(world, 1.0);',
+      '}'
+    ].join('\n');
+    var fragmentSource = [
+      '#version 300 es',
+      'precision mediump float;',
+      'in vec3 vNormal;',
+      'in float vShade;',
+      'uniform vec3 uColor;',
+      'uniform vec3 uSunDirection;',
+      'uniform float uSunStrength;',
+      'uniform highp int uMode;',      // see the vertex shader note
+      'out vec4 outColor;',
+      '',
+      'void main() {',
+      '  float daylight = clamp(uSunStrength / 0.42, 0.0, 1.0);',
+      '  vec3 tint;',
+      '  if (uMode == 0) {',
+      '    // Clouds are lit like the terrain so they darken at dusk with it,',
+      '    // otherwise they glow as white cut-outs against a night map.',
+      '    float ndl = max(0.0, dot(normalize(vNormal), normalize(uSunDirection)));',
+      '    float lambert = mix(0.62, 0.80, daylight) + 0.26 * daylight * ndl;',
+      '    tint = uColor * lambert;',
+      '  } else {',
+      '    // Birds read as silhouettes: shape carries them, not shading.',
+      '    tint = uColor * mix(0.45, 1.0, daylight);',
+      '  }',
+      '  outColor = vec4(tint * vShade, 1.0);',
+      '}'
+    ].join('\n');
+    var vertex = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
+    var fragment = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    var program;
+
     if (!vertex || !fragment) {
       if (vertex) gl.deleteShader(vertex);
       if (fragment) gl.deleteShader(fragment);
@@ -809,6 +966,12 @@
     var program = makeProgram(gl);
     if (!program) return null;
 
+    // The sky is OPTIONAL: if its program fails to link the terrain must
+    // still render. Same contract the renderer follows one level up -- a
+    // missing WebGL2 context leaves the 2D path untouched.
+    var skyProgram = makeSkyProgram(gl);
+    var sky = null;
+
     // A VAO fixes the mesh layout once; render only needs to bind and draw it.
     var vao = gl.createVertexArray();
     var positionBuffer = gl.createBuffer();
@@ -828,6 +991,9 @@
     var color = gl.getAttribLocation(program, 'aColor');
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
     var cellUV = gl.getAttribLocation(program, 'aCellUV');
+    var cloudsUniform = gl.getUniformLocation(program, 'uClouds');
+    var cloudCountUniform = gl.getUniformLocation(program, 'uCloudCount');
+    var cloudShadowUniform = gl.getUniformLocation(program, 'uCloudShadow');
     var emission = gl.getAttribLocation(program, 'aEmissive');
     var water = gl.getAttribLocation(program, 'aWater');
     var shore = gl.getAttribLocation(program, 'aShore');
@@ -852,6 +1018,22 @@
     var width = 1;
     var height = 1;
     var disposed = false;
+    // Sky state. `cloudInstances` is the immutable per-map layout; `cloudNow`
+    // is this frame's resolved position, shared by BOTH programs so the shadow
+    // can never drift away from the cloud that casts it.
+    var cloudInstances = [];
+    var cloudNow = [];
+    var cloudShadowData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+    // Reused every frame. These two used to be allocated inside the render loop
+    // and that is exactly the kind of quiet GC pressure this project bans in a
+    // per-frame path -- three small arrays a frame is 180 allocations a second
+    // for numbers that never change shape.
+    var cloudWorldData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+    var meshBounds = null;
+    var showSky = true;
+    // Tuned by eye against the map: below ~0.4 the shadow reads as a smudge,
+    // above ~0.6 it competes with the sun shadow and the terrain goes muddy.
+    var cloudShadowStrength = 0.5;
 
     /* Faces were emitted CCW in addQuad, so back-face culling removes only
      * hidden interior faces and keeps the outward terrain shell. */
@@ -929,6 +1111,138 @@
       vScale = Math.max(0.01, +v || 1);
     }
 
+    /* Build the sky buffers for a map. Called from setMesh, because cloud size
+     * and flock radius are derived from the map footprint -- a 64² sky on a 192²
+     * map would read as a handful of specks. */
+    function buildSky(bounds) {
+      var clouds;
+      var birds;
+
+      if (!skyProgram || !bounds) return;
+      if (!sky) {
+        sky = {
+          cloudVao: gl.createVertexArray(),
+          cloudPos: gl.createBuffer(),
+          cloudNormal: gl.createBuffer(),
+          cloudIdx: gl.createBuffer(),
+          cloudIndex: gl.createBuffer(),
+          cloudCount: 0,
+          birdVao: gl.createVertexArray(),
+          birdPos: gl.createBuffer(),
+          birdIdx: gl.createBuffer(),
+          birdWing: gl.createBuffer(),
+          birdIndex: gl.createBuffer(),
+          birdCount: 0,
+          viewProjection: gl.getUniformLocation(skyProgram, 'uViewProjection'),
+          time: gl.getUniformLocation(skyProgram, 'uTime'),
+          cloudPosUniform: gl.getUniformLocation(skyProgram, 'uCloudPos'),
+          mode: gl.getUniformLocation(skyProgram, 'uMode'),
+          color: gl.getUniformLocation(skyProgram, 'uColor'),
+          sunDirection: gl.getUniformLocation(skyProgram, 'uSunDirection'),
+          sunStrength: gl.getUniformLocation(skyProgram, 'uSunStrength'),
+          flockCenter: gl.getUniformLocation(skyProgram, 'uFlockCenter'),
+          flockSpan: gl.getUniformLocation(skyProgram, 'uFlockSpan')
+        };
+      }
+
+      cloudInstances = SM.Sky.cloudInstances(bounds, 5, 1337);
+      clouds = SM.Sky.buildCloudMesh(cloudInstances);
+      birds = SM.Sky.buildBirdMesh(16, 4242);
+
+      gl.bindVertexArray(sky.cloudVao);
+      uploadSkyAttrib(sky.cloudPos, 'aPosition', clouds.positions, 3);
+      uploadSkyAttrib(sky.cloudNormal, 'aNormal', clouds.normals, 3);
+      uploadSkyAttrib(sky.cloudIdx, 'aCloudIndex', clouds.cloudIndex, 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.cloudIndex);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, clouds.indices, gl.STATIC_DRAW);
+      sky.cloudCount = clouds.indices.length;
+
+      gl.bindVertexArray(sky.birdVao);
+      uploadSkyAttrib(sky.birdPos, 'aPosition', birds.positions, 3);
+      uploadSkyAttrib(sky.birdIdx, 'aCloudIndex', birds.birdIndex, 1);
+      uploadSkyAttrib(sky.birdWing, 'aWing', birds.wing, 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.birdIndex);
+      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, birds.indices, gl.STATIC_DRAW);
+      sky.birdCount = birds.indices.length;
+
+      gl.bindVertexArray(null);
+    }
+
+    function uploadSkyAttrib(buffer, name, data, size) {
+      var location = gl.getAttribLocation(skyProgram, name);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      // An unused attribute reports -1; binding it would raise a GL error.
+      if (location < 0) return;
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
+    }
+
+    /* Resolve this frame's cloud positions once, for both programs. */
+    function updateClouds() {
+      if (!meshBounds || !cloudInstances.length) {
+        cloudNow = [];
+        return;
+      }
+      // Both calls write into buffers this renderer owns, so a frame costs no
+      // allocation at all.
+      SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
+      SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData);
+    }
+
+    function drawSky() {
+      var flat;
+      var i;
+      var spanX;
+
+      if (!skyProgram || !sky || !showSky || !meshBounds) return;
+      spanX = meshBounds.maxX - meshBounds.minX;
+      gl.useProgram(skyProgram);
+      gl.uniformMatrix4fv(sky.viewProjection, false, combined);
+      gl.uniform1f(sky.time, elapsedTime);
+      gl.uniform3fv(sky.sunDirection, sun);
+      gl.uniform1f(sky.sunStrength, strength);
+
+      if (sky.cloudCount && cloudNow.length) {
+        flat = cloudWorldData;
+        for (i = 0; i < cloudNow.length && i < SM.Sky.MAX_CLOUDS; i++) {
+          flat[i * 3] = cloudNow[i].x;
+          flat[i * 3 + 1] = cloudNow[i].y;
+          flat[i * 3 + 2] = cloudNow[i].z;
+        }
+        gl.uniform3fv(sky.cloudPosUniform, flat);
+        gl.uniform1i(sky.mode, 0);
+        gl.uniform3f(sky.color, 0.93, 0.95, 0.99);
+        gl.bindVertexArray(sky.cloudVao);
+        gl.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
+      }
+
+      if (sky.birdCount) {
+        gl.uniform1i(sky.mode, 1);
+        gl.uniform3f(sky.color, 0.10, 0.12, 0.16);
+        gl.uniform3f(
+          sky.flockCenter,
+          (meshBounds.minX + meshBounds.maxX) * 0.5,
+          meshBounds.maxY * vScale,
+          (meshBounds.minZ + meshBounds.maxZ) * 0.5
+        );
+        // Height must match what `SM.Sky.ceiling` assumes, otherwise the flock
+        // drifts back outside the frustum.
+        gl.uniform2f(sky.flockSpan, spanX * 0.34, spanX * 0.09);
+        // Birds are thin double-sided triangles: culling would drop half of
+        // every wing as it swings through the back-facing side.
+        gl.disable(gl.CULL_FACE);
+        gl.bindVertexArray(sky.birdVao);
+        gl.drawElements(gl.TRIANGLES, sky.birdCount, gl.UNSIGNED_INT, 0);
+        gl.enable(gl.CULL_FACE);
+      }
+      gl.bindVertexArray(null);
+    }
+
+    function setSky(enabled) {
+      showSky = enabled !== false;
+    }
+
     function setSun(nextSun) {
       var s = nextSun || {};
 
@@ -963,6 +1277,10 @@
     }
 
     function setMesh(mesh) {
+      // Sky geometry scales with the map footprint, so it is rebuilt whenever a
+      // new mesh arrives (new map, or a brush edit that changed the extent).
+      meshBounds = mesh && mesh.bounds ? mesh.bounds : meshBounds;
+      buildSky(meshBounds);
       if (!mesh || disposed) return;
       // Static buffers are replaced only when generation produces a new grid.
       // Bind the VAO during upload so element-buffer ownership stays attached.
@@ -1014,11 +1332,21 @@
 
     function fitCamera(bounds) {
       // Fit around the scaled geometry because the camera sees scaled Y values.
+      //
+      // ⚠️ THE SKY IS PART OF THE FRAME. Clouds and birds live above the terrain
+      // and the ortho box is the frustum -- fitting to the terrain alone clipped
+      // the entire sky away silently (no GL error, nothing in the console, just
+      // an empty sky). `SM.Sky.ceiling` is the single place that knows how high
+      // the sky reaches.
+      var skyTop = SM.Sky
+        ? SM.Sky.ceiling(bounds, vScale, (bounds.maxX - bounds.minX) * 0.09)
+        : bounds.maxY * vScale;
+      var top = Math.max(bounds.maxY * vScale, skyTop);
       var tx = (bounds.minX + bounds.maxX) / 2;
-      var ty = (bounds.minY + bounds.maxY) * vScale / 2;
+      var ty = (bounds.minY * vScale + top) / 2;
       var tz = (bounds.minZ + bounds.maxZ) / 2;
       var halfX = (bounds.maxX - bounds.minX) / 2;
-      var halfY = (bounds.maxY - bounds.minY) * vScale / 2;
+      var halfY = (top - bounds.minY * vScale) / 2;
       var halfZ = (bounds.maxZ - bounds.minZ) / 2;
       var horizontalRadius = Math.sqrt(halfX * halfX + halfZ * halfZ);
       var verticalExtent = maxVerticalExtent(horizontalRadius, halfY);
@@ -1101,9 +1429,16 @@
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
       gl.uniform1i(shadowMap, 0);
+      // Cloud positions are resolved BEFORE the terrain draw: the ground needs
+      // this frame's shadow, and the sky pass below reuses the same numbers.
+      updateClouds();
+      gl.uniform3fv(cloudsUniform, cloudShadowData);
+      gl.uniform1i(cloudCountUniform, showSky ? cloudNow.length : 0);
+      gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
       gl.bindVertexArray(vao);
       gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
+      drawSky();
     }
 
     function dispose() {
@@ -1122,6 +1457,20 @@
       gl.deleteTexture(shadowTexture);
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
+      if (sky) {
+        gl.deleteBuffer(sky.cloudPos);
+        gl.deleteBuffer(sky.cloudNormal);
+        gl.deleteBuffer(sky.cloudIdx);
+        gl.deleteBuffer(sky.cloudIndex);
+        gl.deleteBuffer(sky.birdPos);
+        gl.deleteBuffer(sky.birdIdx);
+        gl.deleteBuffer(sky.birdWing);
+        gl.deleteBuffer(sky.birdIndex);
+        gl.deleteVertexArray(sky.cloudVao);
+        gl.deleteVertexArray(sky.birdVao);
+        sky = null;
+      }
+      if (skyProgram) gl.deleteProgram(skyProgram);
       disposed = true;
     }
 
@@ -1134,6 +1483,7 @@
       setSun: setSun,
       setTime: setTime,
       setShadowMap: setShadowMap,
+      setSky: setSky,
       fitCamera: fitCamera,
       render: render,
       dispose: dispose

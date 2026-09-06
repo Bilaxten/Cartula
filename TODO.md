@@ -9,13 +9,11 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
-- [ ] **Yön kararı (Uğur):** M3 kapandı (2026-09-06), kuyruğun başı yine açık.
-      İki aday:
-      (a) **M4 — animasyonun kalanı.** Uçan kuşlar, bulut gölgesi. Voxel
-          görünümünde ayrı geometri/sistem gerektiriyor.
-      (b) **İlk vaka çalışması.** Mevcut haliyle `bilaxten.art`'a M1+M2+M3
-          breakdown'ı + gömülü demo. Kod işi değil ama projenin asıl amacı bu
-          (`AGENTS.md` §2).
+- [ ] **İlk vaka çalışması — kuyruğun başı.** M1-M4'ün tamamı bitti
+      (2026-09-06), yani `bilaxten.art`'a konacak breakdown artık bitmiş bir
+      projeyi anlatıyor: üretim hattı, coğrafi kurallar, WebGL2 voxel geçişi,
+      fırça editleme, gökyüzü katmanı + gömülü demo. Kod işi değil ama
+      projenin asıl amacı bu (`AGENTS.md` §2).
 
 - [ ] **Fırça cilası (M3 sonrası, küçük):** fırçalar yalnız üstten görünümde
       çalışıyor ama VARSAYILAN açılış voxel — kullanıcı "Top-down" sekmesine
