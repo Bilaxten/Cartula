@@ -11,8 +11,23 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ## Şu anki görev
 
-**Yok — M1-M4'ün TAMAMI bitti (2026-09-06).** Kuyruğun başı artık ilk vaka
-çalışması (`bilaxten.art`), yani kod işi değil.
+**Yok — M1-M4'ün TAMAMI bitti ve eski 2D izometrik yol tamamen kaldırıldı
+(2026-09-06).** Kuyruğun başı artık ilk vaka çalışması (`bilaxten.art`).
+
+## Görünüm mimarisi — TEK CÜMLE
+
+**İzometrik = WebGL2 voxel. 2D = yalnızca üstten görünüm. Başka yol yok.**
+
+Eski canvas izometrik renderer (`src/render/iso.js`, dört yönlü bake edilmiş
+görüntü + rotasyon önbelleği + kendi bulut/duman/kuş/foam animasyonu) 2026-09-06'da
+SİLİNDİ — "Faz 5" olarak planlanıp hiç yapılmamıştı. Toplam ~830 satır. Gerekçe:
+voxel onu her açıdan ikame etti (360° kamera, AO, cast shadow, kendi gökyüzü
+katmanı), hiçbir testi yoktu ve iki paralel bulut sistemi bakım yüküydü.
+
+⚠️ **WebGL2 yoksa izometrik görünüm de YOK.** Geri düşülecek bir yol kalmadı;
+`refresh()` görünümü üstten görünüme alır, `Isometric` sekmesini devre dışı
+bırakır ve sebebini yazar. Sessizce üstten görünüm çizmek yanlış olurdu.
+`?renderer=iso` kaçış kapısı kaldırıldı; `?view=top` hâlâ geçerli.
 
 ## M4 bitti (2026-09-06, ikinci tur)
 

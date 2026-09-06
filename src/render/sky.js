@@ -1,9 +1,9 @@
 /* Sky layer for the WebGL voxel view: drifting clouds and a circling flock.
  *
- * M4's remaining animation. Clouds already existed in the classic canvas iso
- * path (`main.js`, `drawClouds`), but that path is a bitmap projection — the
- * clouds were painted sprites. Here they are real geometry in world space, so
- * the orbit camera moves around them instead of past a flat overlay.
+ * M4's remaining animation. Clouds once existed in the classic canvas iso path
+ * as painted sprites on a bitmap projection; that whole path was deleted on
+ * 2026-09-06. Here they are real geometry in world space, so the orbit camera
+ * moves around them instead of past a flat overlay.
  *
  * WHY A SEPARATE FILE: `voxel3d.js` is already the largest renderer and this is
  * a distinct concern with its own geometry. Everything here is PURE — no GL, no

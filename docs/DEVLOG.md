@@ -1,5 +1,52 @@
 # DEVLOG
 
+## 2026-09-06 — Eski 2D izometrik yol tamamen kaldırıldı (+ PNG export düzeldi)
+
+**Ne yapıldı:** Uğur "önerdiğin çözümleri yapalım... 4 yönlü 2D image'ı tamamen
+kaldıralım, 2D olarak sadece top view kalsın" dedi. Denetim turunda rapor edilen
+ölü ağırlık silindi: **-917 satır, +124.**
+
+**Silinenler:**
+- `src/render/iso.js` (371 satır) — canvas izometrik renderer.
+- `main.js`'te 18 fonksiyon (~460 satır): `rotateGridView`, `makeCloudCells`,
+  `makeWeather`, `makeSmokeState`, `makeFlocks`, `prism`, `drawFoam`,
+  `stepWeather`, `drawCloudShadows`, `drawClouds`, `smokeParticle`,
+  `drawSmokeGroup`, `drawBirds`, `tickIso`, `isoOpts`, `clearRotCache`,
+  `scheduleRotBakes`, `revealIso` + `camRot`/`rotCache`/`isoJustBaked`/
+  `wantReveal`/`animHash` durumu.
+- `?renderer=iso` kaçış kapısı ve dört yönlü (N/E/S/W) bake önbelleği.
+
+**Neden şimdi:** "Faz 5" olarak planlanmış ama hiç yapılmamıştı. Voxel yolu onu
+her açıdan ikame etmişti (360° kamera, AO, cast shadow) ve M4 ile kendi bulut/
+kuş katmanını da kazandı — yani depo İKİ paralel bulut sistemi taşıyordu.
+Üstelik eski yolun hiçbir testi yoktu (`headless.js` `iso.js`'i yüklüyordu ama
+`renderIso`'yu hiç çağırmıyordu), yani sessizce bozulabilirdi.
+
+**Korunanlar (dikkatle ayrıldı):** `#riverfx` overlay, `tick`, `tickTop`,
+`startRiverAnim` — bunlar ÜSTTEN görünümün nehir parıltısı ve lav nabzı için de
+kullanılıyor; yalnız iso dalları çıkarıldı.
+
+**WebGL2 yoksa ne olur:** artık geri düşülecek bir yol yok. `refresh()` görünümü
+üstten görünüme alıyor, `Isometric` sekmesini devre dışı bırakıp sebebini
+yazıyor. Sessizce üstten görünüm çizmek yanlış olurdu — kullanıcı "Isometric"e
+basmışken üstten harita görür ve nedenini bilmez.
+
+**YOL BOYUNCA BULUNAN GERÇEK BUG:** `exportPng` izometrik görünümde
+`console.warn('not available yet (Faz 5)')` deyip geri dönüyordu — ve izometrik
+VARSAYILAN görünüm olduğu için **"Export PNG" düğmesi çoğu kullanıcı için
+sessizce hiçbir şey yapmıyordu.** Voxel renderer'a `capture()` eklendi.
+⚠️ `glCanvas.toDataURL()` burada ÇALIŞMAZ: bağlam `preserveDrawingBuffer`
+olmadan kuruluyor, dışarıdan piksel istendiğinde tampon çoktan gitmiş oluyor ve
+sonuç boş çıkıyor. O bayrağı açmak bir kez basılan düğme için her kareye maliyet
+bindirirdi; onun yerine `capture()` AYNI tick içinde render edip `readPixels`
+ile okuyor (GL alttan üste okur, satırlar çevriliyor).
+
+**Doğrulama:** `checks.sh` temiz, headless beş mod da temiz. Tarayıcıda:
+varsayılan görünüm izometrik (WebGL), `SM.renderIso` yok, üstten görünüm ve
+riverfx overlay sağlam, iki yönde geçiş çalışıyor, konsol temiz. PNG export
+ÖLÇÜLEREK doğrulandı — izometrik 1873×1319 gerçek içerikli PNG (eskiden hiçbir
+şey), üstten 1152×1152 bozulmadan.
+
 ## 2026-09-06 — M4 bitti: voxel bulutlar, bulut gölgesi, uçan kuşlar
 
 **Ne yapıldı:** M4'ün kalan iki maddesi (uçan kuşlar, bulut gölgesi) WebGL voxel

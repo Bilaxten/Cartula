@@ -18,11 +18,11 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'render/topdown.js', 'render/iso.js', 'render/sky.js',
+                 'render/topdown.js', 'render/sky.js',
                  'render/voxel3d.js', 'time.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
-  // strip canvas-only renderers of their getContext calls is unnecessary — we
-  // just never call renderIso/renderTopDown here.
+  // Stripping the canvas renderer of its getContext calls is unnecessary --
+  // we simply never call renderTopDown here.
   (0, eval)(code + '\n//# sourceURL=' + f);
 }
 const SM = win.SM;

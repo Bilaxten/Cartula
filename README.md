@@ -37,13 +37,17 @@ değil, kurallı:
 
 - [x] **M1 — Üretim + üstten görünüm.** Grid modeli, noise, biyom ataması,
   Canvas top-down render, parametre paneli, yeniden üret.
-- [x] **M2 — İzometrik voxel projeksiyon.** `src/render/iso.js` — her tile bir
-  prizma sütunu (üst diamond + 2 yan yüz, yan yüzler sadece komşuya kadar),
-  painter's algorithm, işaretli yükseklik kademeleri (kara yukarı, su aşağı —
-  deniz baseni). Harita tam çözünürlükte `#map`'e çizilir; kamera bir CSS
-  transform (pan/zoom = sıfır redraw). Üstten VE izometrikte sürükle-pan +
-  tekerlek-zoom. "Yükseklik abartısı" slider'ı. 18 biyom, eğim tabanlı
-  yalıyar, biyom-içi renk varyasyonu. Boyut 128–176² (piksel sabit).
+- [x] **M2 — İzometrik voxel projeksiyon.** `src/render/voxel3d.js` — WebGL2,
+  gerçek 3D mesh, 360° orbit kamera (yaw/pitch/zoom, Q/E çeyrek tur snap),
+  per-vertex AO, cast shadow, gün döngüsü. İşaretli yükseklik kademeleri (kara
+  yukarı, su aşağı — deniz baseni), "Yükseklik abartısı" slider'ı mesh'i
+  yeniden kurmadan uygular. 18 biyom, eğim tabanlı yalıyar, biyom-içi renk
+  varyasyonu.
+  ⚠️ **2026-09-06:** bu iş önce canvas 2D'de (`src/render/iso.js`, dört yönlü
+  bake edilmiş görüntü) yapılmıştı; WebGL yolu onu ikame edince eski renderer
+  ve tüm yardımcıları SİLİNDİ (~830 satır). **2D olarak yalnızca üstten görünüm
+  var.** WebGL2 yoksa izometrik görünüm de yok — geri düşülecek yol bırakılmadı,
+  durum kullanıcıya açıkça söyleniyor.
 - [~] **Coğrafi kurallar.** Dünya-uzayı örnekleme, sıradağ fay hatları, zirve
   baskınlığı, yağmur gölgesi/orografik, kıta sahanlığı, dendritik nehirler +
   vadiler, göller + taşma. **Tur 2:** platolar, fiyortlar, kıyı okları/lagünler,

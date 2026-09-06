@@ -1441,6 +1441,42 @@
       drawSky();
     }
 
+    /* A PNG of the current frame.
+     *
+     * ⚠️ `glCanvas.toDataURL()` DOES NOT WORK here: the context is created
+     * without `preserveDrawingBuffer`, so by the time anything outside the draw
+     * call asks for pixels the buffer is already gone and the result is blank.
+     * Turning that flag on would cost every frame for a button pressed once, so
+     * instead this renders and reads back in the SAME tick.
+     *
+     * GL reads bottom-up while a canvas is top-down, hence the row flip.
+     */
+    function capture() {
+      var pixels;
+      var flipped;
+      var row;
+      var out;
+      var image;
+      var y;
+
+      if (disposed || !width || !height) return null;
+      render();
+      pixels = new Uint8Array(width * height * 4);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      flipped = new Uint8ClampedArray(pixels.length);
+      row = width * 4;
+      for (y = 0; y < height; y++) {
+        flipped.set(pixels.subarray(y * row, y * row + row),
+          (height - 1 - y) * row);
+      }
+      out = document.createElement('canvas');
+      out.width = width;
+      out.height = height;
+      image = new ImageData(flipped, width, height);
+      out.getContext('2d').putImageData(image, 0, 0);
+      return out;
+    }
+
     function dispose() {
       if (disposed) return;
       // Explicitly release GPU allocations because renderer switches are opt-in.
@@ -1484,6 +1520,7 @@
       setTime: setTime,
       setShadowMap: setShadowMap,
       setSky: setSky,
+      capture: capture,
       fitCamera: fitCamera,
       render: render,
       dispose: dispose

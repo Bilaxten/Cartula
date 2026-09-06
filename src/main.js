@@ -4,8 +4,7 @@
 (function (SM) {
   'use strict';
 
-  var RENDERER = new URLSearchParams(location.search).get('renderer') === 'iso'
-    ? 'iso' : 'voxel';
+
 
   var $ = function (id) { return document.getElementById(id); };
   var map = $('map');
@@ -30,7 +29,7 @@
   var ISO_BASE_LH = 13;
 
   var anim = null; // live overlay animation state
-  var camRot = 0;  // iso view rotation, 0..3 quarter turns
+
   var voxelRenderer = null;
   var voxelMesh = null;
   var voxelCamera = null;
@@ -47,39 +46,6 @@
                                      // from voxelTimeLast so toggling one doesn't
                                      // disturb the other's delta baseline
   var AUTOROTATE_DEG_PER_SEC = 5;   // one full turn every 72s -- "yavaş" per Uğur
-
-  // A rotated *view* of the grid for the iso bake — the real grid is never
-  // mutated. The iso projection can't be spun with a CSS transform (it would
-  // rotate the diamonds, not re-project), so a rotation is a re-bake off a
-  // transposed copy. ~1-2 ms of array shuffling; the bake is the real cost.
-  function rotateGridView(g, r) {
-    if (!r) return g;
-    var W = g.width, H = g.height;
-    var nW = (r % 2) ? H : W, nH = (r % 2) ? W : H, n = nW * nH;
-    function src(nx, ny) {
-      var ox, oy;
-      if (r === 1) { ox = ny; oy = H - 1 - nx; }
-      else if (r === 2) { ox = W - 1 - nx; oy = H - 1 - ny; }
-      else { ox = W - 1 - ny; oy = nx; }
-      return oy * W + ox;
-    }
-    var out = {
-      width: nW, height: nH, config: g.config,
-      seaThresh: g.seaThresh, landSpan: g.landSpan,
-      index: function (x, y) { return y * this.width + x; },
-      inBounds: function (x, y) { return x >= 0 && y >= 0 && x < this.width && y < this.height; }
-    };
-    var keys = ['elevation', 'moisture', 'temperature', 'water', 'biome', 'level', 'lava', 'builtup'];
-    for (var k = 0; k < keys.length; k++) {
-      var arr = g[keys[k]];
-      if (!arr) continue;
-      var na = new arr.constructor(n);
-      for (var ny = 0; ny < nH; ny++) for (var nx = 0; nx < nW; nx++) na[ny * nW + nx] = arr[src(nx, ny)];
-      out[keys[k]] = na;
-    }
-    return out;
-  }
-
   function isoExag() { return parseFloat($('isoexag').value); }
 
   function signed(v) {
@@ -181,8 +147,13 @@
     if (fx.width) fx.getContext('2d').clearRect(0, 0, fx.width, fx.height);
   }
 
+  // İzometrik görünüm ARTIK YALNIZCA WebGL voxel. Eski canvas iso yolu
+  // (`?renderer=iso`, dört yönlü bake edilmiş 2D görüntü) 2026-09-06'da
+  // tamamen kaldırıldı: voxel onu her açıdan ikame ediyordu, kendi bulut ve
+  // animasyon katmanı da geldi, ve o yol hiçbir testle korunmuyordu.
+  // 2D olarak yalnızca ÜSTTEN görünüm kaldı.
   function isVoxelMode() {
-    return view === 'iso' && RENDERER === 'voxel' && !voxelUnavailable;
+    return view === 'iso' && !voxelUnavailable;
   }
 
   function voxelAnimationEnabled() {
@@ -245,7 +216,8 @@
       $('rotVal').textContent = String(Math.round(yaw)).padStart(3, '0') + '°';
       return;
     }
-    $('rotVal').textContent = ['N', 'E', 'S', 'W'][camRot];
+    // Voxel yoksa izometrik de yok; gösterilecek bir açı kalmıyor.
+    $('rotVal').textContent = '---';
   }
 
   function requestVoxelRender() {
@@ -331,15 +303,19 @@
   }
 
   function startVoxel() {
+    // ⚠️ ARTIK GERİ DÜŞÜLECEK BİR YOL YOK. Eski canvas iso renderer'ı silindi,
+    // yani WebGL2 yoksa izometrik görünüm de yok. Sessizce üstten görünüme
+    // düşmek yanlış olurdu (kullanıcı "izometrik" tuşuna basmışken üstten
+    // görünüm görür ve nedenini bilmez), o yüzden durum AÇIKÇA söyleniyor.
     if (!SM.Voxel3D || !SM.Voxel3D.isSupported()) {
-      if (!voxelUnavailable) console.warn('WebGL2 is unavailable; falling back to the isometric renderer.');
+      if (!voxelUnavailable) console.warn('WebGL2 yok: izometrik gorunum kullanilamiyor.');
       voxelUnavailable = true;
       return false;
     }
     if (!voxelRenderer) {
       voxelRenderer = SM.Voxel3D.create(glCanvas);
       if (!voxelRenderer) {
-        console.warn('WebGL2 context creation failed; falling back to the isometric renderer.');
+        console.warn('WebGL2 baglami kurulamadi: izometrik gorunum kullanilamiyor.');
         voxelUnavailable = true;
         return false;
       }
@@ -408,132 +384,14 @@
     requestVoxelRender();
   }
 
-  function animHash(x, y) {
-    var n = ((x * 73856093) ^ (y * 19349663)) >>> 0;
-    return (n % 10000) / 10000;
-  }
 
-  // Drifting clouds with a rain curtain and a shadow cast onto the surface.
-  // Screen-space (drawn on the overlay, which shares the map's CSS transform),
-  // so a shadow blob at (x, y) darkens whatever terrain is under that point.
-  // Big chunky voxel clouds — a blobby footprint of little prism cubes with a
-  // flat bottom and a lumpy domed top, rendered in the same iso voxel language
-  // as the terrain so they read as part of the world.
-  var CW2 = 22, CH2 = 11, CVH = 22;   // cloud voxel half-width / half-depth / height
-
-  function makeCloudCells() {
-    // a few overlapping spherical lumps — each cell's height is the tallest
-    // spherical-cap it falls under, so the cloud reads as round & puffy
-    var lumps = [], nl = 3 + Math.floor(Math.random() * 3);
-    for (var l = 0; l < nl; l++) lumps.push({
-      cx: (Math.random() - 0.5) * 6,
-      cy: (Math.random() - 0.5) * 3,
-      r: 2.2 + Math.random() * 1.8,
-      peak: 3.5 + Math.random() * 2.5
-    });
-    var acc = {}, keys = [], lo = -12, hi = 12;
-    for (var gy = lo; gy <= hi; gy++) for (var gx = lo; gx <= hi; gx++) {
-      var h = 0;
-      for (var m = 0; m < lumps.length; m++) {
-        var lm = lumps[m], ddx = gx - lm.cx, ddy = gy - lm.cy;
-        var dr = Math.sqrt(ddx * ddx + ddy * ddy) / lm.r;
-        if (dr >= 1) continue;
-        var lh = lm.peak * Math.sqrt(1 - dr * dr);   // spherical cap
-        if (lh > h) h = lh;
-      }
-      if (h < 0.75) continue;
-      var k = gx + ',' + gy;
-      acc[k] = { gx: gx, gy: gy, h: Math.max(1, Math.round(h)) };
-      keys.push(k);
-    }
-    var cells = [], i;
-    for (i = 0; i < keys.length; i++) cells.push(acc[keys[i]]);
-    cells.sort(function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); });
-    var minX = 1e9, maxX = -1e9;
-    for (i = 0; i < cells.length; i++) {
-      var sx = (cells[i].gx - cells[i].gy) * CW2;
-      if (sx < minX) minX = sx; if (sx > maxX) maxX = sx;
-    }
-    return { cells: cells, halfSpan: (maxX - minX) / 2 + CW2 * 2 };
-  }
-
-  function makeWeather(vw, vh) {
-    var clouds = [], n = 2 + Math.floor(Math.random() * 3);
-    var drift = 7 + Math.random() * 7;                  // px/s, all clouds one way
-    var dirY = (Math.random() - 0.5) * 2.5;
-    for (var i = 0; i < n; i++) {
-      var cc = makeCloudCells();
-      clouds.push({
-        x: Math.random() * (vw + 500) - 250,
-        y: vh * (-0.06 + Math.random() * 0.24),          // up in the sky
-        vx: drift, vy: dirY,
-        cells: cc.cells, span: cc.halfSpan,
-        rain: Math.random() < 0.45,
-        seed: Math.random() * 100
-      });
-    }
-    return { clouds: clouds, w: vw, h: vh };
-  }
-
-  function makeSmokeState(lavas) {
-    var groups = [], used = [], i, j;
-    for (i = 0; i < lavas.length; i++) {
-      if (used[i]) continue;
-      var queue = [i], members = [];
-      used[i] = true;
-      while (queue.length) {
-        var qi = queue.pop(), q = lavas[qi];
-        members.push(q);
-        for (j = 0; j < lavas.length; j++) {
-          if (used[j]) continue;
-          if (Math.abs(lavas[j].gx - q.gx) <= 4 && Math.abs(lavas[j].gy - q.gy) <= 4) {
-            used[j] = true; queue.push(j);
-          }
-        }
-      }
-      var vent = members[0];
-      for (j = 1; j < members.length; j++) if (members[j].cy < vent.cy) vent = members[j];
-      var particles = [], count = 14 + Math.floor(Math.random() * 11);
-      for (j = 0; j < count; j++) particles.push({
-        offset: Math.random() * 3, life: 2 + Math.random(),
-        jitter: (Math.random() - 0.5) * 5, sway: Math.random() * 6.28,
-        rise: 24 + Math.random() * 22, r: 1.5 + Math.random() * 1.5
-      });
-      groups.push({ vent: vent, wind: 5 + Math.random() * 5, particles: particles });
-    }
-    return groups;
-  }
-
-  function makeFlocks(width, height) {
-    var out = [], count = 2 + Math.floor(Math.random() * 3);
-    for (var i = 0; i < count; i++) {
-      var speed = 15 + Math.random() * 16;
-      out.push({
-        x: Math.random() * width, y: height * (0.12 + Math.random() * 0.58),
-        vx: speed, vy: (Math.random() - 0.5) * 5,
-        count: 3 + Math.floor(Math.random() * 5), phase: Math.random() * 6.28
-      });
-    }
-    return out;
-  }
-
-  // Animation runs on a separate overlay canvas, leaving the terrain bake
-  // untouched. Iso roaming effects can cross any old dirty rectangle, so the
-  // overlay is cleared in full once per capped (~30 fps) frame.
   function startRiverAnim() {
     stopAnim();
     var r = (content.rivers || []).slice();
     var lv = (content.lavas || []).slice();
     if ((r.length + lv.length) > 1600 || map.width * map.height > 16e6) return;
 
-    var iso = view === 'iso';
     var d = content.diamond, ts = content.tile, lh = content.lh || 20;
-    if (iso) {
-      var ord = function (a, b) { return (a.gx + a.gy) - (b.gx + b.gy); };
-      r.sort(ord); lv.sort(ord);
-    }
-    var j;
-
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
@@ -542,49 +400,14 @@
       raf: 0, mode: view, rivers: r, lavas: lv,
       rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
       d: d, tile: ts, lh: lh, t0: performance.now(), last: 0,
-      foam: iso ? (content.foam || []).slice(0, 800) : [],
-      smoke: iso ? makeSmokeState(lv) : [],
-      flocks: iso ? makeFlocks(content.width, content.height) : [],
-      weather: makeWeather(content.width, content.height),
-      moveLast: 0, terrain: []
+      moveLast: 0
     };
-    if (iso) {
-      for (j = 0; j < r.length; j++) anim.terrain.push({ kind: 0, tile: r[j] });
-      for (j = 0; j < lv.length; j++) anim.terrain.push({ kind: 1, tile: lv[j] });
-      for (j = 0; j < anim.foam.length; j++) anim.terrain.push({ kind: 2, tile: anim.foam[j] });
-      for (j = 0; j < anim.smoke.length; j++) anim.terrain.push({ kind: 4, tile: anim.smoke[j].vent, state: anim.smoke[j] });
-      anim.terrain.sort(function (a, b) {
-        var depth = (a.tile.gx + a.tile.gy) - (b.tile.gx + b.tile.gy);
-        return depth || (a.kind - b.kind);
-      });
-    }
     tick();
   }
 
   function shade(rgb, f) {
     return 'rgb(' + Math.round(rgb[0] * f) + ',' + Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
   }
-
-  // one iso prism (top diamond + two front faces) at column cx, top at topY,
-  // faces down to botY
-  function prism(ctx, cx, topY, botY, w2, h2, topC, leftC, rightC) {
-    ctx.fillStyle = leftC;
-    ctx.beginPath();
-    ctx.moveTo(cx - w2, topY); ctx.lineTo(cx, topY + h2);
-    ctx.lineTo(cx, botY + h2); ctx.lineTo(cx - w2, botY);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = rightC;
-    ctx.beginPath();
-    ctx.moveTo(cx, topY + h2); ctx.lineTo(cx + w2, topY);
-    ctx.lineTo(cx + w2, botY); ctx.lineTo(cx, botY + h2);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = topC;
-    ctx.beginPath();
-    ctx.moveTo(cx, topY - h2); ctx.lineTo(cx + w2, topY);
-    ctx.lineTo(cx, topY + h2); ctx.lineTo(cx - w2, topY);
-    ctx.closePath(); ctx.fill();
-  }
-
   function tick() {
     if (!anim) return;
     anim.raf = requestAnimationFrame(tick);
@@ -595,11 +418,10 @@
     var seconds = (now - anim.t0) / 1000;
     var sun = sunModel(parseFloat($('sun').value)).iso;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    var clouds = anim.mode === 'iso' && $('showClouds').checked;  // iso only
-    if (clouds) { stepWeather(now); drawCloudShadows(ctx, sun); }
-    if (anim.mode === 'iso') tickIso(now, ctx);
-    else tickTop(now, ctx);
-    if (clouds) drawClouds(ctx, seconds);
+    // Bu overlay artık YALNIZCA üstten görünüme hizmet ediyor: izometrik
+    // görünüm WebGL'de ve kendi animasyonunu (su dalgası, lav, foam, bulut,
+    // kuş) shader'da yapıyor.
+    tickTop(now, ctx);
   }
 
   // top-down: a moving sheen slides downstream over the baked river tiles; lava
@@ -620,303 +442,26 @@
       ctx.fillRect(lv.x, lv.y, ts, ts);
     }
   }
-
-  function drawFoam(ctx, f, seconds) {
-    var w2 = anim.d.w2, h2 = anim.d.h2;
-    var verts = [
-      [[f.cx, f.cy - h2], [f.cx - w2, f.cy]],
-      [[f.cx, f.cy - h2], [f.cx + w2, f.cy]],
-      [[f.cx + w2, f.cy], [f.cx, f.cy + h2]],
-      [[f.cx - w2, f.cy], [f.cx, f.cy + h2]]
-    ];
-    var edge = verts[f.edge == null ? 0 : f.edge];
-    var phase = animHash(f.gx, f.gy) * 6.283;
-    var shimmer = 0.5 + 0.5 * Math.sin(seconds * 1.8 + phase);
-    var count = 1 + Math.floor(animHash(f.gy + 17, f.gx + 31) * 3);
-    ctx.lineWidth = 1;
-    ctx.lineCap = 'round';
-    for (var i = 0; i < count; i++) {
-      var u = (i + 0.35 + shimmer * 0.18) / count;
-      var span = 0.12 + 0.08 * shimmer;
-      var u0 = Math.max(0.04, u - span), u1 = Math.min(0.96, u + span);
-      var x0 = edge[0][0] + (edge[1][0] - edge[0][0]) * u0;
-      var y0 = edge[0][1] + (edge[1][1] - edge[0][1]) * u0;
-      var x1 = edge[0][0] + (edge[1][0] - edge[0][0]) * u1;
-      var y1 = edge[0][1] + (edge[1][1] - edge[0][1]) * u1;
-      ctx.strokeStyle = 'rgba(255,255,255,' + (0.10 + 0.20 * shimmer).toFixed(3) + ')';
-      ctx.beginPath();
-      ctx.moveTo(x0, y0);
-      ctx.quadraticCurveTo((x0 + x1) * 0.5, (y0 + y1) * 0.5 - 1.2, x1, y1);
-      ctx.stroke();
-    }
-  }
-
-  // advance cloud positions; wrap around the map's bounding rect
-  function stepWeather(now) {
-    var wx = anim.weather, dt = anim.wLast ? Math.min(0.1, (now - anim.wLast) / 1000) : 0;
-    anim.wLast = now;
-    for (var i = 0; i < wx.clouds.length; i++) {
-      var c = wx.clouds[i];
-      c.x += c.vx * dt; c.y += c.vy * dt;
-      if (c.x - c.span > wx.w + 200) {
-        c.x = -c.span - 200;
-        c.y = wx.h * (-0.04 + Math.random() * 0.28);
-      }
-      if (c.y < wx.h * -0.12) c.y = wx.h * 0.24;
-      if (c.y > wx.h * 0.42) c.y = wx.h * -0.04;
-    }
-  }
-
-  function drawCloudShadows(ctx, sun) {
-    var wx = anim.weather;
-    var drop = 170 + 200 * (1 - Math.min(1, sun.strength / 0.42));  // low sun -> long throw
-    var skew = sun.dx * 140;
-    ctx.fillStyle = 'rgba(28,38,60,0.11)';
-    for (var i = 0; i < wx.clouds.length; i++) {
-      var c = wx.clouds[i];
-      for (var p = 0; p < c.cells.length; p++) {
-        var cell = c.cells[p];
-        var sx = c.x + (cell.gx - cell.gy) * CW2 + skew;
-        var sy = c.y + (cell.gx + cell.gy) * CH2 + drop;
-        ctx.beginPath();
-        ctx.ellipse(sx, sy, CW2 * 1.9, CH2 * 1.9, 0, 0, 6.283);
-        ctx.fill();
-      }
-    }
-  }
-
-  function drawClouds(ctx, seconds) {
-    var wx = anim.weather;
-    for (var i = 0; i < wx.clouds.length; i++) {
-      var c = wx.clouds[i];
-      var bob = Math.sin(seconds * 0.5 + c.seed) * 2.5;
-      if (c.rain) {
-        var top = c.y + 20, bot = c.y + 210, span = c.span * 0.75;
-        ctx.strokeStyle = 'rgba(150,175,210,0.20)';
-        ctx.lineWidth = 1;
-        for (var d = 0; d < 40; d++) {
-          var rx = c.x - span + (2 * span) * ((d * 0.618 + c.seed) % 1);
-          var ry = top + ((seconds * 280 + d * 37 + c.seed * 90) % (bot - top));
-          ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 11); ctx.stroke();
-        }
-      }
-      // voxel cloud body — flat bottom, lumpy domed top, in painter order
-      for (var p = 0; p < c.cells.length; p++) {
-        var cell = c.cells[p];
-        var cx = c.x + (cell.gx - cell.gy) * CW2;
-        var baseY = c.y + (cell.gx + cell.gy) * CH2 + bob;
-        var topY = baseY - cell.h * CVH;
-        var botY = baseY + CVH * 1.3;   // a little skirt below so cubes read solid
-        // opaque voxel cloud — left / right faces (soft grey), bright top.
-        // small outset closes seams between adjacent puff cubes.
-        var O = 0.6;
-        ctx.fillStyle = '#d6dbe6';
-        ctx.beginPath();
-        ctx.moveTo(cx - CW2 - O, topY); ctx.lineTo(cx, topY + CH2);
-        ctx.lineTo(cx, botY + CH2); ctx.lineTo(cx - CW2 - O, botY);
-        ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#c2c8d5';
-        ctx.beginPath();
-        ctx.moveTo(cx, topY + CH2); ctx.lineTo(cx + CW2 + O, topY);
-        ctx.lineTo(cx + CW2 + O, botY); ctx.lineTo(cx, botY + CH2);
-        ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#fbfcfe';
-        ctx.beginPath();
-        ctx.moveTo(cx, topY - CH2 - O); ctx.lineTo(cx + CW2 + O, topY);
-        ctx.lineTo(cx, topY + CH2 + O); ctx.lineTo(cx - CW2 - O, topY);
-        ctx.closePath(); ctx.fill();
-      }
-    }
-  }
-
-  function smokeParticle(p, group, seconds) {
-    var elapsed = (seconds + p.offset) % p.life;
-    var age = elapsed / p.life;
-    return {
-      age: age,
-      x: group.vent.cx + p.jitter + group.wind * elapsed + Math.sin(p.sway + age * 5) * 3,
-      y: group.vent.cy - 2 - p.rise * age,
-      r: p.r * (0.75 + age * 2.5)
-    };
-  }
-
-  function drawSmokeGroup(ctx, group, seconds, low) {
-    for (var i = 0; i < group.particles.length; i++) {
-      var q = smokeParticle(group.particles[i], group, seconds);
-      if ((q.age < 0.23) !== low) continue;
-      if (q.age < 0.13) {
-        ctx.fillStyle = 'rgba(238,105,38,' + (0.11 * (1 - q.age / 0.13)).toFixed(3) + ')';
-        ctx.beginPath(); ctx.arc(q.x, q.y + 1, q.r * 1.15, 0, 6.283); ctx.fill();
-      }
-      var grey = Math.round(90 + q.age * 75);
-      ctx.fillStyle = 'rgba(' + grey + ',' + (grey - 2) + ',' + (grey - 4) + ',' +
-        (0.34 * (1 - q.age)).toFixed(3) + ')';
-      ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill();
-    }
-  }
-
-  function drawBirds(ctx, now, seconds) {
-    var dt = anim.moveLast ? Math.min(0.08, (now - anim.moveLast) / 1000) : 0;
-    anim.moveLast = now;
-    ctx.strokeStyle = 'rgba(40,40,44,0.85)';
-    ctx.lineWidth = 1.15;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (var f = 0; f < anim.flocks.length; f++) {
-      var flock = anim.flocks[f];
-      flock.x += flock.vx * dt; flock.y += flock.vy * dt;
-      if (flock.x > content.width + 30) {
-        flock.x = -25;
-        flock.y = content.height * (0.10 + Math.random() * 0.68);
-      }
-      if (flock.y < 12) flock.y = content.height - 12;
-      if (flock.y > content.height - 12) flock.y = 12;
-      for (var i = 0; i < flock.count; i++) {
-        var rank = Math.ceil(i / 2), side = i % 2 ? -1 : 1;
-        var bx = flock.x - rank * 6 + Math.sin(flock.phase + seconds + i) * 1.2;
-        var by = flock.y + side * rank * 3 + Math.sin(seconds * 2.2 + i) * 1.1;
-        var size = 3 + (i % 3) * 0.7;
-        var flap = Math.sin(seconds * 8 + flock.phase + i * 0.7) * 2;
-        ctx.beginPath();
-        ctx.moveTo(bx - size, by + flap);
-        ctx.lineTo(bx, by);
-        ctx.lineTo(bx + size, by + flap);
-        ctx.stroke();
-      }
-    }
-  }
-
-  function tickIso(now, ctx) {
-    var d = anim.d, w2 = d.w2, h2 = d.h2;
-    var seconds = (now - anim.t0) / 1000;
-    var slab = anim.lh * 0.42, AMP = Math.min(4.5, anim.lh * 0.26);
-    var riverT = seconds * 3.4;
-    var lavaT = seconds * 2.0, lrgb = anim.lavaRgb;
-
-    // One shared painter list keeps surface effects at terrain depth. Smoke is
-    // split: newborn puffs sit with the vent; older puffs rise above the map.
-    for (var i = 0; i < anim.terrain.length; i++) {
-      var item = anim.terrain[i], tile = item.tile;
-      if (item.kind === 0) {
-        var wave = Math.sin(riverT - tile.elev * 90);
-        var sh = 0.86 + 0.26 * (0.5 + 0.5 * wave);
-        prism(ctx, tile.cx, tile.cy - wave * AMP, tile.cy + slab, w2, h2,
-          shade(anim.rgb, sh), shade(anim.rgb, 0.68), shade(anim.rgb, 0.5));
-      } else if (item.kind === 1) {
-        var glow = 0.5 + 0.5 * Math.sin(lavaT - tile.elev * 70);
-        var tr = Math.round(lrgb[0] + (255 - lrgb[0]) * glow);
-        var tg = Math.round(lrgb[1] + (240 - lrgb[1]) * glow);
-        var tb = Math.round(lrgb[2] + (150 - lrgb[2]) * glow * 0.7);
-        prism(ctx, tile.cx, tile.cy, tile.cy + anim.lh * 0.5, w2, h2,
-          'rgb(' + tr + ',' + tg + ',' + tb + ')',
-          shade(lrgb, 0.32 + 0.14 * glow), shade(lrgb, 0.22 + 0.1 * glow));
-      } else if (item.kind === 2) drawFoam(ctx, tile, seconds);
-      else drawSmokeGroup(ctx, item.state, seconds, true);
-    }
-    for (i = 0; i < anim.smoke.length; i++) drawSmokeGroup(ctx, anim.smoke[i], seconds, false);
-    drawBirds(ctx, now, seconds);
-  }
-
-  // --- pre-baked iso rotations, so Q/E is an instant blit not a re-render ---
-  var rotCache = [null, null, null, null];
-  var rotBakeTimer = 0;
-
-  function isoOpts() {
-    return {
-      tile: ISO_TILE,
-      levelHeight: ISO_BASE_LH * isoExag(),
-      sun: sunModel(parseFloat($('sun').value)).iso
-    };
-  }
-  function clearRotCache() {
-    rotCache = [null, null, null, null];
-    if (rotBakeTimer) { clearTimeout(rotBakeTimer); rotBakeTimer = 0; }
-  }
-  function scheduleRotBakes() {
-    if (rotBakeTimer) { clearTimeout(rotBakeTimer); rotBakeTimer = 0; }
-    if (!grid || view !== 'iso' || !content) return;
-    // holding 4 baked copies costs ~4·W·H·4 bytes — fine for the ~14 MP default,
-    // skipped for cranked-up map sizes (rotation there falls back to a sync bake)
-    if (content.width * content.height > 15.5e6) return;
-    var todo = [];
-    for (var r = 0; r < 4; r++) if (r !== camRot && !rotCache[r]) todo.push(r);
-    function step() {
-      rotBakeTimer = 0;
-      if (view !== 'iso' || !todo.length) return;
-      var r = todo.shift();
-      var oc = document.createElement('canvas');
-      var ct = SM.renderIso(oc, rotateGridView(grid, r), isoOpts());
-      rotCache[r] = { canvas: oc, content: ct };
-      if (todo.length) rotBakeTimer = setTimeout(step, 120);
-    }
-    if (todo.length) rotBakeTimer = setTimeout(step, 140);
-  }
-
-  var isoJustBaked = false;
-  var revealRAF = 0;
-
-  // Game-juice reveal: the freshly baked iso terrain wipes in row by row from
-  // the back (top of screen) with a soft light frontier — makes the ~0.5 s bake
-  // feel deliberate instead of a freeze-then-pop.
-  function revealIso() {
-    if (revealRAF) cancelAnimationFrame(revealRAF);
-    var src = rotCache[camRot] && rotCache[camRot].canvas;
-    if (!src) { startRiverAnim(); return; }
-    var mc = map.getContext('2d'), W = map.width, Hh = map.height;
-    var DUR = 460, t0 = performance.now();
-    mc.clearRect(0, 0, W, Hh);
-    function frame() {
-      var e = Math.min(1, (performance.now() - t0) / DUR);
-      var k = 1 - Math.pow(1 - e, 3);                 // ease-out
-      var yy = Math.max(1, Math.round(k * Hh));
-      mc.clearRect(0, 0, W, Hh);
-      mc.drawImage(src, 0, 0, W, yy, 0, 0, W, yy);
-      if (e < 1) {
-        var g = mc.createLinearGradient(0, yy - 30, 0, yy + 3);
-        g.addColorStop(0, 'rgba(255,255,255,0)');
-        g.addColorStop(1, 'rgba(255,255,255,0.55)');
-        mc.fillStyle = g;
-        mc.fillRect(0, Math.max(0, yy - 30), W, 33);
-        revealRAF = requestAnimationFrame(frame);
-      } else {
-        revealRAF = 0;
-        mc.clearRect(0, 0, W, Hh);
-        mc.drawImage(src, 0, 0);
-        startRiverAnim();
-      }
-    }
-    frame();
-  }
-
   function drawContent() {
     if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
-    if (revealRAF) { cancelAnimationFrame(revealRAF); revealRAF = 0; }
     stopAnim();
-    if (view === 'iso') {
-      clearRotCache();
-      content = SM.renderIso(map, rotateGridView(grid, camRot), isoOpts());
-      var snap = document.createElement('canvas');
-      snap.width = map.width; snap.height = map.height;
-      snap.getContext('2d').drawImage(map, 0, 0);
-      rotCache[camRot] = { canvas: snap, content: content };
-      isoJustBaked = true;
-      scheduleRotBakes();
-    } else {
-      // shrink the tile for very large maps so the canvas stays GPU-friendly
-      var tt = Math.max(3, Math.min(TOP_TILE,
-        Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
-      content = SM.renderTopDown(map, grid, {
-        tile: tt,
-        grid: $('showGrid').checked,
-        shade: $('showShade').checked
-      });
-    }
+    // 2D artık YALNIZCA üstten görünüm. İzometrik canvas yolu (dört yönlü bake
+    // edilmiş görüntü + rotasyon önbelleği) 2026-09-06'da kaldırıldı; izometrik
+    // görünümü WebGL voxel çiziyor ve buraya hiç uğramıyor.
+    //
+    // shrink the tile for very large maps so the canvas stays GPU-friendly
+    var tt = Math.max(3, Math.min(TOP_TILE,
+      Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
+    content = SM.renderTopDown(map, grid, {
+      tile: tt,
+      grid: $('showGrid').checked,
+      shade: $('showShade').checked
+    });
     editedSinceRender = false;
   }
 
   // refit = force re-centering; otherwise the camera is kept unless the
   // content changed size (e.g. map dimensions or iso exaggeration).
-  var wantReveal = false;
 
   function refresh(refit, fitVoxel) {
     if (!grid) return;
@@ -925,17 +470,23 @@
         rebuildVoxelMesh(fitVoxel);
         return;
       }
+      // WebGL yok: izometrik çizilemez. Sessizce üstten görünüm çizmek yerine
+      // görünümü de üstten görünüme ALIYORUZ, yoksa sekme "Isometric"te kalır
+      // ama ekranda üstten harita durur -- kullanıcı için açıklanamaz bir hâl.
+      view = 'top';
+      $('viewTop').classList.add('active');
+      $('viewIso').classList.remove('active');
+      $('viewIso').disabled = true;
+      $('viewIso').title = 'Bu tarayıcıda WebGL2 yok';
+      document.body.classList.remove('iso');
     }
     stopVoxel();
-    isoJustBaked = false;
     drawContent();
     if (refit || content.width !== lastW || content.height !== lastH) fitCam();
     lastW = content.width;
     lastH = content.height;
     applyCam();
-    if (isoJustBaked && wantReveal) { wantReveal = false; revealIso(); }
-    else startRiverAnim();
-    wantReveal = false;
+    startRiverAnim();
   }
 
   function regenerate() {
@@ -948,7 +499,6 @@
     editedSinceRender = false;
     voxelNeedsFit = true;
     updateUndoButtons();
-    wantReveal = true;
     refresh(true, true);
 
     var s = SM.summarize(grid);
@@ -959,32 +509,11 @@
   }
 
   function rotateView(dir) {
-    if (view !== 'iso' || !grid) return;
-    if (isVoxelMode()) {
-      snapVoxelCamera(dir);
-      return;
-    }
-    camRot = (camRot + dir + 4) % 4;
-    updateRotationLabel();
-    var hit = rotCache[camRot];
-    if (hit) {
-      // instant: blit the pre-baked canvas onto #map, swap in its content
-      if (map.width !== hit.canvas.width || map.height !== hit.canvas.height) {
-        map.width = hit.canvas.width; map.height = hit.canvas.height;
-      }
-      var mc = map.getContext('2d');
-      mc.clearRect(0, 0, map.width, map.height);
-      mc.drawImage(hit.canvas, 0, 0);
-      content = hit.content;
-      stopAnim();
-      if (content.width !== lastW || content.height !== lastH) fitCam();
-      lastW = content.width; lastH = content.height;
-      applyCam();
-      startRiverAnim();
-      scheduleRotBakes();
-    } else {
-      refresh(true);   // not baked yet — do it now (also re-primes the cache)
-    }
+    // Q/E: yalnızca voxel kamerasını çeyrek tur döndürür. Eskiden burada
+    // dört yönlü bake edilmiş 2D görüntüler arasında geçiş yapan bir önbellek
+    // vardı; o yol kaldırıldı.
+    if (view !== 'iso' || !grid || !isVoxelMode()) return;
+    snapVoxelCamera(dir);
   }
 
   function setView(mode) {
@@ -997,7 +526,6 @@
     hoverEl.hidden = true;
     hideBrushCursor();
     updateStageCursor();
-    if (mode === 'iso') wantReveal = true;
     refresh(true);
   }
 
@@ -1541,24 +1069,24 @@
   }
 
   function applyQueryString() {
-    // RENDERER defaults to 'voxel' with no query string at all (bare `index.html`
-    // load) -- that default must switch the view to iso on its own. Bug fixed
-    // 2026-09-03: this whole function used to bail out on `!location.search`,
-    // so a bare load kept `view = 'top'` forever and voxel never activated
-    // (isVoxelMode() requires view === 'iso') -- silent fallback to the old
-    // top-down 2D render, no console warning, nothing visibly wrong.
+    // ⚠️ VARSAYILAN GÖRÜNÜM İZOMETRİK (WebGL voxel) ve bu bilinçli.
+    // Bu fonksiyon bir zamanlar `!location.search` ise erken çıkıyordu, o yüzden
+    // çıplak bir `index.html` yüklemesi `view = 'top'`ta kalıyor ve voxel hiç
+    // devreye girmiyordu (2026-09-03'te düzeltildi) -- sessizce eski 2D render'a
+    // düşen, konsolda izi olmayan bir hataydı. Erken çıkış geri EKLENMEMELİ.
     var q = location.search ? new URLSearchParams(location.search) : new URLSearchParams();
     QS_KEYS.forEach(function (id) {
       if (q.has(id) && $(id)) applyQueryValue($(id), q.get(id));
     });
-    if (RENDERER === 'voxel' && q.has('yaw') && q.has('pitch') && q.has('zoom')) {
+    if (q.has('yaw') && q.has('pitch') && q.has('zoom')) {
       voxelCameraQuery = {
         yaw: SM.VoxelCamera.wrapYaw(q.get('yaw')),
         pitch: SM.VoxelCamera.clampPitch(q.get('pitch')),
         zoom: Math.max(1, Math.min(1000, +q.get('zoom')))
       };
     }
-    if (q.get('view') === 'iso' || RENDERER === 'voxel') {
+    // `view=top` açıkça istenmedikçe izometrik açılır.
+    if (q.get('view') !== 'top') {
       view = 'iso';
       $('viewTop').classList.remove('active');
       $('viewIso').classList.add('active');
@@ -1587,18 +1115,32 @@
   }
 
   function exportPng() {
+    var out;
+    var octx;
+    var fx;
+
+    // ⚠️ İZOMETRİK EXPORT ARTIK ÇALIŞIYOR. Bu dal eskiden yalnızca
+    // "not available yet (Faz 5)" diye uyarıp geri dönüyordu -- ve izometrik
+    // VARSAYILAN görünüm olduğu için "Export PNG" düğmesi çoğu kullanıcı için
+    // sessizce hiçbir şey yapmıyordu. Voxel renderer artık kendi karesini
+    // okuyup veriyor (`capture`).
     if (isVoxelMode()) {
-      console.warn('PNG export is not available in the WebGL view yet (Faz 5).');
-      return;
+      out = voxelRenderer && voxelRenderer.capture ? voxelRenderer.capture() : null;
+      if (!out) {
+        console.warn('PNG export: WebGL karesi okunamadi.');
+        return;
+      }
+    } else {
+      out = document.createElement('canvas');
+      out.width = map.width; out.height = map.height;
+      octx = out.getContext('2d');
+      octx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg') || '#0f1216';
+      octx.fillRect(0, 0, out.width, out.height);
+      octx.drawImage(map, 0, 0);
+      // Nehir/lav parıltısı ayrı bir overlay canvas'ta; export onu da almalı.
+      fx = $('riverfx');
+      if (fx.width) octx.drawImage(fx, 0, 0);
     }
-    var out = document.createElement('canvas');
-    out.width = map.width; out.height = map.height;
-    var octx = out.getContext('2d');
-    octx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg') || '#0f1216';
-    octx.fillRect(0, 0, out.width, out.height);
-    octx.drawImage(map, 0, 0);
-    var fx = $('riverfx');
-    if (view === 'iso' && fx.width) octx.drawImage(fx, 0, 0);
     var a = document.createElement('a');
     a.download = 'stilizedmaps-' + view + '-' + $('seed').value + '.png';
     a.href = out.toDataURL('image/png');
