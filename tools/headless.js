@@ -4,6 +4,7 @@
  *   node tools/headless.js [seed] [size] [seaLevel]
  *   node tools/headless.js --sweep      # sea-level sweep, island-count check
  *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
+ *   node tools/headless.js --river      # river brush channel planning (M3)
  */
 'use strict';
 const fs = require('fs');
@@ -295,7 +296,114 @@ function runMeshChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--mesh') {
+// M3 river brush. The DOM half (undo capture, biome/water flags, repaint) stays
+// in main.js; what is checked here is the pure planner in grid.js, because that
+// is where a mistake would be silent — a channel that quietly widens into a lake,
+// a bed that digs below sea level and gets reclassified as coast, or a repeated
+// stroke that walks itself into a bottomless trench.
+function runRiverChecks() {
+  const results = [];
+  const size = 64;
+
+  // A tilted plane well above sea level: every tile has a distinct height, so a
+  // wrong bank reference shows up immediately.
+  function slope() {
+    const g = SM.createGrid(size, size);
+    g.seaThresh = 0.30;
+    g.landSpan = 0.70;
+    g.config = { levels: 10 };
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      g.elevation[y * size + x] = 0.50 + (x / size) * 0.30;
+    }
+    return g;
+  }
+
+  // 1) A river stays a river. Even at the largest brush the channel must be far
+  //    narrower than the disc the other brushes paint.
+  const widths = [1, 4, 7, 10, 12].map(r => SM.riverHalfWidth(r) * 2 + 1);
+  results.push(['channel stays narrow (<= 7 tiles at max brush)',
+    widths.every(w => w >= 1 && w <= 7) && widths[0] === 1]);
+  results.push(['channel widens monotonically with brush size',
+    widths.every((w, i) => i === 0 || w >= widths[i - 1])]);
+  // Every width the tool can express must be reachable from the slider,
+  // otherwise part of the range is dead travel.
+  const reachable = new Set();
+  for (let r = 1; r <= 12; r++) reachable.add(SM.riverHalfWidth(r) * 2 + 1);
+  results.push(['all four channel widths reachable from the slider',
+    [1, 3, 5, 7].every(w => reachable.has(w))]);
+
+  // 2) Bed depth follows strength, and never inverts.
+  const drops = [0.1, 0.5, 1.0].map(SM.riverBedDrop);
+  results.push(['bed drop grows with strength',
+    drops[0] > 0 && drops[1] > drops[0] && drops[2] > drops[1]]);
+
+  // 3) The bed sits BELOW its banks. This is the whole point: a flat blue strip
+  //    reads as paint, a cut channel reads as a river in the voxel view.
+  let g = slope();
+  let plan = SM.planRiverChannel(g, 32, 32, 6, 0.5);
+  const bankBefore = g.elevation[32 * size + 32];
+  const bedMax = Math.max(...plan.elevation);
+  results.push(['bed is cut below the surrounding banks', bedMax < bankBefore]);
+
+  // 4) A river is fresh water ABOVE sea level. If the bed dropped to or under
+  //    `seaThresh`, deriveTile would reclassify the tile as coast and the river
+  //    would silently disappear.
+  const lowland = slope();
+  for (let i = 0; i < size * size; i++) lowland.elevation[i] = 0.305;
+  plan = SM.planRiverChannel(lowland, 32, 32, 12, 1.0);
+  results.push(['bed never sinks to or below sea level',
+    plan.elevation.every(e => e > lowland.seaThresh)]);
+
+  // 5) Repeated stamps on the same spot must CONVERGE, not dig forever. The bank
+  //    reference is taken OUTSIDE the channel exactly to make this true.
+  //
+  //    ⚠️ Tolerance is float32-sized, not exact. `grid.elevation` is a
+  //    Float32Array, so writing a double-precision bed back and reading it again
+  //    loses ~2e-8 — measured, and it looks like a descent to an exact
+  //    comparison. The invariant that actually matters is that the TOTAL descent
+  //    after the first pass stays far below one bed drop; anything larger means
+  //    the stroke is walking itself downhill.
+  g = slope();
+  const drop = SM.riverBedDrop(1.0);
+  let firstPass = null, deepest = null;
+  for (let pass = 0; pass < 8; pass++) {
+    plan = SM.planRiverChannel(g, 32, 32, 6, 1.0);
+    for (let k = 0; k < plan.indices.length; k++) {
+      g.elevation[plan.indices[k]] = plan.elevation[k];
+    }
+    deepest = Math.min(...plan.elevation);
+    if (firstPass === null) firstPass = deepest;
+  }
+  const creep = firstPass - deepest;
+  results.push(['repeated strokes converge instead of trenching',
+    creep >= 0 && creep < drop * 0.01]);
+
+  // 6) Same input, same plan.
+  const a = SM.planRiverChannel(slope(), 20, 40, 9, 0.7);
+  const b = SM.planRiverChannel(slope(), 20, 40, 9, 0.7);
+  results.push(['planner is deterministic',
+    JSON.stringify(a) === JSON.stringify(b)]);
+
+  // 7) Edge of the map must not throw or wrap around.
+  let edgeOk = true;
+  try {
+    for (const [x, y] of [[0, 0], [size - 1, 0], [0, size - 1], [size - 1, size - 1]]) {
+      const p = SM.planRiverChannel(slope(), x, y, 12, 1.0);
+      if (!p.indices.length || p.indices.some(i => i < 0 || i >= size * size)) edgeOk = false;
+    }
+  } catch (err) { edgeOk = false; }
+  results.push(['map edges are safe', edgeOk]);
+
+  console.log('river brush checks (64² slope):');
+  for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+  console.log(`  widths by brush size 1/4/7/10/12: ${widths.join(', ')} tiles`);
+  console.log(`  8-pass creep: ${creep.toExponential(1)} (bed drop ${drop.toFixed(3)})`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--river') {
+  runRiverChecks();
+} else if (process.argv[2] === '--mesh') {
   runMeshChecks();
 } else if (process.argv[2] === '--sweep') {
   console.log('sea-level sweep (seed 1337, 192²) — island count should fall, not fragment:');

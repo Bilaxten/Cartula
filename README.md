@@ -52,8 +52,13 @@ değil, kurallı:
 - [x] **Animasyon (kısmi).** Voxel-küp nehir dalgası (yüksekten alçağa akış),
   lav glow, üstten görünüm nehir parıltısı. `#riverfx` overlay + occlusion cull.
   İso yönlü gölge + harita border/plinth.
-- [ ] **M3 — Düzenleme.** Fırça araçları: biyom boya, terrain yükselt/alçalt,
-  nehir çiz. Kısmi yeniden hesap.
+- [x] **M3 — Düzenleme.** Yedi fırça aracı: Raise / Lower / Smooth (yükseklik),
+  Water / Land (kıyı), **Draw river** (dar kanal, yatağı banklarının altına
+  oyar), Paint biome. Fırça boyu 1-12, güç 0.1-1, canlı fırça imleci,
+  Undo / Redo / Reset to generated. Yalnız üstten görünümde çalışır; düzenleme
+  sonrası yalnızca değişen hücreler yeniden çizilir.
+  Nehir planlayıcısı saf: `SM.planRiverChannel` (`src/grid.js`), doğrulaması
+  `node tools/headless.js --river`.
 - [ ] **M4 — Animasyon (kalan).** Uçan kuşlar, gündüz/gece, bulut gölgesi,
   kamera döndürme.
 

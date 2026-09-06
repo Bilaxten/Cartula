@@ -1,5 +1,62 @@
 # DEVLOG
 
+## 2026-09-06 — M3 kapandı: nehir fırçası + belge sürüklenmesinin düzeltilmesi
+
+**Ne oldu:** Uğur "M3 fırçayı falan da yapmış olmamız lazım, kontrol eder misin"
+dedi. Kontrol ettim: **fırça editleme zaten yapılmıştı** — commit `aa3b1cf`
+"Codex: M3 fırça editleme" (2026-09-02). Ama HİÇBİR belge bunu kaydetmemişti:
+`README.md` hâlâ `- [ ] M3`, `CURRENT.md` "başlamadı", `TODO.md` NOW M3'ü hâlâ
+üç adaydan biri olarak listeliyor, bu dosyada kayıt yok, vault tarafındaki
+thread + otomatik hafıza notu da "sırada M3" diyordu. Kod dört gün önce
+ilerlemiş, anlatı yerinde saymış.
+
+**Eksik olan tek parça nehir aracıydı.** README'nin M3 tanımında "nehir çiz"
+geçiyordu ama kodda `tool === 'river'` diye bir dal yoktu; diğer altı araç
+(Raise/Lower/Smooth/Water/Land/Paint biome) + Undo/Redo/Reset tamdı. Uğur
+"nehir aracını yaz, M3'ü kapat" dedi.
+
+**Nehir aracı — tasarım kararları:**
+
+- *Nehir bir KANAL, havuz değil.* Diğer fırçaların ağırlıklı diski bilerek
+  kullanılmıyor: fırça boyu 12'de disk 25 hücre genişliğinde bir su kütlesi
+  boyardı, ki o zaten `water` aracının işi. Kanal genişliği fırça boyundan
+  türüyor ama dar kalıyor — 1, 3, 5, 7 hücre.
+- *Yatak banklarının ALTINA oyuluyor.* Düz mavi bir şerit boya gibi okunuyor;
+  kesilmiş bir kanal voxel görünümünde nehir gibi okunuyor. Derinliği `strength`
+  belirliyor (hafif dokunuş dere, ağır dokunuş boğaz).
+- *Bank referansı kanalın DIŞINDAKİ halka.* Hücrenin kendisi alınsaydı tekrar
+  eden fırça darbeleri kendi kendini aşağı yürütüp dipsiz bir hendek kazardı.
+  `--river` testi tam olarak bunu ölçüyor: 8 darbeden sonra toplam sürüklenme
+  2.1e-8 (yatak derinliği 0.040) — yani ilk darbeden sonra sabitleniyor.
+- *Nehir deniz seviyesinin ÜSTÜNDE tatlı su.* Yatak `seaThresh`in hemen üstüne
+  kırpılıyor; altına inseydi `deriveTile` hücreyi kıyı olarak yeniden
+  sınıflandırıp nehir kimliğini sessizce silerdi.
+- *Lava söndürülüyor* — üretecin kendi kuralının aynısı (`generate.js` adım 7a).
+
+**Yol boyunca bulunan gerçek bug:** geri alma kaydı (`makeEditRecord`) `lava`
+alanını TUTMUYORDU. Nehir aracı lavayı söndürdüğü için undo lavayı geri
+getiremezdi — geri alınan volkan yüzeyi altında parlamaya devam ederdi. Kayda
+`lava` eklendi.
+
+**Testin yakaladığı ikinci şey:** ilk genişlik eğrisi `round(radius/3) - 1` idi
+ve fırça boyu 1-4'ün hepsini tek hücreye eşleyip doğrudan beşe atlıyordu — yani
+slider'ın ilk üçte biri ölü yol, 3 hücrelik genişlik ise ulaşılamaz. `--river`
+genişlik eğrisini bastığı için görüldü; `floor((radius - 1) / 3)` ile dördü de
+erişilebilir oldu.
+
+**Doğrulama:** `node tools/headless.js --river` (9 kontrol: darlık, monotonluk,
+tüm genişliklerin erişilebilirliği, yatağın banklardan aşağıda olması, deniz
+seviyesinin altına inmemesi, tekrarlı darbelerde yakınsama, determinism, harita
+kenarı), `--mesh` ve normal mod değişmedi, `scripts/checks.sh` temiz.
+**Tarayıcıda gözle ve ölçerek doğrulandı** (localhost + cache-buster): araç
+listede, 21/21 örnek nokta nehir rengine döndü (#3f7fa6), undo tam geri aldı ve
+redo birebir geri getirdi, konsol temiz, WebGL2 bağlamı hatasız, çizilen kanal
+voxel görünümünde oyulmuş bir su yolu olarak okunuyor.
+
+**Not:** `CURRENT.md` 2026-09-02'de donmuştu ve 2026-09-03'teki beş commit
+(WebGL2 voxel orbit/auto-rotate/Firefox düzeltmesi) hiçbir yerde kayıtlı
+değildi. Bu tur onları da kayda geçirdi.
+
 ## 2026-09-02 — Konik yanardağ + anim layer fix + gün-döngüsü slider'ı
 
 **Yanardağ:** silindir → konik. `coneDrop = vRad·(landSpan/levels)·0.9`

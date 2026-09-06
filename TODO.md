@@ -9,14 +9,19 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
-- [ ] **Yön kararı (Uğur):** kuyruğun başı belirlenmedi. Üç aday:
-      (a) **M3 — fırça düzenleme.** Biyom boya, terrain yükselt/alçalt, nehir çiz,
-          kısmi yeniden hesap. En büyük iş; "üret + düzenle" iddiasını tamamlar.
-      (b) **Coğrafi kurallar tur 2'nin kalanı.** Platolar, fiyortlar, kıyı
-          okları/lagünler, deltalar/haliçler, karasallık, riparian yeşillik,
-          takımada konsolidasyonu. Artımlı, her biri tek pass.
-      (c) **İlk vaka çalışması.** Mevcut haliyle `bilaxten.art`'a M1+M2 breakdown'ı
-          + gömülü demo. Kod işi değil ama projenin asıl amacı bu (`AGENTS.md` §2).
+- [ ] **Yön kararı (Uğur):** M3 kapandı (2026-09-06), kuyruğun başı yine açık.
+      İki aday:
+      (a) **M4 — animasyonun kalanı.** Uçan kuşlar, bulut gölgesi. Voxel
+          görünümünde ayrı geometri/sistem gerektiriyor.
+      (b) **İlk vaka çalışması.** Mevcut haliyle `bilaxten.art`'a M1+M2+M3
+          breakdown'ı + gömülü demo. Kod işi değil ama projenin asıl amacı bu
+          (`AGENTS.md` §2).
+
+- [ ] **Fırça cilası (M3 sonrası, küçük):** fırçalar yalnız üstten görünümde
+      çalışıyor ama VARSAYILAN açılış voxel — kullanıcı "Top-down" sekmesine
+      geçmeden düzenleyemiyor. Paneldeki not (`Brushes work in top-down view`)
+      bunu söylüyor ama araç seçilince sekmeye otomatik geçmek ya da voxel'de
+      düzenlemeyi açmak daha iyi olur. Karar verilmedi.
 
 ## NEXT
 

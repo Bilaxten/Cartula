@@ -1026,7 +1026,10 @@
 
   function syncEditControls() {
     var tool = $('editTool').value;
-    $('brushStrength').disabled = tool !== 'raise' && tool !== 'lower' && tool !== 'smooth';
+    // `river` de strength kullaniyor: yatagin banklarin ne kadar altina
+    // oyulacagini o belirliyor (riverBedDrop).
+    $('brushStrength').disabled = tool !== 'raise' && tool !== 'lower'
+      && tool !== 'smooth' && tool !== 'river';
     $('editBiome').disabled = tool !== 'biome';
     updateStageCursor();
     hideBrushCursor();
@@ -1107,7 +1110,10 @@
 
   function makeEditRecord() {
     return {
-      indices: [], elevation: [], level: [], water: [], biome: [], seen: {},
+      // `lava` is captured too: the river tool clears it, so undo must be able
+      // to bring it back. Without this the lava flag survived an undo and the
+      // tile kept glowing under a restored volcano surface.
+      indices: [], elevation: [], level: [], water: [], biome: [], lava: [], seen: {},
       minX: grid.width, minY: grid.height, maxX: -1, maxY: -1
     };
   }
@@ -1121,6 +1127,7 @@
     record.level.push(grid.level[i]);
     record.water.push(grid.water[i]);
     record.biome.push(grid.biome[i]);
+    record.lava.push(grid.lava ? grid.lava[i] : 0);
     var x = i % grid.width, y = (i / grid.width) | 0;
     if (x < record.minX) record.minX = x;
     if (x > record.maxX) record.maxX = x;
@@ -1142,6 +1149,7 @@
       grid.level[i] = record.level[k];
       grid.water[i] = record.water[k];
       grid.biome[i] = record.biome[k];
+      if (grid.lava) grid.lava[i] = record.lava[k];
     }
     return inverse;
   }
@@ -1171,6 +1179,31 @@
     return t * t * (3 - 2 * t);
   }
 
+  // Pure half of the river tool lives in `grid.js` (`SM.planRiverChannel`) so it
+  // can be verified under Node without a browser: `node tools/headless.js --river`.
+  // What stays here is the part that needs the app -- undo capture, water/biome
+  // flags, lava extinguishing and the repaint.
+  function riverHalfWidth(radius) { return SM.riverHalfWidth(radius); }
+
+  function carveRiverAt(tx, ty, radius, strength) {
+    var plan = SM.planRiverChannel(grid, tx, ty, radius, strength);
+    for (var k = 0; k < plan.indices.length; k++) {
+      var i = plan.indices[k];
+      captureTile(editStroke.record, i);
+      grid.elevation[i] = plan.elevation[k];
+      grid.water[i] = 1;
+      grid.biome[i] = SM.BIOME_IDX.river;
+      // Same rule the generator uses when a watercourse crosses a lava field
+      // (`generate.js` step 7a): flowing water puts the lava out.
+      if (grid.lava) grid.lava[i] = 0;
+      // `deriveTile(i, false)`: water is already decided here, so the elevation
+      // pass must not run -- it would re-derive `water` from the sea threshold
+      // and turn this above-sea river back into dry land.
+      deriveTile(i, false);
+    }
+    paintEditedTiles(plan.indices);
+  }
+
   function applyBrushAt(tx, ty) {
     if (!editStroke) return;
     var tool = $('editTool').value;
@@ -1185,6 +1218,18 @@
       weight = brushWeight(distance, radius);
       if (weight <= 0) continue;
       targets.push({ i: y * grid.width + x, weight: weight });
+    }
+
+    // The river tool deliberately ignores the weighted disc above. A river is a
+    // CHANNEL, not a pool: at brush size 12 a disc would paint a 25-tile-wide
+    // body of water, which is what the `water` tool already does. Width here is
+    // derived from brush size but stays narrow, and the bed is cut below its own
+    // banks so the voxel view reads a carved valley rather than a flat blue strip.
+    if (tool === 'river') {
+        carveRiverAt(tx, ty, radius, strength);
+        editStroke.lastX = tx;
+        editStroke.lastY = ty;
+        return;
     }
 
     var smoothValues = null;
@@ -1313,6 +1358,9 @@
   function showBrushCursor(tile) {
     if (!tile || view !== 'top' || $('editTool').value === 'pan') { hideBrushCursor(); return; }
     var radius = parseInt($('brushSize').value, 10), ts = content.tile * cam.scale;
+    // The river tool paints a narrow channel, not the full disc. Showing the disc
+    // would make the cursor lie about what the next click does.
+    if ($('editTool').value === 'river') radius = riverHalfWidth(radius) + 0.5;
     var cursor = $('brushCursor');
     cursor.style.left = (cam.x + (tile.x + 0.5 - radius) * ts) + 'px';
     cursor.style.top = (cam.y + (tile.y + 0.5 - radius) * ts) + 'px';
