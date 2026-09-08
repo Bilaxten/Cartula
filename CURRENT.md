@@ -5,14 +5,28 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-09-06
+**Güncellendi:** 2026-09-08
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
 ## Şu anki görev
 
-**Yok — M1-M4'ün TAMAMI bitti ve eski 2D izometrik yol tamamen kaldırıldı
-(2026-09-06).** Kuyruğun başı artık ilk vaka çalışması (`bilaxten.art`).
+**Yok — M1-M4 bitti + Gerçeklik Borcu P3 turu yapıldı (2026-09-08, Claude).**
+Kuyruğun başı hâlâ ilk vaka çalışması (`bilaxten.art`), artık ölçüm paketiyle.
+
+**P3 turu:**
+- **Coğrafi property harness'ları:** `node tools/headless.js --geo` (5 seed:
+  deniz monotonluğu, kıtasal büyüme örtüşmesi ≥%92, nehir terminali, downhill
+  akış, kule=0). `--sweep` artık **assertion + non-zero exit**. İkisi de
+  `scripts/checks.sh`'e bağlandı.
+- **Bulunan + düzeltilen bug:** seed 11'de 2-tile "nehir hiçliğe akıyor"
+  fragmanı → `pruneRiverStubs` pass'i (çıkışa ulaşmayan <4 tile nehir → kara).
+- **Görünmez pass'ler:** yol / fantezi etiket / şelale artık `decorations`
+  bayrağı arkasında (varsayılan kapalı).
+- **Share link + kara %:** link fırça editlerini taşımıyor → "Copied (settings
+  only)"; edit sonrası istatistik GERÇEK kara %'sini gösteriyor.
+- **Ölçüm paketi:** `docs/measurements/` — `--manifest` (3 seed × 192/448) +
+  README (görsel/orbit klip tarayıcıda Uğur).
 
 ## Görünüm mimarisi — TEK CÜMLE
 

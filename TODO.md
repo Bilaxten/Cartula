@@ -9,11 +9,14 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
-- [ ] **İlk vaka çalışması — kuyruğun başı.** M1-M4'ün tamamı bitti
-      (2026-09-06), yani `bilaxten.art`'a konacak breakdown artık bitmiş bir
-      projeyi anlatıyor: üretim hattı, coğrafi kurallar, WebGL2 voxel geçişi,
-      fırça editleme, gökyüzü katmanı + gömülü demo. Kod işi değil ama
-      projenin asıl amacı bu (`AGENTS.md` §2).
+- [ ] **İlk vaka çalışması — kuyruğun başı.** M1-M4 bitti + P3 (property test +
+      ölçüm paketi, 2026-09-08). `bilaxten.art`'a konacak breakdown: üretim
+      hattı, coğrafi kurallar (artık `--geo`/`--sweep` property testlerine
+      bağlı), WebGL2 voxel geçişi, fırça editleme, gökyüzü + gömülü demo.
+      Kod işi değil ama projenin asıl amacı bu (`AGENTS.md` §2).
+- [ ] **Ölçüm paketinin görsel yarısı** (Uğur, tarayıcıda): 3 seed × üstten/voxel
+      PNG + orbit klip. Talimat: `docs/measurements/README.md`. Sayısal manifest
+      hazır (`node tools/headless.js --manifest`).
 
 - [ ] **Fırça cilası (M3 sonrası, küçük):** fırçalar yalnız üstten görünümde
       çalışıyor ama VARSAYILAN açılış voxel — kullanıcı "Top-down" sekmesine

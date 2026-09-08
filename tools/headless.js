@@ -577,6 +577,187 @@ function runShaderChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
+// ---------------------------------------------------------------------------
+// --sweep : sea-level sweep. Now ASSERTS (was print-only) and sets exit code.
+// ---------------------------------------------------------------------------
+function runSweepChecks() {
+  const seas = [0.15, 0.25, 0.35, 0.45, 0.55, 0.62, 0.70];
+  const rows = seas.map(sea => run(1337, 192, sea));
+  console.log('sea-level sweep (seed 1337, 192²):');
+  for (let k = 0; k < rows.length; k++) {
+    const r = rows[k];
+    console.log(`  sea=${seas[k].toFixed(2)}  land=${String(r.landPct).padStart(3)}% ` +
+      `water=${String(r.waterPct).padStart(3)}%  islands=${String(r.islands).padStart(3)}  ` +
+      `top5=[${r.islandTop5.join(', ')}]  towns=${r.settlements}  towers=${r.towers}  ${r.dt}ms`);
+  }
+
+  const results = [];
+
+  // 1) Land fraction is monotone in sea level (higher sea → not more land).
+  //    Tolerance: 1 percentage point of noise on the land% integer.
+  let landMono = true, worst = 0;
+  for (let k = 1; k < rows.length; k++) {
+    const rise = rows[k].landPct - rows[k - 1].landPct;
+    if (rise > 1) { landMono = false; worst = Math.max(worst, rise); }
+  }
+  results.push([`land fraction falls (±1pp) as sea rises` +
+    (landMono ? '' : ` — jumped +${worst}pp`), landMono]);
+
+  // 2) Raising the sea consolidates land into fewer bodies rather than
+  //    shattering it. Allow small non-monotone wobble near the middle where a
+  //    land bridge can briefly split, but the trend across the full sweep must
+  //    be downward and the endpoints must obey it.
+  const firstHalfMax = Math.max(rows[0].islands, rows[1].islands);
+  const lastHalfMax = Math.max(rows[rows.length - 1].islands, rows[rows.length - 2].islands);
+  results.push(['high sea has no more island bodies than low sea',
+    lastHalfMax <= firstHalfMax]);
+  let bigSpikes = 0;
+  for (let k = 1; k < rows.length; k++) {
+    if (rows[k].islands - rows[k - 1].islands > 4) bigSpikes++;
+  }
+  results.push([`no step fragments land into >4 new bodies (${bigSpikes} spikes)`,
+    bigSpikes === 0]);
+
+  // 3) No towers at any sea level (the repair pass is the whole reason the
+  //    voxel view reads as terraces, not spikes).
+  const towerTotal = rows.reduce((a, r) => a + r.towers, 0);
+  results.push([`voxel repair keeps towers at zero across the sweep (${towerTotal})`,
+    towerTotal === 0]);
+
+  // 4) Determinism: same seed/size/sea → byte-identical levels.
+  function sig(g) { return Buffer.from(g.level.buffer, g.level.byteOffset, g.level.byteLength).toString('base64'); }
+  results.push(['same seed reproduces identical topography',
+    sig(run(7, 160, 0.4).grid) === sig(run(7, 160, 0.4).grid)]);
+
+  console.log('\nsweep assertions:');
+  for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
+// --geo : multi-seed geographic property harness. The README makes coastline,
+// river and continental-growth claims; these tie each claim to a red/green test
+// over several seeds so a regression fails CI instead of a screenshot.
+// ---------------------------------------------------------------------------
+function runGeoProperties() {
+  const SEEDS = [11, 1337, 4242, 90210, 777];
+  const B = SM.BIOME_LIST.reduce((m, b, i) => (m[b.id] = i, m), {});
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+
+  // --- P1: sea-level monotonicity holds for EVERY seed, not just 1337 -------
+  {
+    const seas = [0.20, 0.35, 0.50, 0.65];
+    let fails = [];
+    for (const seed of SEEDS) {
+      const land = seas.map(s => run(seed, 128, s).landPct);
+      for (let k = 1; k < land.length; k++) {
+        if (land[k] - land[k - 1] > 2) fails.push(`seed ${seed}: ${land.join('→')}`);
+      }
+    }
+    push('sea level ↑ ⇒ land ↓ (±2pp) for all seeds', fails.length === 0, fails.join('; '));
+  }
+
+  // --- P2: common-world growth — features stay put, the map grows at the edge.
+  // Same seed at 128² and 192² must agree on land/water over the shared centre.
+  {
+    let mism = [];
+    for (const seed of SEEDS) {
+      const small = run(seed, 128, 0.4).grid;
+      const big = run(seed, 192, 0.4).grid;
+      const off = (192 - 128) / 2;
+      let same = 0, total = 0;
+      for (let y = 0; y < 128; y++) {
+        for (let x = 0; x < 128; x++) {
+          const a = small.water[y * 128 + x];
+          const b = big.water[(y + off) * 192 + (x + off)];
+          total++; if (a === b) same++;
+        }
+      }
+      const agree = same / total;
+      if (agree < 0.92) mism.push(`seed ${seed}: ${(agree * 100).toFixed(1)}% overlap`);
+    }
+    push('same seed: ≥92% land/water overlap between 128² and 192² centre',
+      mism.length === 0, mism.join('; '));
+  }
+
+  // --- P3: every river reaches an outlet (sea, lake, or the map edge). A river
+  // blob that dead-ends on dry land is a hydrology bug — water running to
+  // nowhere.
+  {
+    let orphaned = [];
+    for (const seed of SEEDS) {
+      const g = run(seed, 160, 0.38).grid;
+      const w = g.width, h = g.height, n = w * h;
+      const seen = new Uint8Array(n);
+      let blobs = 0, bad = 0;
+      for (let i = 0; i < n; i++) {
+        if (seen[i] || g.biome[i] !== B.river) continue;
+        blobs++;
+        let q = [i], head = 0, reachesOutlet = false;
+        seen[i] = 1;
+        while (head < q.length) {
+          const c = q[head++], cx = c % w, cy = (c / w) | 0;
+          if (cx === 0 || cy === 0 || cx === w - 1 || cy === h - 1) reachesOutlet = true;
+          for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+            const nx = cx + dx, ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            const ni = ny * w + nx;
+            if (g.biome[ni] === B.lake || g.biome[ni] === B.deep_water ||
+                g.biome[ni] === B.shallow_water) reachesOutlet = true;
+            if (g.biome[ni] === B.river && !seen[ni]) { seen[ni] = 1; q.push(ni); }
+          }
+        }
+        if (!reachesOutlet) bad++;
+      }
+      if (bad > 0) orphaned.push(`seed ${seed}: ${bad}/${blobs} river blobs dead-end on land`);
+    }
+    push('every river reaches sea / lake / map edge', orphaned.length === 0, orphaned.join('; '));
+  }
+
+  // --- P4: rivers flow downhill in the FINAL voxel topography. Along each
+  // river tile, no orthogonal river neighbour may sit more than one level
+  // higher — a river climbing terraces reads as broken in the voxel view.
+  {
+    let uphill = [];
+    for (const seed of SEEDS) {
+      const g = run(seed, 160, 0.38).grid;
+      const w = g.width, h = g.height;
+      let climbs = 0, checked = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (g.biome[i] !== B.river) continue;
+        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const ni = ny * w + nx;
+          if (g.biome[ni] !== B.river) continue;
+          checked++;
+          if (g.level[ni] - g.level[i] > 1) climbs++;
+        }
+      }
+      if (checked > 0 && climbs / checked > 0.02) {
+        uphill.push(`seed ${seed}: ${climbs}/${checked} river steps climb >1 level`);
+      }
+    }
+    push('rivers do not climb >1 voxel level (≤2% of steps)', uphill.length === 0, uphill.join('; '));
+  }
+
+  // --- P5: no towers, any seed. The README's "no spikes" claim. --------------
+  {
+    const bad = SEEDS.filter(s => run(s, 160, 0.38).towers > 0);
+    push('voxel repair leaves zero towers for every seed', bad.length === 0,
+      bad.length ? `seeds with towers: ${bad.join(', ')}` : '');
+  }
+
+  console.log(`geo property harness — seeds [${SEEDS.join(', ')}]:`);
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 if (process.argv[2] === '--shaders') {
   runShaderChecks();
 } else if (process.argv[2] === '--sky') {
@@ -586,27 +767,31 @@ if (process.argv[2] === '--shaders') {
 } else if (process.argv[2] === '--mesh') {
   runMeshChecks();
 } else if (process.argv[2] === '--sweep') {
-  console.log('sea-level sweep (seed 1337, 192²) — island count should fall, not fragment:');
-  for (const sea of [0.15, 0.25, 0.35, 0.45, 0.55, 0.62, 0.70]) {
-    const r = run(1337, 192, sea);
-    console.log(`  sea=${sea.toFixed(2)}  land=${String(r.landPct).padStart(2)}% ` +
-      `water=${String(r.waterPct).padStart(2)}%  ` +
-      `islands=${String(r.islands).padStart(3)}  top5=[${r.islandTop5.join(', ')}]  ` +
-      `towns=${r.settlements} roads=${r.roadTiles}/${r.bridges}bridge ` +
-      `labels=${r.labels} falls=${r.waterfallDrops}/${r.waterfallTiles}tiles ` +
-      `spread=${r.fluidSpread.water}/${r.fluidSpread.lava} ` +
-      `towers=${r.towers}  ${r.dt}ms`);
+  runSweepChecks();
+} else if (process.argv[2] === '--geo') {
+  runGeoProperties();
+} else if (process.argv[2] === '--manifest') {
+  // Stable measurement manifest for the portfolio: three fixed seeds at the
+  // small (192²) and large (448²) sizes. The numeric half of the "honest
+  // visual + measurement package" (P3.5); the PNG / orbit clip is produced in
+  // the browser (see docs/measurements/README.md).
+  const SEEDS = [1337, 4242, 90210];
+  const out = { generatedBy: 'tools/headless.js --manifest', seaLevel: 0.38, maps: [] };
+  for (const seed of SEEDS) {
+    for (const size of [192, 448]) {
+      const r = run(seed, size, 0.38);
+      out.maps.push({
+        seed, size, seaLevel: 0.38,
+        landPct: r.landPct, waterPct: r.waterPct,
+        islands: r.islands, islandTop5: r.islandTop5,
+        towers: r.towers,
+        settlements: r.settlements,
+        genMs: r.dt,
+        biomes: r.biomes
+      });
+    }
   }
-  // determinism
-  function signature(g) {
-    return JSON.stringify({
-      level: [...g.level], settlements: g.settlements, roads: [...g.roads],
-      labels: g.labels, waterfalls: [...g.waterfalls]
-    });
-  }
-  const a = signature(run(7, 160, 0.4).grid);
-  const b = signature(run(7, 160, 0.4).grid);
-  console.log('determinism (same seed → identical levels/features):', a === b ? 'OK' : 'FAIL');
+  console.log(JSON.stringify(out, null, 2));
 } else {
   const seed = +(process.argv[2] || 1337);
   const size = +(process.argv[3] || 192);

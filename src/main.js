@@ -637,7 +637,12 @@
   }
 
   function updateEditedStats() {
-    $('stats').textContent = statsBase + (undoStack.length ? ' · (edited)' : '');
+    if (!undoStack.length) { $('stats').textContent = statsBase; return; }
+    // Show the REAL land fraction after brush edits, not the pristine generate
+    // value baked into statsBase.
+    var s = SM.summarize(grid);
+    $('stats').textContent =
+      statsBase.replace(/land \d+%/, 'land ' + s.landPct + '%') + ' · edited';
   }
 
   function makeEditRecord() {
@@ -1110,7 +1115,10 @@
     var btn = $('shareLink'), old = btn.textContent;
     function done(txt) { btn.textContent = txt; btn.classList.add('ok');
       setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1400); }
-    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done('Copied'); }, function () { done('Copy failed'); });
+    // The link carries the generation SETTINGS + camera, not the brush edits —
+    // opening it regenerates the pristine map. Say so instead of pretending.
+    var okText = undoStack.length ? 'Copied (settings only)' : 'Copied';
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done(okText); }, function () { done('Copy failed'); });
     else done('—');
   }
 

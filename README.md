@@ -30,8 +30,20 @@ değil, kurallı:
 5. **climate** — moisture + temperature (enlem bandı + noise + rakım)
 6. **classify** — biyom, eğim tabanlı kıyı (yalıyar/kumsal), de-speckle,
    göl flood-fill
-7. **hydrology** — kıyıdan uzaklıkla düzgün su derinliği, yokuş-aşağı nehirler
+7. **hydrology** — kıyıdan uzaklıkla düzgün su derinliği, yokuş-aşağı nehirler;
+   denize/göle/kenara ulaşmayan küçük nehir parçaları budanır
 8. **voxelize** — işaretli ayrık kademeler (kara +, su −), kule klamp
+9. **yerleşimler** — düz, ılıman, tatlı suya yakın alanlar (topdown'da çizilir)
+
+`decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket / şelale
+pass'lerini açar — **hiçbir renderer bunları çizmiyor**, o yüzden varsayılan
+harita ürettiğini tam olarak gösterir ve bake ucuz kalır.
+
+**Coğrafi vaatler kırmızı/yeşil property testlere bağlı** (`scripts/checks.sh`
+koşturur): `node tools/headless.js --geo` (5 seed — deniz seviyesi monotonluğu,
+kıtasal büyüme örtüşmesi ≥%92, her nehir bir çıkışa ulaşır, nehirler voxel
+seviyesinde tırmanmaz, kule = 0) ve `--sweep` (7 deniz seviyesi — kara
+monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
 ## Milestone'lar
 

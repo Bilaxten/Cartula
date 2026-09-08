@@ -64,6 +64,19 @@ else
         printf '%s
 ' "$out" | grep -E 'FAIL|vs fragment' | sed 's/^/       /' >&2
     fi
+
+    # ---------- 1c. Coğrafi property harness'ları ----------
+    # README coğrafi vaatler veriyor (kıyı monotonluğu, nehir terminali, downhill
+    # akış, "kule yok"). Artık kırmızı/yeşil testlere bağlı; assertion
+    # başarısızlığı burada HATA (--sweep eskiden yalnızca yazdırıyordu).
+    for gmode in --sweep --geo; do
+        if out="$(node tools/headless.js "$gmode" 2>&1)"; then
+            ok "coğrafi property harness $gmode geçti"
+        else
+            err "coğrafi property harness $gmode BAŞARISIZ"
+            printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/^/       /' >&2
+        fi
+    done
 fi
 
 # ---------- 2. index.html script etiketleri gerçekten var mı ----------

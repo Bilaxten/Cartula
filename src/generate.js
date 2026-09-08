@@ -97,7 +97,12 @@
     islandFalloff: 0.0,    // 0 = continents to the edge, 1 = single centred island
     rivers: 1.0,           // 0 = none, 1 = normal, 2 = many
     levels: 10,
-    waterDepth: 3
+    waterDepth: 3,
+    // Decoration passes that NO renderer currently draws (roads, fantasy labels,
+    // waterfall markers). Gated so the default map is honest about what it
+    // produces and the bake stays cheap. Settlements are exempt — topdown.js
+    // draws them. Set true to exercise/inspect the passes.
+    decorations: false
   };
 
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
@@ -815,14 +820,28 @@
       }
     }
 
+    // --- 7e2: prune river stubs — tiny river fragments (< 4 tiles) that reach
+    // neither the sea/a lake nor the map edge are "water running to nowhere".
+    // They come from clipped lake-overflow / mouth-shaping walks. Reclassify
+    // them back to land so the coastline stays honest. ---
+    pruneRiverStubs(grid, e, seaThresh, landSpan, B);
+
     // --- 7f: waterfalls — quantized riverbed drops while flow data is fresh ---
-    markWaterfalls(grid, e, seaThresh, landSpan, cfg, B);
+    if (cfg.decorations) {
+      markWaterfalls(grid, e, seaThresh, landSpan, cfg, B);
+    } else {
+      grid.waterfalls = []; grid.waterfallDrop = [];
+    }
 
     // --- 7g: settlements — flat, temperate sites near fresh water or coasts ---
     placeSettlements(grid, e, seaThresh, landSpan, cfg, B);
 
     // --- 7h: roads — bounded terrain-aware paths over a sparse town graph ---
-    buildRoads(grid, e, seaThresh, landSpan, cfg, B);
+    if (cfg.decorations) {
+      buildRoads(grid, e, seaThresh, landSpan, cfg, B);
+    } else {
+      grid.roads = new Uint8Array(n);
+    }
 
     // --- 7z: fluid settle — bounded sideways spread and local pooling ---
     settleFluids(grid, e, cfg, B);
@@ -860,7 +879,8 @@
     }
 
     // --- 8a: fantasy labels — final land/water components and voxel heights ---
-    makeFantasyLabels(grid, cfg, B);
+    if (cfg.decorations) makeFantasyLabels(grid, cfg, B);
+    else grid.labels = [];
     delete grid._shoreDist;
     delete grid._shelf;
 
@@ -1049,6 +1069,42 @@
       }
     }
     grid.fluidSpread = { water: waterSpread, lava: lavaSpread, pooled: pooled };
+  }
+
+  function pruneRiverStubs(grid, e, seaThresh, landSpan, B) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var seen = new Uint8Array(n);
+    var MIN_KEEP = 4;
+    for (var i = 0; i < n; i++) {
+      if (seen[i] || grid.biome[i] !== B.river) continue;
+      var q = [i], head = 0, outlet = false;
+      seen[i] = 1;
+      while (head < q.length) {
+        var c = q[head++], cx = c % w, cy = (c / w) | 0;
+        if (cx === 0 || cy === 0 || cx === w - 1 || cy === h - 1) outlet = true;
+        var nb = [cx > 0 ? c - 1 : -1, cx < w - 1 ? c + 1 : -1,
+          cy > 0 ? c - w : -1, cy < h - 1 ? c + w : -1];
+        for (var k = 0; k < 4; k++) {
+          var ni = nb[k];
+          if (ni < 0) continue;
+          if (grid.biome[ni] === B.lake || grid.biome[ni] === B.deep_water ||
+              grid.biome[ni] === B.shallow_water) outlet = true;
+          if (grid.biome[ni] === B.river && !seen[ni]) { seen[ni] = 1; q.push(ni); }
+        }
+      }
+      if (outlet || q.length >= MIN_KEEP) continue;
+      // Water running to nowhere — turn the stub back into land.
+      for (var b = 0; b < q.length; b++) {
+        var s = q[b];
+        grid.water[s] = 0;
+        e[s] = Math.max(e[s], seaThresh + 0.012);
+        grid.elevation[s] = e[s];
+        var lf = clamp01((e[s] - seaThresh) / landSpan);
+        grid.biome[s] = SM.classifyBiome(lf, grid.moisture[s], grid.temperature[s]);
+        if (grid.flow) grid.flow[s] = 0;
+        if (grid.flowStep) grid.flowStep[s] = 0;
+      }
+    }
   }
 
   function markWaterfalls(grid, e, seaThresh, landSpan, cfg, B) {
