@@ -16,6 +16,13 @@
   'use strict';
 
   var REF = 112;          // reference tile span for world-space coords
+  // Latitude falloff, in world units — derived so a 192² map (the UI default)
+  // reproduces the old grid-relative "1 - |y/h - 0.5| * 1.7" band exactly.
+  // Using wyOf(y) here instead of a grid-fraction keeps climate/biome in the
+  // same world-space sampling as elevation/moisture: the same absolute point
+  // gets the same latitude band regardless of map size (kod taraması
+  // 2026-09-15, bulgu 1 — biome örtüşmesi büyük haritada %57'ye düşüyordu).
+  var LAT_WORLD_SCALE = 1.7 * REF / 192;
   var ISLAND_R = 0.62;    // island radius in world units (falloff)
   var RIDGE_W = 0.13;     // half-width of a mountain range, world units
   var RIDGE_H = 0.30;     // how much a range lifts the terrain
@@ -380,11 +387,10 @@
       for (x = 0; x < w; x++) {
         i = y * w + x;
         var ev = e[i];
-        var ny = y / h;
         var isWater = grid.water[i];
         var landFrac = isWater ? 0 : clamp01((ev - seaThresh) / landSpan);
 
-        var latBand = 1 - Math.abs(ny - 0.5) * 1.7;
+        var latBand = 1 - Math.abs(wyOf(y)) * LAT_WORLD_SCALE;
         var tn = SM.fbm(tempN, wxOf(x) * 2.2, wyOf(y) * 2.2, 3, 2, 0.5) * 0.13;
         var t = 0.16 + 0.78 * latBand + tn - landFrac * 0.30 + cfg.temperatureBias;
         var contin = isWater ? 0 : clamp01(climateDist[i] / 42);

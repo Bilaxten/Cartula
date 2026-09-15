@@ -18,7 +18,14 @@ node tools/headless.js --manifest > docs/measurements/manifest-<tarih>.json
 (hep 0 — property test bunu tutuyor), yerleşim sayısı, üretim süresi (ms),
 tam biyom histogramı.
 
-Güncel: `manifest-2026-09-08.json`.
+Güncel: `manifest-2026-09-15.json`.
+
+**2026-09-15 not:** iklim/biyom hesabı grid-göreli (`y/h`) yerine dünya-uzayı
+koordinatına (`wyOf(y)`) taşındı (kod taraması bulgu 1 — haritalar büyüdükçe
+biyom dağılımı sessizce kayıyordu, `--geo` P2 testi yalnız su/kara
+örtüşmesini ölçtüğü için bunu yakalamıyordu; artık biyom örtüşmesini de
+ölçüyor). Bu, biyom histogramlarının `manifest-2026-09-08.json`'dan
+**farklı** olmasının beklenen sebebi — davranış düzeldi, sürüklenmedi.
 
 ## Görsel paket (tarayıcıda — Uğur)
 

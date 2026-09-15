@@ -660,25 +660,39 @@ function runGeoProperties() {
 
   // --- P2: common-world growth — features stay put, the map grows at the edge.
   // Same seed at 128² and 192² must agree on land/water over the shared centre.
+  // Biome is checked alongside water: the water check alone missed a real
+  // regression (kod taraması 2026-09-15, bulgu 1 — latBand was sampled in
+  // grid-fraction space instead of world space, so climate/biome drifted with
+  // map size even while land/water stayed put; ≤40% biome overlap is well
+  // below both the fixed baseline (measured 45-89% across these seeds) and
+  // comfortably above the pre-fix baseline (measured 35-76%, i.e. this
+  // threshold would have failed before the fix).
   {
     let mism = [];
+    let biomeMism = [];
     for (const seed of SEEDS) {
       const small = run(seed, 128, 0.4).grid;
       const big = run(seed, 192, 0.4).grid;
       const off = (192 - 128) / 2;
-      let same = 0, total = 0;
+      let same = 0, biomeSame = 0, total = 0;
       for (let y = 0; y < 128; y++) {
         for (let x = 0; x < 128; x++) {
-          const a = small.water[y * 128 + x];
-          const b = big.water[(y + off) * 192 + (x + off)];
-          total++; if (a === b) same++;
+          const ia = y * 128 + x;
+          const ib = (y + off) * 192 + (x + off);
+          total++;
+          if (small.water[ia] === big.water[ib]) same++;
+          if (small.biome[ia] === big.biome[ib]) biomeSame++;
         }
       }
       const agree = same / total;
+      const biomeAgree = biomeSame / total;
       if (agree < 0.92) mism.push(`seed ${seed}: ${(agree * 100).toFixed(1)}% overlap`);
+      if (biomeAgree < 0.40) biomeMism.push(`seed ${seed}: ${(biomeAgree * 100).toFixed(1)}% overlap`);
     }
     push('same seed: ≥92% land/water overlap between 128² and 192² centre',
       mism.length === 0, mism.join('; '));
+    push('same seed: ≥40% biome overlap between 128² and 192² centre',
+      biomeMism.length === 0, biomeMism.join('; '));
   }
 
   // --- P3: every river reaches an outlet (sea, lake, or the map edge). A river
