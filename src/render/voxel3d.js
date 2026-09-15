@@ -1277,11 +1277,16 @@
     }
 
     function setMesh(mesh) {
+      // disposed KONTROLÜ buildSky'dan ÖNCE: eskiden sonra kontrol ediliyordu,
+      // disposed bir renderer'da bile yeni VAO/buffer/program yaratılıp asla
+      // serbest bırakılmıyordu — sessiz GL kaynak sızıntısı (kod taraması
+      // 2026-09-15, bulgu 4).
+      if (disposed) return;
       // Sky geometry scales with the map footprint, so it is rebuilt whenever a
       // new mesh arrives (new map, or a brush edit that changed the extent).
       meshBounds = mesh && mesh.bounds ? mesh.bounds : meshBounds;
       buildSky(meshBounds);
-      if (!mesh || disposed) return;
+      if (!mesh) return;
       // Static buffers are replaced only when generation produces a new grid.
       // Bind the VAO during upload so element-buffer ownership stays attached.
       gl.bindVertexArray(vao);
@@ -1507,6 +1512,11 @@
         sky = null;
       }
       if (skyProgram) gl.deleteProgram(skyProgram);
+      // buildSky'ın kendi koruması `if (!skyProgram || !bounds) return` —
+      // silinmiş bir program'ı null'lamazsak bu koruma disposed sonrası bile
+      // geçer görünür (kod taraması 2026-09-15, bulgu 4, savunma katmanı;
+      // asıl kapatma setMesh'in artık en başta disposed kontrol etmesi).
+      skyProgram = null;
       disposed = true;
     }
 

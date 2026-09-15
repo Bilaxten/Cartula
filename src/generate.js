@@ -857,9 +857,19 @@
     var shelf = grid._shelf || 9;
     for (i = 0; i < n; i++) {
       if (grid.water[i]) {
-        // flush with the sea plane over the shelf, then sinks past the shelf break
-        var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
-        grid.level[i] = df <= shelf ? 0 : -Math.min(wd, Math.ceil((df - shelf) / 4));
+        // Tatlı su (nehir/göl) deniz-derinliği modeliyle DEĞİL kendi
+        // yüksekliğiyle konumlanır — markWaterfalls zaten quantLandLevel ile
+        // aynı veriden bir kademe çıkarıyordu, voxelize bunu 0'a eziyordu
+        // (aynı veri için iki farklı kademe tanımı, kod taraması 2026-09-15,
+        // bulgu 2). Yalnız okyanus (river/lake DEĞİL) kıyı rafı modelini
+        // kullanır.
+        if (grid.biome[i] === B.river || grid.biome[i] === B.lake) {
+          grid.level[i] = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
+        } else {
+          // flush with the sea plane over the shelf, then sinks past the shelf break
+          var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
+          grid.level[i] = df <= shelf ? 0 : -Math.min(wd, Math.ceil((df - shelf) / 4));
+        }
       } else {
         var lf = clamp01((e[i] - seaThresh) / landSpan);
         var lv = Math.round(Math.pow(lf, 0.82) * cfg.levels) + 1;

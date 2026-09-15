@@ -1244,7 +1244,14 @@
   });
   window.addEventListener('pagehide', function () {
     if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
-    if (voxelRenderer) voxelRenderer.dispose();
+    if (voxelRenderer) {
+      voxelRenderer.dispose();
+      // null'lanmazsa startVoxel'in `if (!voxelRenderer)` koruması bfcache
+      // dönüşünde yeniden kurmayı atlar — izometrik görünüm ölü kalır (kod
+      // taraması 2026-09-15, bulgu 4). Safari/iOS pagehide'ı bfcache girişinde
+      // de tetikler, yalnız sekme kapanışında değil.
+      voxelRenderer = null;
+    }
   });
 
   map.addEventListener('mousemove', onHover);

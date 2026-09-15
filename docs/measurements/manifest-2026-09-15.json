@@ -15,7 +15,7 @@
       ],
       "towers": 0,
       "settlements": 6,
-      "genMs": 101.8,
+      "genMs": 93.7,
       "biomes": {
         "deep_water": 66,
         "shallow_water": 10526,
@@ -55,7 +55,7 @@
       ],
       "towers": 0,
       "settlements": 12,
-      "genMs": 355.9,
+      "genMs": 335.9,
       "biomes": {
         "shallow_water": 53182,
         "tundra": 37476,
@@ -97,7 +97,7 @@
       ],
       "towers": 0,
       "settlements": 6,
-      "genMs": 87.4,
+      "genMs": 80.3,
       "biomes": {
         "shallow_water": 13525,
         "beach": 1540,
@@ -134,7 +134,7 @@
       ],
       "towers": 0,
       "settlements": 12,
-      "genMs": 202.7,
+      "genMs": 196.4,
       "biomes": {
         "deep_water": 5109,
         "shallow_water": 45745,
@@ -172,7 +172,7 @@
       ],
       "towers": 0,
       "settlements": 6,
-      "genMs": 50,
+      "genMs": 50.4,
       "biomes": {
         "deep_water": 706,
         "shallow_water": 10016,
@@ -209,7 +209,7 @@
       ],
       "towers": 0,
       "settlements": 12,
-      "genMs": 226.7,
+      "genMs": 215.3,
       "biomes": {
         "deep_water": 6260,
         "shallow_water": 38265,

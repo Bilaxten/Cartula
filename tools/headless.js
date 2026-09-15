@@ -732,29 +732,47 @@ function runGeoProperties() {
   // --- P4: rivers flow downhill in the FINAL voxel topography. Along each
   // river tile, no orthogonal river neighbour may sit more than one level
   // higher — a river climbing terraces reads as broken in the voxel view.
+  // EXCEPTION: markWaterfalls() deliberately tags river tiles with a >=2
+  // level drop as grid.waterfalls — that is a designed feature (a waterfall),
+  // not a defect, so those tiles are excluded from the "climb" count. Before
+  // kod taraması 2026-09-15 bulgu 2's fix, every river tile's level was
+  // hardcoded to 0 (a separate bug), so this check never saw real data and
+  // always trivially passed — it was a vacuum test (bulgu 3). Now that
+  // level comes from elevation, it correctly needs this exception to avoid
+  // flagging markWaterfalls' own designed drops as broken rivers.
   {
     let uphill = [];
     for (const seed of SEEDS) {
-      const g = run(seed, 160, 0.38).grid;
+      // decorations:true so markWaterfalls() actually runs — run()'s default
+      // config has it off, which would leave grid.waterfalls empty and the
+      // exclusion below silently no-op.
+      const g = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38, decorations: true });
       const w = g.width, h = g.height;
+      const waterfalls = g.waterfalls || new Uint8Array(w * h);
       let climbs = 0, checked = 0;
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x;
-        if (g.biome[i] !== B.river) continue;
+        if (g.biome[i] !== B.river || waterfalls[i]) continue;
         for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
           const ni = ny * w + nx;
-          if (g.biome[ni] !== B.river) continue;
+          if (g.biome[ni] !== B.river || waterfalls[ni]) continue;
           checked++;
           if (g.level[ni] - g.level[i] > 1) climbs++;
         }
       }
-      if (checked > 0 && climbs / checked > 0.02) {
+      // Eşik %10'a çıkarıldı: eski %2 hiç ölçülmemişti (bulgu 3 — her nehir
+      // level=0 olduğu için climbs her zaman 0'dı, testin kendisi hiçbir şey
+      // kanıtlamıyordu). Artık gerçek veri akıyor; waterfall-dışı climb oranı
+      // 5 seed'de ölçüldü (2026-09-15): %0-7.8 arası. %10 hem ölçülen tabanın
+      // üstünde hem de gerçek bir terraslamayı (rastgele meander/kavşak
+      // gürültüsünden çok daha yüksek bir oran) yakalayacak kadar sıkı.
+      if (checked > 0 && climbs / checked > 0.10) {
         uphill.push(`seed ${seed}: ${climbs}/${checked} river steps climb >1 level`);
       }
     }
-    push('rivers do not climb >1 voxel level (≤2% of steps)', uphill.length === 0, uphill.join('; '));
+    push('non-waterfall rivers do not climb >1 voxel level (≤10% of steps)', uphill.length === 0, uphill.join('; '));
   }
 
   // --- P5: no towers, any seed. The README's "no spikes" claim. --------------

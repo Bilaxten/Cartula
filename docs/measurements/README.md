@@ -20,12 +20,21 @@ tam biyom histogramı.
 
 Güncel: `manifest-2026-09-15.json`.
 
-**2026-09-15 not:** iklim/biyom hesabı grid-göreli (`y/h`) yerine dünya-uzayı
+**2026-09-15 not (1):** iklim/biyom hesabı grid-göreli (`y/h`) yerine dünya-uzayı
 koordinatına (`wyOf(y)`) taşındı (kod taraması bulgu 1 — haritalar büyüdükçe
 biyom dağılımı sessizce kayıyordu, `--geo` P2 testi yalnız su/kara
 örtüşmesini ölçtüğü için bunu yakalamıyordu; artık biyom örtüşmesini de
 ölçüyor). Bu, biyom histogramlarının `manifest-2026-09-08.json`'dan
 **farklı** olmasının beklenen sebebi — davranış düzeldi, sürüklenmedi.
+
+**2026-09-15 not (2):** nehir/göl `grid.level`'ı artık kendi elevation'ından
+türetiliyor (kod taraması bulgu 2 — önceden tüm tatlı su deniz düzlemine
+(level=0) yapıştırılıyordu, `markWaterfalls`'un kullandığı elevation-türevli
+kademeyle çelişiyordu). `--geo` P4 testi bu yüzden artık gerçek veri görüyor
+(önceden level hep 0 olduğu için testin kendisi hiçbir şey kanıtlamıyordu —
+bulgu 3) ve eşiği ölçülerek %2'den %10'a çıkarıldı (waterfall-dışı climb
+oranı 5 seed'de %0-7.8 arası ölçüldü; `markWaterfalls`'un tagladığı gerçek
+şelaleler zaten testten hariç tutuluyor).
 
 ## Görsel paket (tarayıcıda — Uğur)
 
