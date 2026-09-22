@@ -261,8 +261,9 @@ function runMeshChecks() {
   // Baseline moves only with an intentional terrain change. 124034 → 124392:
   // 09-15 fixes 1-4 (`46d6e71` climate band, `5fb00d9` fresh-water levels) both
   // reshaped the mesh and the number went stale unnoticed because --mesh was not
-  // in checks.sh. It is now.
-  const triangleCount = mesh.triangleCount === 124392;
+  // in checks.sh. It is now. 124392 → 124430: river bed grading (tarama
+  // 2026-09-22 #2, 2-level steps carved, one-tile pits filled).
+  const triangleCount = mesh.triangleCount === 124430;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -734,50 +735,55 @@ function runGeoProperties() {
     push('every river reaches sea / lake / map edge', orphaned.length === 0, orphaned.join('; '));
   }
 
-  // --- P4: rivers flow downhill in the FINAL voxel topography. Along each
-  // river tile, no orthogonal river neighbour may sit more than one level
-  // higher — a river climbing terraces reads as broken in the voxel view.
-  // EXCEPTION: markWaterfalls() deliberately tags river tiles with a >=2
-  // level drop as grid.waterfalls — that is a designed feature (a waterfall),
-  // not a defect, so those tiles are excluded from the "climb" count. Before
-  // kod taraması 2026-09-15 bulgu 2's fix, every river tile's level was
-  // hardcoded to 0 (a separate bug), so this check never saw real data and
-  // always trivially passed — it was a vacuum test (bulgu 3). Now that
-  // level comes from elevation, it correctly needs this exception to avoid
-  // flagging markWaterfalls' own designed drops as broken rivers.
+  // --- P4: river steps are either smooth or a drawn waterfall. -------------
+  // Hybrid decision (tarama 2026-09-22 #2): on the DEFAULT config (no
+  // decorations flag -- waterfalls are always tagged now), every orthogonal
+  // water-water edge that touches a river is
+  //   - <= 1 level (a normal bed), or
+  //   - >= WATERFALL_MIN_DROP levels, with the high side tagged lip (1) and the
+  //     low side tagged landing -- i.e. the voxel view draws it, or
+  //   - exactly 2 with a LAKE on the high side: a lake outflow sill. Lakes are
+  //     fixed anchors in gradeRiverBeds (rivers only carve down), so this is
+  //     the one documented exception; its count is printed.
+  // No percentage threshold and no exemption list any more: the previous P4
+  // allowed 10% and excluded waterfalls it could not see on the default map.
+  // Also direction-aware: along `grid.flow` (centrelines) no step climbs >1.
   {
-    let uphill = [];
+    const MIN = SM.WATERFALL_MIN_DROP;
+    let bad = [], sills = 0, lips = 0, edges = 0, climbs = [];
+    const DX = [0, 1, 1, 0, -1, -1, -1, 0, 1], DY = [0, 0, 1, 1, 1, 0, -1, -1, -1];
     for (const seed of SEEDS) {
-      // decorations:true so markWaterfalls() actually runs — run()'s default
-      // config has it off, which would leave grid.waterfalls empty and the
-      // exclusion below silently no-op.
-      const g = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38, decorations: true });
-      const w = g.width, h = g.height;
-      const waterfalls = g.waterfalls || new Uint8Array(w * h);
-      let climbs = 0, checked = 0;
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        if (g.biome[i] !== B.river || waterfalls[i]) continue;
-        for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-          const ni = ny * w + nx;
-          if (g.biome[ni] !== B.river || waterfalls[ni]) continue;
-          checked++;
-          if (g.level[ni] - g.level[i] > 1) climbs++;
+      const g = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38 });
+      const w = g.width, h = g.height, n = w * h;
+      for (let i = 0; i < n; i++) if (g.waterfalls[i] === 1) lips++;
+      for (let i = 0; i < n; i++) {
+        if (!g.water[i]) continue;
+        const x = i % w;
+        for (const ni of [x < w - 1 ? i + 1 : -1, i + w < n ? i + w : -1]) {
+          if (ni < 0 || !g.water[ni]) continue;
+          if (g.biome[i] !== B.river && g.biome[ni] !== B.river) continue;
+          edges++;
+          const hi = g.level[i] >= g.level[ni] ? i : ni, lo = hi === i ? ni : i;
+          const d = g.level[hi] - g.level[lo];
+          if (d <= 1) continue;
+          if (d === 2 && g.biome[hi] === B.lake) { sills++; continue; }
+          if (d >= MIN && g.waterfalls[hi] === 1 && g.waterfalls[lo] > 0) continue;
+          if (bad.length < 4) bad.push(`seed ${seed} (${hi % w},${(hi / w) | 0}) ${SM.BIOME_LIST[g.biome[hi]].id} L${g.level[hi]} → L${g.level[lo]}`);
+          else bad.push('');
         }
       }
-      // Eşik %10'a çıkarıldı: eski %2 hiç ölçülmemişti (bulgu 3 — her nehir
-      // level=0 olduğu için climbs her zaman 0'dı, testin kendisi hiçbir şey
-      // kanıtlamıyordu). Artık gerçek veri akıyor; waterfall-dışı climb oranı
-      // 5 seed'de ölçüldü (2026-09-15): %0-7.8 arası. %10 hem ölçülen tabanın
-      // üstünde hem de gerçek bir terraslamayı (rastgele meander/kavşak
-      // gürültüsünden çok daha yüksek bir oran) yakalayacak kadar sıkı.
-      if (checked > 0 && climbs / checked > 0.10) {
-        uphill.push(`seed ${seed}: ${climbs}/${checked} river steps climb >1 level`);
+      for (let i = 0; i < n; i++) {
+        const dir = g.flow && g.flow[i];
+        if (!dir || g.biome[i] !== B.river) continue;
+        const nx = (i % w) + DX[dir], ny = ((i / w) | 0) + DY[dir];
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const ni = ny * w + nx;
+        if (g.water[ni] && g.level[ni] - g.level[i] > 1) climbs.push(`seed ${seed} #${i}`);
       }
     }
-    push('non-waterfall rivers do not climb >1 voxel level (≤10% of steps)', uphill.length === 0, uphill.join('; '));
+    push(`every river edge is <=1 or a tagged waterfall (${edges} edges, ${lips} lips, ${sills} lake sills)`,
+      bad.length === 0 && lips > 0, bad.filter(Boolean).join('; ') + (bad.length > 4 ? ` … ${bad.length} total` : ''));
+    push('rivers never climb >1 level along their flow', climbs.length === 0, climbs.slice(0, 4).join('; '));
   }
 
   // --- P5: no towers, any seed. The README's "no spikes" claim. --------------
@@ -902,6 +908,24 @@ function runEditChecks() {
     highSea > 0 && highSeaFail.length === 0, highSeaFail.join('; '));
   push('sea <-> land still follows the sea threshold', seaFail.length === 0, seaFail.slice(0, 4).join('; '));
   push('deep sea keeps its shelf depth under a light Lower', deepFail.length === 0, deepFail.slice(0, 4).join('; '));
+
+  // 6) Waterfall tagging is pure geometry on the final levels (the editor
+  //    re-tags after every stroke/undo, the generator after voxelize).
+  {
+    const g = SM.createGrid(6, 3);
+    g.config = { levels: 10 };
+    for (let i = 0; i < 18; i++) { g.water[i] = 1; g.biome[i] = B.river; g.level[i] = 2; }
+    g.level[0] = 6;          // (0,0): 4 above (1,0) and (0,1) → lip
+    g.level[3] = 4;          // (3,0): exactly 2 above (4,0) → plain step
+    g.water[17] = 0; g.biome[17] = B.grassland; g.level[17] = 9; // land cliff
+    const lips = SM.tagWaterfalls(g);
+    const ok = lips === 1 && g.waterfalls[0] === 1 && g.waterfallDrop[0] === 4 &&
+      g.waterfalls[1] === 2 && g.waterfalls[6] === 2 && g.waterfalls[3] === 0 &&
+      g.waterfalls[4] === 0 && g.waterfalls[17] === 0 && g.waterfalls[16] === 0;
+    g.level[0] = 3;          // edited down to a 1-level step → no longer a fall
+    const again = SM.tagWaterfalls(g) === 0 && g.waterfalls[0] === 0 && g.waterfalls[1] === 0;
+    push('waterfall tags: >=3 drop tagged lip+landing, 2-step and land cliff not, re-tag clears', ok && again);
+  }
 
   console.log(`brush re-derivation checks — seeds [${SEEDS.join(', ')}], 128²:`);
   for (const [name, ok, detail] of results) {

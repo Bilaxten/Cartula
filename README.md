@@ -31,21 +31,29 @@ değil, kurallı:
 6. **classify** — biyom, eğim tabanlı kıyı (yalıyar/kumsal), de-speckle,
    göl flood-fill
 7. **hydrology** — kıyıdan uzaklıkla düzgün su derinliği, yokuş-aşağı nehirler;
-   denize/göle/kenara ulaşmayan küçük nehir parçaları budanır
+   denize/göle/kenara ulaşmayan küçük nehir parçaları budanır. **Yatak
+   derecelendirme** (`gradeRiverBeds`): komşu nehir tile'ları arasında 2
+   kademelik basamak kalmaz — yatak aşağı oyulur (ardışık basamaklar yukarı
+   doğru bir boğaz açar); 3+ kademe tasarlanmış **şelale** olarak kalır. Ağız
+   oyucusunun çapraz kanallarından kalan tek-tile çukurlar doldurulur
 8. **voxelize** — işaretli ayrık kademeler: kara +, deniz ≤ 0 (kıyı rafında 0,
    raf kırılınca −), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.
    Yükseklik→kademe tek tanım: `SM.quantLandLevel` (`src/grid.js`), editör de
-   aynısını kullanır
+   aynısını kullanır. Ardından şelaleler son kademelerden GEOMETRİYLE
+   etiketlenir (`SM.tagWaterfalls`, `grid.js`; editör her fırça/undo sonrası
+   yeniden etiketler)
 9. **yerleşimler** — düz, ılıman, tatlı suya yakın alanlar (topdown'da çizilir)
 
-`decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket / şelale
+`decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket
 pass'lerini açar — **hiçbir renderer bunları çizmiyor**, o yüzden varsayılan
 harita ürettiğini tam olarak gösterir ve bake ucuz kalır.
 
 **Coğrafi vaatler kırmızı/yeşil property testlere bağlı** (`scripts/checks.sh`
 koşturur): `node tools/headless.js --geo` (5 seed — deniz seviyesi monotonluğu,
-kıtasal büyüme örtüşmesi ≥%92, her nehir bir çıkışa ulaşır, nehirler voxel
-seviyesinde tırmanmaz, kule = 0) ve `--sweep` (7 deniz seviyesi — kara
+kıtasal büyüme örtüşmesi ≥%92, her nehir bir çıkışa ulaşır, her nehir
+kenarı ≤1 kademe ya da etiketli bir şelale — tek istisna, sayısı basılan göl
+taşma eşiği (göl nehrin 2 üstünde; göller sabit çapa) —, nehir akış yönünde
+>1 tırmanmaz, kule = 0) ve `--sweep` (7 deniz seviyesi — kara
 monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
 ## Milestone'lar

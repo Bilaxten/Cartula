@@ -844,6 +844,9 @@
     var record = editStroke.record;
     editStroke = null;
     clampEditedTowers(record);
+    // Waterfalls are geometry on the final levels: a stroke can create or
+    // flatten one, and the voxel mesh reads the tags.
+    SM.tagWaterfalls(grid);
     if (record.indices.length) {
       paintEditedTiles(record.indices);
       delete record.seen;
@@ -861,6 +864,7 @@
   // back while the voxel mesh and its shadow map kept showing the edit
   // (tarama 2026-09-22 #4).
   function afterHistoryStep(record) {
+    SM.tagWaterfalls(grid);
     paintEditedTiles(record.indices);
     updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
     if (isVoxelMode() && voxelRenderer) rebuildVoxelMesh(false);

@@ -105,8 +105,9 @@
     rivers: 1.0,           // 0 = none, 1 = normal, 2 = many
     levels: 10,
     waterDepth: 3,
-    // Decoration passes that NO renderer currently draws (roads, fantasy labels,
-    // waterfall markers). Gated so the default map is honest about what it
+    // Decoration passes that NO renderer currently draws (roads, fantasy labels).
+    // Waterfalls are no longer here: the voxel view draws them, so they are
+    // always tagged (step 8b). Gated so the default map is honest about what it
     // produces and the bake stays cheap. Settlements are exempt — topdown.js
     // draws them. Set true to exercise/inspect the passes.
     decorations: false
@@ -832,13 +833,6 @@
     // them back to land so the coastline stays honest. ---
     pruneRiverStubs(grid, e, seaThresh, landSpan, B);
 
-    // --- 7f: waterfalls — quantized riverbed drops while flow data is fresh ---
-    if (cfg.decorations) {
-      markWaterfalls(grid, e, seaThresh, landSpan, cfg, B);
-    } else {
-      grid.waterfalls = []; grid.waterfallDrop = [];
-    }
-
     // --- 7g: settlements — flat, temperate sites near fresh water or coasts ---
     placeSettlements(grid, e, seaThresh, landSpan, cfg, B);
 
@@ -852,13 +846,14 @@
     // --- 7z: fluid settle — bounded sideways spread and local pooling ---
     settleFluids(grid, e, cfg, B);
 
+    // --- 7z2: grade river beds — 2-level steps carved to 1, 3+ kept as falls ---
+    gradeRiverBeds(grid, e, seaThresh, landSpan, cfg, B);
+
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
-    var wd = cfg.waterDepth;
-    var shelf = grid._shelf || 9;
     for (i = 0; i < n; i++) {
       if (grid.water[i]) {
         // Tatlı su (nehir/göl) deniz-derinliği modeliyle DEĞİL kendi
-        // yüksekliğiyle konumlanır — markWaterfalls zaten quantLandLevel ile
+        // yüksekliğiyle konumlanır — eski şelale pass'i quantLandLevel ile
         // aynı veriden bir kademe çıkarıyordu, voxelize bunu 0'a eziyordu
         // (aynı veri için iki farklı kademe tanımı, kod taraması 2026-09-15,
         // bulgu 2). Yalnız okyanus (river/lake DEĞİL) kıyı rafı modelini
@@ -866,9 +861,7 @@
         if (grid.biome[i] === B.river || grid.biome[i] === B.lake) {
           grid.level[i] = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
         } else {
-          // flush with the sea plane over the shelf, then sinks past the shelf break
-          var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
-          grid.level[i] = df <= shelf ? 0 : -Math.min(wd, Math.ceil((df - shelf) / 4));
+          grid.level[i] = seaVoxelLevel(grid, i, cfg);
         }
       } else {
         grid.level[i] = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
@@ -891,6 +884,9 @@
       }
       grid.level.set(lvTmp);
     }
+
+    // --- 8b: waterfalls — from the FINAL levels, after grading and tower clamp ---
+    SM.tagWaterfalls(grid);
 
     // --- 8a: fantasy labels — final land/water components and voxel heights ---
     if (cfg.decorations) makeFantasyLabels(grid, cfg, B);
@@ -1119,38 +1115,128 @@
     }
   }
 
-  function markWaterfalls(grid, e, seaThresh, landSpan, cfg, B) {
-    var w = grid.width, h = grid.height, n = w * h;
-    var falls = new Uint8Array(n), drops = new Int8Array(n);
-    var dx = [0, 1, 1, 0, -1, -1, -1, 0, 1];
-    var dy = [0, 0, 1, 1, 1, 0, -1, -1, -1];
-    grid.waterfalls = falls;
-    grid.waterfallDrop = drops;
-    if (!grid.flow) return;
+  // Sea voxel level: flush with the sea plane over the shelf, then sinks past
+  // the shelf break. One definition, used by voxelize and by river grading.
+  function seaVoxelLevel(grid, i, cfg) {
+    var shelf = grid._shelf || 9;
+    var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
+    return df <= shelf ? 0 : -Math.min(cfg.waterDepth, Math.ceil((df - shelf) / 4));
+  }
 
-    for (var i = 0; i < n; i++) {
-      var dir = grid.flow[i];
-      if (!dir || grid.biome[i] !== B.river) continue;
-      var x = i % w, y = (i / w) | 0;
-      var nx = x + dx[dir], ny = y + dy[dir];
-      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-      var ni = ny * w + nx;
-      var fromL = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
-      var toL = (grid.water[ni] && grid.biome[ni] !== B.river)
-        ? 0 : quantLandLevel(e[ni], seaThresh, landSpan, cfg.levels);
-      var drop = fromL - toL;
-      if (drop < 2) continue;
-      falls[i] = 1; drops[i] = Math.min(127, drop);
-      var plunge = ni;
-      for (var p = 0; p < 2; p++) {
-        if (plunge < 0 || plunge >= n) break;
-        falls[plunge] = 1;
-        var px = plunge % w, py = (plunge / w) | 0;
-        var pd = grid.flow[plunge] || dir;
-        var pnx = px + dx[pd], pny = py + dy[pd];
-        if (pnx < 0 || pny < 0 || pnx >= w || pny >= h) break;
-        plunge = pny * w + pnx;
+  // An elevation that quantises to voxel level `T` (inverse of quantLandLevel
+  // at the bin's centre). Level 1 sits just above the sea.
+  function elevationForLevel(T, seaThresh, landSpan, levels) {
+    if (T <= 1) return seaThresh + 0.004;
+    return seaThresh + landSpan * Math.pow((T - 1) / levels, 1 / 0.82);
+  }
+
+  /* River bed grading (tarama 2026-09-22 #2, hibrit karar). On the raw terrain
+   * a river steps down 2+ voxel levels between neighbouring tiles on 5-16% of
+   * its edges, up to 7 levels, and nothing drew those steps -- the river read
+   * as falling down a dirt cliff. The decision: a 2-level step is a flaw and
+   * gets CARVED to 1; a step of WATERFALL_MIN_DROP+ is a designed waterfall and
+   * is kept (the voxel view draws it, SM.tagWaterfalls marks it).
+   *
+   * Shape of the fix: over the graph of orthogonally adjacent water tiles
+   * (at least one side a river), every non-waterfall edge must satisfy
+   * |level(a) - level(b)| <= 1. Only river beds move, and only DOWN (a river
+   * never rises out of its valley); lakes and sea are fixed anchors. The
+   * lowest levels satisfying that are a Lipschitz lower envelope -- one
+   * worklist relaxation from the anchors. Carving can shrink a 3+ edge to
+   * exactly 2 (its lip got lowered by a neighbour); such an edge becomes a
+   * constrained edge and the relaxation runs again, so the result has every
+   * river edge either <= 1 or >= WATERFALL_MIN_DROP. Consecutive 2-steps carve
+   * a gorge upstream -- that is the accepted cost of the decision. One-tile
+   * pits are the exception to "only down": they are filled (see below). */
+  function gradeRiverBeds(grid, e, seaThresh, landSpan, cfg, B) {
+    var w = grid.width, h = grid.height, n = w * h, i, k;
+    var MIN_FALL = SM.WATERFALL_MIN_DROP;
+    var lv = new Int16Array(n), tgt = new Int16Array(n);
+    var river = new Uint8Array(n);
+    var anyRiver = false;
+    for (i = 0; i < n; i++) {
+      if (!grid.water[i]) continue;
+      if (grid.biome[i] === B.river) { river[i] = 1; anyRiver = true; }
+      lv[i] = (grid.biome[i] === B.river || grid.biome[i] === B.lake)
+        ? quantLandLevel(e[i], seaThresh, landSpan, cfg.levels)
+        : seaVoxelLevel(grid, i, cfg);
+    }
+    if (!anyRiver) return;
+    tgt.set(lv);
+
+    // Neighbour k: 0 = +x, 1 = -x, 2 = +y, 3 = -y. `k ^ 1` is the way back.
+    var OFF = [1, -1, w, -w];
+    function nbr(idx, dir) {
+      var x = idx % w;
+      if (dir === 0 && x === w - 1) return -1;
+      if (dir === 1 && x === 0) return -1;
+      var ni = idx + OFF[dir];
+      return ni < 0 || ni >= n ? -1 : ni;
+    }
+    // Per-tile bitmask of FALL edges (bit k), kept symmetric.
+    var fall = new Uint8Array(n);
+    for (i = 0; i < n; i++) {
+      if (!river[i]) continue;
+      for (k = 0; k < 4; k++) {
+        var ni = nbr(i, k);
+        if (ni < 0 || !grid.water[ni]) continue;
+        if (Math.abs(lv[i] - lv[ni]) >= MIN_FALL) {
+          fall[i] |= 1 << k; fall[ni] |= 1 << (k ^ 1);
+        }
       }
+    }
+
+    // Circular worklist: each tile is queued at most once at a time.
+    var queue = new Int32Array(n), inq = new Uint8Array(n);
+    for (var round = 0; round < 8; round++) {
+      var qh = 0, qlen = 0;
+      for (i = 0; i < n; i++) if (grid.water[i]) { queue[qlen++] = i; inq[i] = 1; }
+      while (qlen > 0) {
+        var a = queue[qh]; qh = (qh + 1) % n; qlen--; inq[a] = 0;
+        for (k = 0; k < 4; k++) {
+          var b = nbr(a, k);
+          if (b < 0 || !river[b] || (fall[a] >> k) & 1) continue;
+          if (tgt[b] > tgt[a] + 1) {
+            tgt[b] = tgt[a] + 1;
+            if (!inq[b]) { queue[(qh + qlen) % n] = b; qlen++; inq[b] = 1; }
+          }
+        }
+      }
+      // A river tile whose every orthogonal water neighbour is 2+ levels
+      // higher is a PIT, not a valley: the mouth shaper carves 8-connected
+      // (diagonal) channels to the sea, and in the 4-connected voxel world a
+      // diagonal channel is a string of one-tile holes that every neighbour
+      // would "fall" into. Fill it level with its lowest neighbour -- the one
+      // place a river bed is raised.
+      var changed = false;
+      for (i = 0; i < n; i++) {
+        if (!river[i]) continue;
+        var lowest = 999;
+        for (k = 0; k < 4; k++) {
+          var pn = nbr(i, k);
+          if (pn >= 0 && grid.water[pn] && tgt[pn] < lowest) lowest = tgt[pn];
+        }
+        if (lowest !== 999 && lowest >= tgt[i] + 2) { tgt[i] = lowest; changed = true; }
+      }
+      // any fall edge carved below MIN_FALL joins the constrained set
+      for (i = 0; i < n; i++) {
+        if (!fall[i]) continue;
+        for (k = 0; k < 4; k++) {
+          if (!((fall[i] >> k) & 1)) continue;
+          var nj = nbr(i, k);
+          if (Math.abs(tgt[i] - tgt[nj]) < MIN_FALL) {
+            fall[i] &= ~(1 << k); fall[nj] &= ~(1 << (k ^ 1)); changed = true;
+          }
+        }
+      }
+      if (!changed) break;
+    }
+
+    for (i = 0; i < n; i++) {
+      if (!river[i] || tgt[i] === lv[i]) continue;
+      var ce = elevationForLevel(tgt[i], seaThresh, landSpan, cfg.levels);
+      // carved beds only go down; filled pits only go up
+      if (tgt[i] < lv[i] ? ce < e[i] : ce > e[i]) { e[i] = ce; grid.elevation[i] = ce; }
     }
   }
 

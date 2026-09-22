@@ -146,6 +146,53 @@
     }
   }
 
+  // --- waterfalls (pure) ---
+  //
+  // A waterfall is GEOMETRY, not a flow annotation: a fresh-water tile standing
+  // `WATERFALL_MIN_DROP`+ levels above an orthogonally adjacent water tile.
+  // Derived from the final `grid.level`, so it holds after generation AND after
+  // brush edits (main.js re-tags). `grid.flow` is deliberately not used: it only
+  // exists on river CENTRELINES, the widened bed (~75% of river tiles) has none.
+  //
+  // Contract read by the voxel renderer:
+  //   waterfalls[i]     1 = lip (the fresh-water tile the water falls FROM),
+  //                     2 = landing (the water tile it falls INTO)
+  //   waterfallDrop[i]  on a lip: its largest drop, in levels
+  // Drops of exactly 2 do not exist on a generated map (`gradeRiverBeds` carves
+  // them to 1); a brush can still make one, and it is left as a plain step.
+  var WATERFALL_MIN_DROP = 3;
+
+  function tagWaterfalls(grid) {
+    var w = grid.width, h = grid.height, n = w * h;
+    var falls = grid.waterfalls instanceof Uint8Array && grid.waterfalls.length === n
+      ? grid.waterfalls : new Uint8Array(n);
+    var drops = grid.waterfallDrop instanceof Int8Array && grid.waterfallDrop.length === n
+      ? grid.waterfallDrop : new Int8Array(n);
+    falls.fill(0); drops.fill(0);
+    var count = 0;
+    for (var i = 0; i < n; i++) {
+      if (!isFreshWater(grid, i)) continue;
+      var x = i % w, y = (i / w) | 0, L = grid.level[i], best = 0;
+      for (var k = 0; k < 4; k++) {
+        var nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0);
+        var ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0);
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        var ni = ny * w + nx;
+        if (!grid.water[ni]) continue;
+        var d = L - grid.level[ni];
+        if (d < WATERFALL_MIN_DROP) continue;
+        if (!falls[ni]) falls[ni] = 2;
+        if (d > best) best = d;
+      }
+      if (best) { falls[i] = 1; drops[i] = best > 127 ? 127 : best; count++; }
+    }
+    grid.waterfalls = falls;
+    grid.waterfallDrop = drops;
+    return count;
+  }
+
+  SM.WATERFALL_MIN_DROP = WATERFALL_MIN_DROP;
+  SM.tagWaterfalls = tagWaterfalls;
   SM.quantLandLevel = quantLandLevel;
   SM.isFreshWater = isFreshWater;
   SM.deriveEditedTile = deriveEditedTile;
