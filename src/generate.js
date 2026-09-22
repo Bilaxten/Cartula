@@ -871,9 +871,7 @@
           grid.level[i] = df <= shelf ? 0 : -Math.min(wd, Math.ceil((df - shelf) / 4));
         }
       } else {
-        var lf = clamp01((e[i] - seaThresh) / landSpan);
-        var lv = Math.round(Math.pow(lf, 0.82) * cfg.levels) + 1;
-        grid.level[i] = lv > 120 ? 120 : lv;
+        grid.level[i] = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
       }
     }
     // no land tile more than one step above its tallest orthogonal neighbour
@@ -920,10 +918,8 @@
     return grid.level[y * grid.width + x];
   }
 
-  function quantLandLevel(ev, seaThresh, landSpan, levels) {
-    var lf = clamp01((ev - seaThresh) / landSpan);
-    return Math.round(Math.pow(lf, 0.82) * levels) + 1;
-  }
+  // Tek tanım `grid.js`'te (editör de aynısını kullanıyor, kopya tutulmuyor).
+  var quantLandLevel = SM.quantLandLevel;
 
   /* Bounded plus-stencil relaxation for inland water and lava. Fluid surfaces
    * may rise locally to a nearby rim, but terrain is only ever lowered when

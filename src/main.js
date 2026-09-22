@@ -691,24 +691,10 @@
     return inverse;
   }
 
-  function deriveTile(i, waterFromElevation) {
-    if (waterFromElevation) {
-      var wasWater = !!grid.water[i];
-      grid.water[i] = grid.elevation[i] <= grid.seaThresh ? 1 : 0;
-      if (!!grid.water[i] !== wasWater) {
-        if (grid.water[i]) grid.biome[i] = SM.BIOME_IDX.shallow_water;
-        else {
-          var crossedLf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
-          grid.biome[i] = SM.classifyBiome(crossedLf, grid.moisture[i], grid.temperature[i]);
-        }
-      }
-    }
-    if (grid.water[i]) grid.level[i] = 0;
-    else {
-      var levels = (grid.config && grid.config.levels) || 10;
-      var lf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
-      grid.level[i] = Math.round(Math.pow(lf, 0.82) * levels) + 1;
-    }
+  // Pure half lives in `grid.js` (`SM.deriveEditedTile`), verified under Node by
+  // `node tools/headless.js --edit`.
+  function deriveTile(i, prevElevation) {
+    SM.deriveEditedTile(grid, i, prevElevation);
   }
 
   function brushWeight(distance, radius) {
@@ -733,10 +719,9 @@
       // Same rule the generator uses when a watercourse crosses a lava field
       // (`generate.js` step 7a): flowing water puts the lava out.
       if (grid.lava) grid.lava[i] = 0;
-      // `deriveTile(i, false)`: water is already decided here, so the elevation
-      // pass must not run -- it would re-derive `water` from the sea threshold
-      // and turn this above-sea river back into dry land.
-      deriveTile(i, false);
+      // No previous elevation: water is already decided here, so only the
+      // level is re-derived (a river sits at its own height, like land).
+      deriveTile(i);
     }
     paintEditedTiles(plan.indices);
   }
@@ -791,11 +776,13 @@
       captureTile(editStroke.record, i);
       if (tool === 'raise' || tool === 'lower') {
         var sign = tool === 'raise' ? 1 : -1;
-        grid.elevation[i] = clamp01(grid.elevation[i] + sign * strength * 0.04 * weight);
-        deriveTile(i, true);
+        var beforeRL = grid.elevation[i];
+        grid.elevation[i] = clamp01(beforeRL + sign * strength * 0.04 * weight);
+        deriveTile(i, beforeRL);
       } else if (tool === 'smooth') {
-        grid.elevation[i] += (smoothValues[k] - grid.elevation[i]) * strength * weight;
-        deriveTile(i, true);
+        var beforeSm = grid.elevation[i];
+        grid.elevation[i] += (smoothValues[k] - beforeSm) * strength * weight;
+        deriveTile(i, beforeSm);
       } else if (tool === 'water') {
         var oldBiome = grid.biome[i], oldWater = grid.water[i];
         grid.water[i] = 1;
@@ -804,17 +791,17 @@
             oldBiome !== SM.BIOME_IDX.shallow_water && oldBiome !== SM.BIOME_IDX.river)) {
           grid.biome[i] = SM.BIOME_IDX.shallow_water;
         }
-        deriveTile(i, false);
+        deriveTile(i);
       } else if (tool === 'land') {
         grid.water[i] = 0;
         grid.elevation[i] = Math.max(grid.elevation[i], grid.seaThresh + 0.02);
         var landLf = clamp01((grid.elevation[i] - grid.seaThresh) / grid.landSpan);
         grid.biome[i] = SM.classifyBiome(landLf, grid.moisture[i], grid.temperature[i]);
-        deriveTile(i, false);
+        deriveTile(i);
       } else if (tool === 'biome') {
         grid.biome[i] = parseInt($('editBiome').value, 10);
         grid.water[i] = isWaterBiome(grid.biome[i]) ? 1 : 0;
-        deriveTile(i, false);
+        deriveTile(i);
       }
     }
     paintEditedTiles(targets.map(function (target) { return target.i; }));

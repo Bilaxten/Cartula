@@ -32,7 +32,10 @@ değil, kurallı:
    göl flood-fill
 7. **hydrology** — kıyıdan uzaklıkla düzgün su derinliği, yokuş-aşağı nehirler;
    denize/göle/kenara ulaşmayan küçük nehir parçaları budanır
-8. **voxelize** — işaretli ayrık kademeler (kara +, su −), kule klamp
+8. **voxelize** — işaretli ayrık kademeler: kara +, deniz ≤ 0 (kıyı rafında 0,
+   raf kırılınca −), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.
+   Yükseklik→kademe tek tanım: `SM.quantLandLevel` (`src/grid.js`), editör de
+   aynısını kullanır
 9. **yerleşimler** — düz, ılıman, tatlı suya yakın alanlar (topdown'da çizilir)
 
 `decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket / şelale
@@ -74,7 +77,10 @@ monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measureme
   Undo / Redo / Reset to generated. Yalnız üstten görünümde çalışır; düzenleme
   sonrası yalnızca değişen hücreler yeniden çizilir.
   Nehir planlayıcısı saf: `SM.planRiverChannel` (`src/grid.js`), doğrulaması
-  `node tools/headless.js --river`.
+  `node tools/headless.js --river`. Fırça sonrası yeniden türetme de saf:
+  `SM.deriveEditedTile` — tatlı su yükseklik fırçalarında tatlı su kalır, deniz↔kara
+  yalnız fırçanın yönünde eşik GEÇİLİNCE değişir (sahili yükseltmek su basmaz),
+  doğrulaması `node tools/headless.js --edit`.
 - [x] **M4 — Animasyon (kalan).** Voxel görünümünde gerçek geometri olarak
   sürüklenen **voxel bulutlar**, araziye düşen **bulut gölgesi** (arazi
   shader'ında, hücre-UV uzayında) ve kanat çırpan **uçan kuşlar** (yörünge ve

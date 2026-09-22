@@ -77,6 +77,19 @@ else
             printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/^/       /' >&2
         fi
     done
+
+    # ---------- 1d. Editör + render harness'ları ----------
+    # --mesh'in üçgen baseline'ı iki bilinçli arazi düzeltmesinden sonra
+    # (09-15, `46d6e71` + `5fb00d9`) sessizce kırmızı kaldı çünkü buraya bağlı
+    # değildi. Harness yazılıp checks'e bağlanmazsa çürür.
+    for hmode in --edit --river --mesh --sky; do
+        if out="$(node tools/headless.js "$hmode" 2>&1)"; then
+            ok "harness $hmode geçti"
+        else
+            err "harness $hmode BAŞARISIZ"
+            printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/^/       /' >&2
+        fi
+    done
 fi
 
 # ---------- 2. index.html script etiketleri gerçekten var mı ----------

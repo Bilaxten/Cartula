@@ -5,6 +5,7 @@
  *   node tools/headless.js --sweep      # sea-level sweep, island-count check
  *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
  *   node tools/headless.js --river      # river brush channel planning (M3)
+ *   node tools/headless.js --edit       # brush re-derivation: fresh water, levels
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  */
@@ -257,7 +258,11 @@ function runMeshChecks() {
     !SM.shouldFlipVoxelQuad(2, 2, 2, 2);
   const cellUV = mesh.cellUV.length === mesh.vertexCount * 2 &&
     Array.prototype.every.call(mesh.cellUV, uv => uv >= 0 && uv <= 1);
-  const triangleCount = mesh.triangleCount === 124034;
+  // Baseline moves only with an intentional terrain change. 124034 → 124392:
+  // 09-15 fixes 1-4 (`46d6e71` climate band, `5fb00d9` fresh-water levels) both
+  // reshaped the mesh and the number went stale unnoticed because --mesh was not
+  // in checks.sh. It is now.
+  const triangleCount = mesh.triangleCount === 124392;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -790,12 +795,130 @@ function runGeoProperties() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
+// Brush re-derivation (tarama 2026-09-22 #1). The DOM half of the editor lives
+// in main.js; `SM.deriveEditedTile` is what every non-river brush calls after it
+// touches a tile. The silent failures it guards against: Raise/Lower/Smooth
+// re-deriving fresh water from the SEA threshold and drying an above-sea river
+// into land, and every water tile being flattened to level 0 while the
+// generator puts rivers/lakes at their own height.
+function runEditChecks() {
+  const SEEDS = [11, 1337, 4242];
+  const B = SM.BIOME_IDX;
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const fresh = (g, i) => g.water[i] && (g.biome[i] === B.river || g.biome[i] === B.lake);
+  const levelOf = (g, e) => SM.quantLandLevel(e, g.seaThresh, g.landSpan, g.config.levels);
+
+  let idemFail = [], freshCount = 0, aboveSea = 0;
+  let raiseFail = [], lowerFail = [], seaFail = [], deepFail = [];
+  let lowLand = 0, lowLandFail = [], highSea = 0, highSeaFail = [];
+  for (const seed of SEEDS) {
+    const g = SM.generate({ seed, width: 128, height: 128, seaLevel: 0.38 });
+    const n = g.width * g.height;
+
+    // 1) An untouched tile is a fixed point: re-deriving it with no elevation
+    //    change flips no flag, and water keeps its level. (Land levels are
+    //    left out: the generator's tower clamp runs after quantisation and the
+    //    editor redoes that clamp per stroke, in `clampEditedTowers`.)
+    for (let i = 0; i < n; i++) {
+      const w0 = g.water[i], b0 = g.biome[i], l0 = g.level[i];
+      SM.deriveEditedTile(g, i, g.elevation[i]);
+      if (g.water[i] !== w0 || g.biome[i] !== b0 || (w0 && g.level[i] !== l0)) {
+        if (idemFail.length < 4) idemFail.push(`seed ${seed} #${i} ${SM.BIOME_LIST[b0].id} L${l0}→${g.level[i]} w${w0}→${g.water[i]}`);
+        g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
+      }
+    }
+
+    // 2) Raise / Lower over fresh water keep it fresh water at its own height.
+    for (let i = 0; i < n; i++) {
+      if (!fresh(g, i)) continue;
+      freshCount++;
+      if (g.elevation[i] > g.seaThresh) aboveSea++;
+      const e0 = g.elevation[i], b0 = g.biome[i], l0 = g.level[i];
+      for (const [delta, fails] of [[+0.04, raiseFail], [-0.04, lowerFail]]) {
+        g.elevation[i] = Math.min(1, Math.max(0, e0 + delta));
+        SM.deriveEditedTile(g, i, e0);
+        if (!g.water[i] || g.biome[i] !== b0 || g.level[i] !== levelOf(g, g.elevation[i])) {
+          if (fails.length < 4) fails.push(`seed ${seed} #${i} w${g.water[i]} L${g.level[i]}`);
+        }
+        g.elevation[i] = e0; g.water[i] = 1; g.biome[i] = b0; g.level[i] = l0;
+      }
+    }
+
+    // 3) Tiles the generator left on the "wrong" side of the threshold keep
+    //    their identity under a dab that moves them further the SAME way:
+    //    raising a low beach must not flood it, lowering a high river mouth
+    //    must not dry it. Moving them the other way is a genuine crossing.
+    for (let i = 0; i < n; i++) {
+      if (fresh(g, i)) continue;
+      const e0 = g.elevation[i], w0 = g.water[i], b0 = g.biome[i], l0 = g.level[i];
+      if (!w0 && e0 <= g.seaThresh) {
+        lowLand++;
+        g.elevation[i] = Math.min(e0 + 0.002, g.seaThresh);
+        SM.deriveEditedTile(g, i, e0);
+        if (g.water[i] && lowLandFail.length < 4) lowLandFail.push(`seed ${seed} #${i}`);
+      } else if (w0 && e0 > g.seaThresh) {
+        highSea++;
+        g.elevation[i] = Math.max(e0 - 0.002, g.seaThresh + 1e-4);
+        SM.deriveEditedTile(g, i, e0);
+        if (!g.water[i] && highSeaFail.length < 4) highSeaFail.push(`seed ${seed} #${i}`);
+      }
+      g.elevation[i] = e0; g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
+    }
+
+    // 4) Genuine sea <-> land crossings still follow the sea threshold.
+    for (let i = 0; i < n; i += 7) {
+      const e0 = g.elevation[i], w0 = g.water[i], b0 = g.biome[i], l0 = g.level[i];
+      if (fresh(g, i)) continue;
+      if (!w0) {
+        if (e0 <= g.seaThresh) continue;
+        g.elevation[i] = g.seaThresh - 0.01;
+        SM.deriveEditedTile(g, i, e0);
+        if (!g.water[i] || g.biome[i] !== B.shallow_water || g.level[i] !== 0) seaFail.push(`land→sea #${i} L${g.level[i]}`);
+      } else {
+        if (e0 > g.seaThresh) continue;
+        g.elevation[i] = g.seaThresh + 0.05;
+        SM.deriveEditedTile(g, i, e0);
+        if (g.water[i] || SM.BIOME_LIST[g.biome[i]].id.indexOf('water') >= 0 || g.level[i] < 1) seaFail.push(`sea→land #${i} L${g.level[i]}`);
+        // 5) A deep tile nudged deeper keeps its shelf depth instead of popping to 0.
+        if (l0 < 0) {
+          g.elevation[i] = e0; g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
+          g.elevation[i] = Math.max(0, e0 - 0.01);
+          SM.deriveEditedTile(g, i, e0);
+          if (g.level[i] !== l0) deepFail.push(`#${i} L${l0}→${g.level[i]}`);
+        }
+      }
+      g.elevation[i] = e0; g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
+    }
+  }
+
+  push('re-deriving an untouched tile changes nothing (flag, biome, water level)', idemFail.length === 0, idemFail.join('; '));
+  push(`Raise keeps fresh water fresh at its own level (${freshCount} tiles, ${aboveSea} above sea)`,
+    freshCount > 0 && aboveSea > 0 && raiseFail.length === 0, raiseFail.join('; '));
+  push('Lower keeps fresh water fresh at its own level', lowerFail.length === 0, lowerFail.join('; '));
+  push(`light Raise does not flood low-lying land (${lowLand} tiles at/below sea)`,
+    lowLand > 0 && lowLandFail.length === 0, lowLandFail.join('; '));
+  push(`light Lower does not dry sea above the threshold (${highSea} tiles)`,
+    highSea > 0 && highSeaFail.length === 0, highSeaFail.join('; '));
+  push('sea <-> land still follows the sea threshold', seaFail.length === 0, seaFail.slice(0, 4).join('; '));
+  push('deep sea keeps its shelf depth under a light Lower', deepFail.length === 0, deepFail.slice(0, 4).join('; '));
+
+  console.log(`brush re-derivation checks — seeds [${SEEDS.join(', ')}], 128²:`);
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 if (process.argv[2] === '--shaders') {
   runShaderChecks();
 } else if (process.argv[2] === '--sky') {
   runSkyChecks();
 } else if (process.argv[2] === '--river') {
   runRiverChecks();
+} else if (process.argv[2] === '--edit') {
+  runEditChecks();
 } else if (process.argv[2] === '--mesh') {
   runMeshChecks();
 } else if (process.argv[2] === '--sweep') {

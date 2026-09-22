@@ -10,10 +10,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 ## NOW
 
 - [ ] **Tarama 2026-09-22 bulguları (kod doğrulandı, düzeltilmedi):**
-      1. Fırça tatlı suyu bozuyor: `deriveTile` (`main.js:706`) tüm suyu
-         `level=0`'a basıyor (09-15 bulgu 2'nin editör yolu); Raise/Lower/Smooth
-         `deriveTile(i,true)` ile deniz üstü nehir/gölü karaya çeviriyor.
-         Seviye formülü `quantLandLevel`'ın kopyası (`main.js:708-710`).
       2. Varsayılan haritada nehir komşuları %5-16 oranında >1 kademe sıçrıyor
          (max 7). Şelale işareti yalnız `decorations:true`'da var ve hiçbir
          renderer çizmiyor; `--geo` P4 bunları muaf tutup eşiği %10'a çekmiş.

@@ -84,6 +84,71 @@
     return { indices: indices, elevation: elevation };
   }
 
+  // --- voxel level + brush re-derivation (pure) ---
+  //
+  // ONE definition of "land-height → voxel level". The generator, the waterfall
+  // pass and the editor all need it; the editor used to carry a private copy,
+  // and a second copy is exactly how 09-15 finding 2 happened (two definitions
+  // of the level for the same data).
+  function quantLandLevel(ev, seaThresh, landSpan, levels) {
+    var lf = (ev - seaThresh) / landSpan;
+    lf = lf < 0 ? 0 : lf > 1 ? 1 : lf;
+    var lv = Math.round(Math.pow(lf, 0.82) * levels) + 1;
+    return lv > 120 ? 120 : lv;   // grid.level is an Int8Array
+  }
+
+  function isFreshWater(grid, i) {
+    var b = grid.biome[i], B = SM.BIOME_IDX;
+    return !!grid.water[i] && (b === B.river || b === B.lake);
+  }
+
+  // Re-derive water flag, biome and voxel level for one tile after a brush has
+  // changed its elevation or set its flags directly.
+  //
+  // `prevElevation`: the height before this dab, when the brush moved terrain
+  // (Raise/Lower/Smooth). Omit it when the tool set water/biome itself -- the
+  // flags are then authoritative and only the level is re-derived.
+  //
+  // Sea <-> land follows the threshold only as a CROSSING in the direction the
+  // brush moved: raised above `seaThresh` → land, lowered to/below it → sea.
+  // The generator leaves hundreds of land tiles at or below the threshold
+  // (beaches, deltas, spill fixes) and a few sea tiles above it (river mouths);
+  // re-deriving from the raw threshold turned a light Raise on a beach into sea
+  // and a Smooth near a mouth into land.
+  //
+  // Mirrors the generator's voxelize step (generate.js step 8):
+  //   - fresh water (river/lake) sits at its OWN height, like land. It is never
+  //     re-derived from `seaThresh`: a river is fresh water ABOVE sea level, so
+  //     Raise/Lower/Smooth over it must not dry it out (tarama 2026-09-22 #1).
+  //   - sea water keeps its shelf depth (<= 0). The editor has no shore-distance
+  //     field, so a tile that just became sea is flush with the sea plane (0) and
+  //     an already-deep tile keeps its depth instead of popping up to 0.
+  function deriveEditedTile(grid, i, prevElevation) {
+    var B = SM.BIOME_IDX;
+    if (prevElevation != null && !isFreshWater(grid, i)) {
+      var e = grid.elevation[i], wasWater = !!grid.water[i];
+      if (wasWater && e > grid.seaThresh && e > prevElevation) grid.water[i] = 0;
+      else if (!wasWater && e <= grid.seaThresh && e < prevElevation) grid.water[i] = 1;
+      if (!!grid.water[i] !== wasWater) {
+        if (grid.water[i]) grid.biome[i] = B.shallow_water;
+        else {
+          var lf = (grid.elevation[i] - grid.seaThresh) / grid.landSpan;
+          lf = lf < 0 ? 0 : lf > 1 ? 1 : lf;
+          grid.biome[i] = SM.classifyBiome(lf, grid.moisture[i], grid.temperature[i]);
+        }
+      }
+    }
+    var levels = (grid.config && grid.config.levels) || 10;
+    if (!grid.water[i] || isFreshWater(grid, i)) {
+      grid.level[i] = quantLandLevel(grid.elevation[i], grid.seaThresh, grid.landSpan, levels);
+    } else {
+      grid.level[i] = Math.min(0, grid.level[i]);
+    }
+  }
+
+  SM.quantLandLevel = quantLandLevel;
+  SM.isFreshWater = isFreshWater;
+  SM.deriveEditedTile = deriveEditedTile;
   SM.riverHalfWidth = riverHalfWidth;
   SM.riverBedDrop = riverBedDrop;
   SM.planRiverChannel = planRiverChannel;
