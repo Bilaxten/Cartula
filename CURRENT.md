@@ -9,7 +9,24 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 **Dal:** `master`
 **Çalışma alanı:** temiz (renderer şeridi ayrı worktree'de)
 
-## Şu anki görev — 2026-09-22 taramasının düzeltmeleri (sürüyor)
+## Şu anki görev — portfolyo yol haritası (2026-09-22, Uğur: "önerdiğin neyse yapalım")
+
+Sıra `TODO.md` NOW'da. Durum:
+1. ✅ Canlı demo — https://bilaxten.github.io/StilizedMaps/ (Pages, `master`
+   kökü, `.nojekyll`). Her push yeniden yayınlar.
+2. ✅ Pipeline adım adım modu (`3ddbae6`) — `SM.generate(cfg, record)`,
+   `SM.PIPELINE_STAGES` (10 aşama), `SM.renderStage`; `--geo` P6.
+3. ✅ Vaka çalışması — `bilaxten.art` `site` dalı `64fbd1c`. `[SES]`,
+   hareketli GIF'ler ve `site`→`master` Uğur'da.
+4. ✅ Unity export (`319483a`) — `src/export.js`, `--export`. ⚠️ Unity'de
+   gerçekten içe aktarılmadı.
+5. ✅ Debug görünümleri (`6bff8ef`). ⏳ Shader cilası Uğur'la.
+
+Aynı gün önce: deniz derinliği renkle (3 bant, paletten — Uğur "bu kadar
+ton kullanmayalım" dedi), tarama #1/#2/#4 düzeltmeleri (aşağıdaki bölüm).
+Hâlâ açık: tarama #3 (iç deniz boyut eşiği, karar Uğur'da), #5.
+
+## Önceki görev — 2026-09-22 taramasının düzeltmeleri
 
 Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22, Claude Code app):
 
