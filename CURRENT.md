@@ -5,11 +5,27 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-09-08
+**Güncellendi:** 2026-09-22
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
-## Şu anki görev
+## Şu anki görev — 2026-09-22 taramasının düzeltmeleri (başlanmadı)
+
+Genel tarama yapıldı, bulgular `TODO.md` NOW'da (kod/ölçümle doğrulandı).
+Arada 09-15 kod taraması bulgu 1-4 düzeltildi (`46d6e71`, `5fb00d9`); 5-7 açık.
+Uğur'la anlaşılan sıra:
+1. Fırça/deriveTile tatlı su düzeltmesi (`main.js:694-711`: nehir/göl level'ı
+   `quantLandLevel` ile, Raise/Lower/Smooth deniz üstü tatlı suyu kurutmasın).
+2. İzometrikte Undo/Redo → voxel mesh yeniden kurulsun; `pageshow` /
+   `webglcontextlost` toparlama.
+3. Nehir kademe sıçramaları: **tasarım kararı Uğur'da** (şelaleyi gerçekten
+   çizmek mi, yatağı yumuşatmak mı). Sonra `--geo` P4 muafiyetini ve README'deki
+   "nehirler tırmanmaz" iddiasını buna göre düzelt.
+4. Tarayıcıda test: `python scripts/serve.py 8000` + Chrome otomasyonu, ölçerek.
+
+README de sürüklenmiş (su seviyesi modeli, P4 iddiası) — düzeltmelerle birlikte.
+
+## Önceki görev (2026-09-08)
 
 **Yok — M1-M4 bitti + Gerçeklik Borcu P3 turu yapıldı (2026-09-08, Claude).**
 Kuyruğun başı hâlâ ilk vaka çalışması (`bilaxten.art`), artık ölçüm paketiyle.
