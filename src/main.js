@@ -1426,6 +1426,14 @@
   });
   $('exportPng').addEventListener('click', exportPng);
   $('exportUnity').addEventListener('click', exportUnity);
+  // Dark mode: only the page chrome; the map keeps its own palette. The
+  // initial value is set by the inline script in index.html.
+  $('themeToggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('sm-theme', next); } catch (e) {}
+  });
   // Render debug views live in the voxel shader; top-down has no lighting
   // terms to isolate, so the control only acts in the isometric view.
   $('debugView').addEventListener('change', function () {
