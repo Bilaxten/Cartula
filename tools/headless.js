@@ -936,6 +936,24 @@ function runGeoProperties() {
     push('rivers never climb >1 level along their flow', climbs.length === 0, climbs.slice(0, 4).join('; '));
   }
 
+  // --- P6: pipeline recorder (step-through UI + case study). Every stage in
+  // SM.PIPELINE_STAGES is recorded exactly once, in order, as a COPY; and
+  // recording must not change the map it records.
+  {
+    const got = [];
+    const plain = SM.generate({ seed: 4242, width: 128, height: 128, seaLevel: 0.38 });
+    const rec = SM.generate({ seed: 4242, width: 128, height: 128, seaLevel: 0.38 },
+      (id, snap) => got.push([id, snap]));
+    const order = JSON.stringify(got.map(g => g[0])) === JSON.stringify(SM.PIPELINE_STAGES.map(s => s.id));
+    const same = Buffer.compare(Buffer.from(plain.level.buffer), Buffer.from(rec.level.buffer)) === 0 &&
+      Buffer.compare(Buffer.from(plain.biome.buffer), Buffer.from(rec.biome.buffer)) === 0;
+    const copies = got.every(([, s]) => s.biome !== rec.biome && s.elevation !== rec.elevation);
+    const last = got[got.length - 1][1];
+    const finalMatches = Buffer.compare(Buffer.from(last.biome.buffer), Buffer.from(rec.biome.buffer)) === 0;
+    push(`pipeline recorder: ${got.length} stages in table order, copies, output unchanged`,
+      order && same && copies && finalMatches);
+  }
+
   // --- P5: no towers, any seed. The README's "no spikes" claim. --------------
   {
     const bad = SEEDS.filter(s => run(s, 160, 0.38).towers > 0);

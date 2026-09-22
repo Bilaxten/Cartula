@@ -92,5 +92,43 @@
     };
   }
 
+  // Pipeline step-through (main.js): draw one recorded stage of generation.
+  // 'map' stages are ordinary grids and go through renderTopDown. Before the
+  // biome pass there is nothing to colour yet, so 'height' shows the raw
+  // heightmap as grey relief and 'sea' adds the sea mask in the palette's
+  // shallow-sea blue -- no new colours (Kurallar: stay on the palette).
+  function renderStage(canvas, snap, stage, opts) {
+    if (stage.view === 'map') return renderTopDown(canvas, snap, opts);
+    var o = Object.assign({ tile: 10, shade: true }, opts || {});
+    var w = snap.width, h = snap.height, ts = o.tile, e = snap.elevation;
+    canvas.width = w * ts;
+    canvas.height = h * ts;
+    var ctx = canvas.getContext('2d');
+    var lo = Infinity, hi = -Infinity, i;
+    for (i = 0; i < e.length; i++) { if (e[i] < lo) lo = e[i]; if (e[i] > hi) hi = e[i]; }
+    var span = hi - lo || 1;
+    var sea = stage.view === 'sea' ? biomeRgb()[SM.BIOME_IDX.shallow_water] : null;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        i = y * w + x;
+        var g = 40 + 200 * (e[i] - lo) / span;
+        var c = sea && snap.water[i] ? sea : [g, g, g];
+        if (o.shade && !(sea && snap.water[i])) {
+          var eL = x > 0 ? e[i - 1] : e[i], eU = y > 0 ? e[i - w] : e[i];
+          var a = ((e[i] - eL) + (e[i] - eU)) * 160 / span;
+          a = a > 18 ? 18 : a < -18 ? -18 : a;
+          c = [c[0] + a, c[1] + a, c[2] + a];
+        }
+        ctx.fillStyle = shade(c, 1);
+        ctx.fillRect(x * ts, y * ts, ts, ts);
+      }
+    }
+    return {
+      width: canvas.width, height: canvas.height, tile: ts,
+      rivers: [], lavas: [], riverRgb: biomeRgb()[SM.BIOME_IDX.river], lavaRgb: [226, 82, 29]
+    };
+  }
+
+  SM.renderStage = renderStage;
   SM.renderTopDown = renderTopDown;
 })(window.SM = window.SM || {});

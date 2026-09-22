@@ -9,6 +9,19 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **Portfolyo yol haritası (2026-09-22, Uğur onayladı, bu sırayla):**
+      1. **Canlı demo** — GitHub Pages: `https://bilaxten.github.io/StilizedMaps/`
+         (`master` kökünden, build yok).
+      2. **Pipeline adım adım modu** — üretimi pass pass izlet (ham noise →
+         dağ → deniz eşiği → iklim → biyom → nehir → yatak oyma → voxel).
+         Vaka çalışmasının görselleri buradan çıkar.
+      3. **Vaka çalışması** — `bilaxten.art` `site` dalında `work/`; demo linki
+         + pipeline görselleri + ölçümler (`--manifest`, harness'lar).
+      4. **Unity export** — 16-bit heightmap, biyom splatmap, nehir/yerleşim
+         JSON; VFX-Portfolyo Unity sahnesine bağlar.
+      5. **Debug görünümleri + shader cilası** — AO/normal/yükseklik/biyom/
+         gölge/şelale maskesi görünümleri; su köpük bandı, outline, sis.
+
 - [ ] **Tarama 2026-09-22 bulguları (kod doğrulandı, düzeltilmedi):**
       3. P2 vaadi kısmen tutuyor: 128→256'da kara/su %78-96, biyom %41-89.
          Ana sebep kenara değen su kütlesinin büyük haritada "göl" olması

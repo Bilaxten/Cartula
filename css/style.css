@@ -282,6 +282,11 @@ details.group .body { padding: 2px 18px 18px; }
 .edit-actions #editReset { grid-column: 1 / -1; }
 #panel .edit-note { margin: 9px 0 0; color: var(--muted); font-size: 11px; }
 
+#pipelineToggle { width: 100%; }
+#pipelineToggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#panel .stage-label { margin: 12px 0 6px; font-weight: 600; font-size: 12px; }
+#panel #stageDesc { line-height: 1.45; }
+
 #legend {
   display: grid;
   grid-template-columns: 1fr 1fr;

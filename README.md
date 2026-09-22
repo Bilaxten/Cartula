@@ -61,6 +61,15 @@ taşma eşiği (göl nehrin 2 üstünde; göller sabit çapa) —, nehir akış 
 >1 tırmanmaz, kule = 0) ve `--sweep` (7 deniz seviyesi — kara
 monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
+**Pipeline adım adım modu** (panel → *Pipeline* → *Step through generation*):
+mevcut haritanın ayarlarıyla üretim bir kez kayıtla yeniden koşulur
+(`SM.generate(cfg, record)`) ve 10 aşama (`SM.PIPELINE_STAGES`: ham noise →
+dağlar → deniz eşiği → iklim/biyom → kıyı → fiyort/volkan → nehirler →
+riparian → yatak derecelendirme → voxel) slider / ◀ ▶ / ←→ ile gezilir.
+Kayıtsız üretim ek maliyet ödemez; kayıt haritayı değiştirmez (`--geo` P6).
+
+**Canlı demo:** https://bilaxten.github.io/StilizedMaps/ (GitHub Pages, `master`).
+
 ## Milestone'lar
 
 - [x] **M1 — Üretim + üstten görünüm.** Grid modeli, noise, biyom ataması,

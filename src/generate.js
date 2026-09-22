@@ -154,10 +154,30 @@
     return clamp01(e);
   }
 
-  function generate(opts) {
+  function generate(opts, record) {
     var cfg = Object.assign({}, DEFAULTS, opts || {});
     var w = cfg.width, h = cfg.height, n = w * h;
     var grid = SM.createGrid(w, h);
+
+    // Pipeline recorder ("step through generation", main.js). A no-op unless a
+    // caller passes `record`: then every stage in PIPELINE_STAGES receives a
+    // COPY of the grid as it stands after that stage's passes, so a viewer can
+    // scrub through what each pass did. Normal generation pays nothing.
+    function snap(id) {
+      if (!record) return;
+      record(id, {
+        width: w, height: h, config: cfg,
+        seaThresh: seaThresh, landSpan: landSpan,
+        elevation: Float32Array.from(e),
+        water: grid.water.slice(), biome: grid.biome.slice(),
+        moisture: grid.moisture.slice(), temperature: grid.temperature.slice(),
+        level: grid.level.slice(),
+        lava: grid.lava ? grid.lava.slice() : null,
+        flowStep: grid.flowStep ? grid.flowStep.slice() : null,
+        settlements: grid.settlements ? grid.settlements.slice() : null,
+        waterfalls: grid.waterfalls ? grid.waterfalls.slice() : null
+      });
+    }
     var B = SM.BIOME_IDX;
 
     var baseN = SM.makeNoise2D(cfg.seed);
@@ -195,6 +215,8 @@
         e[y * w + x] = heightAt(baseN, ridgeN, warpN, rfield, wxOf(x), wyOf(y), cfg);
       }
     }
+
+    snap('sample');
 
     // --- 3: repair — clamp single-tile spikes/pits, then a gentle smooth ---
     // SPIKE is kept below one discrete level so no tile can tower over its
@@ -308,6 +330,8 @@
     for (i = 0; i < n; i++) if (e[i] > mapMax) mapMax = e[i];
     var landSpan = Math.max(0.32, Math.max(mapMax, refPeak) - seaThresh);
 
+    snap('shape');
+
     // --- 5a: base moisture + water flag ---
     var mois = new Float32Array(n);
     for (y = 0; y < h; y++) {
@@ -318,6 +342,8 @@
         mois[i] = clamp01((mo + 1) / 2 * 0.9 + 0.14 + cfg.moistureBias);
       }
     }
+
+    snap('sea');
 
     // --- 5b: rain shadow + orographic — march upwind; mountains block rain on
     // their lee side, windward slopes get extra. Prevailing wind is seeded. ---
@@ -414,6 +440,8 @@
         }
       }
     }
+
+    snap('climate');
 
     // --- 6b: de-speckle the coastline — 1-tile islands sink, 1-tile puddles fill ---
     var wbuf = new Uint8Array(n);
@@ -530,6 +558,8 @@
       }
     }
     for (i = 0; i < n; i++) if (grid.water[i] && !ocean[i]) grid.biome[i] = B.lake;
+
+    snap('coast');
 
     // --- 6e: fjords — sparse cold, steep coastal inlets with cliff walls ---
     var fjordRnd = SM.mulberry32((cfg.seed ^ 0xa4c3f129) >>> 0);
@@ -666,6 +696,8 @@
       }
     }
 
+    snap('features');
+
     // --- 7: hydrology (also carves river valleys into `e`) ---
     hydrology(grid, e, seaThresh, cfg, B);
 
@@ -761,6 +793,8 @@
       }
     }
 
+    snap('rivers');
+
     // --- 7d: riparian vegetation — reclassify a two-tile land buffer with added moisture ---
     var ripDist = new Int8Array(n), ripQ = [], ripH = 0;
     for (i = 0; i < n; i++) {
@@ -833,6 +867,8 @@
     // them back to land so the coastline stays honest. ---
     pruneRiverStubs(grid, e, seaThresh, landSpan, B);
 
+    snap('riparian');
+
     // --- 7g: settlements — flat, temperate sites near fresh water or coasts ---
     placeSettlements(grid, e, seaThresh, landSpan, cfg, B);
 
@@ -848,6 +884,8 @@
 
     // --- 7z2: grade river beds — 2-level steps carved to 1, 3+ kept as falls ---
     gradeRiverBeds(grid, e, seaThresh, landSpan, cfg, B);
+
+    snap('grade');
 
     // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
     for (i = 0; i < n; i++) {
@@ -897,6 +935,7 @@
     grid.config = cfg;
     grid.seaThresh = seaThresh;
     grid.landSpan = landSpan;
+    snap('voxel');
     return grid;
   }
 
@@ -1794,6 +1833,34 @@
     };
   }
 
+  // What "step through generation" shows, in order. `id` matches a snap()
+  // call inside generate(); `view` picks the renderer: 'height' = raw
+  // heightmap (no sea yet), 'sea' = heightmap + water mask, 'map' = the
+  // normal biome map. One table, so the UI and the case study cannot drift.
+  var PIPELINE_STAGES = [
+    { id: 'sample',   view: 'height', label: 'World-space noise',
+      desc: 'fBm + domain warp sampled in world space: a bigger map reveals more world, it does not stretch this one.' },
+    { id: 'shape',    view: 'height', label: 'Mountains & repair',
+      desc: 'Ridged ranges along fault lines, peak prominence, plateaus; single-tile spikes and pits clamped.' },
+    { id: 'sea',      view: 'sea',    label: 'Sea level',
+      desc: 'An absolute threshold from a fixed reference area — the coast does not move when the map grows.' },
+    { id: 'climate',  view: 'map',    label: 'Climate & biomes',
+      desc: 'Moisture with rain shadow, temperature by latitude + altitude, continentality; each tile classified.' },
+    { id: 'coast',    view: 'map',    label: 'Coast cleanup',
+      desc: 'Speckles removed, ocean flood-filled from the border (enclosed water becomes lakes), islands consolidated.' },
+    { id: 'features', view: 'map',    label: 'Fjords, spits, volcanoes',
+      desc: 'Cold steep inlets, curving beach spits with lagoons, volcanic cones with lava flows.' },
+    { id: 'rivers',   view: 'map',    label: 'Rivers',
+      desc: 'Steepest-descent rivers from summits carve V-valleys and merge into trunks; deltas or estuaries at the mouth.' },
+    { id: 'riparian', view: 'map',    label: 'Riparian & invariants',
+      desc: 'Green buffers along water; fragments and river stubs that reach no outlet are cleaned up.' },
+    { id: 'grade',    view: 'map',    label: 'River grading',
+      desc: 'Every 2-level riverbed step is carved to 1; drops of 3+ stay and become waterfalls.' },
+    { id: 'voxel',    view: 'map',    label: 'Voxelize',
+      desc: 'Discrete levels, tower clamp, waterfall tags — the grid both views draw from.' }
+  ];
+
+  SM.PIPELINE_STAGES = PIPELINE_STAGES;
   SM.generate = generate;
   SM.summarize = summarize;
   SM.elevationMeters = elevationMeters;

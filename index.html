@@ -97,6 +97,22 @@
         </div>
       </details>
 
+      <details class="group" id="pipelineGroup" open>
+        <summary>Pipeline</summary>
+        <div class="body">
+          <button id="pipelineToggle" type="button" aria-pressed="false">Step through generation</button>
+          <div id="stageControls" hidden>
+            <p id="stageLabel" class="stage-label"></p>
+            <input type="range" id="stageSlider" min="0" max="9" step="1" value="9" aria-label="Generation stage">
+            <div class="edit-actions">
+              <button id="stagePrev" type="button">&#9664; Prev</button>
+              <button id="stageNext" type="button">Next &#9654;</button>
+            </div>
+            <p id="stageDesc" class="edit-note"></p>
+          </div>
+        </div>
+      </details>
+
       <details class="group" id="editGroup" open>
         <summary>Edit</summary>
         <div class="body">

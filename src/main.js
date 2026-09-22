@@ -447,16 +447,76 @@
       ctx.fillRect(lv.x, lv.y, ts, ts);
     }
   }
+  // shrink the tile for very large maps so the canvas stays GPU-friendly
+  function topTile() {
+    return Math.max(3, Math.min(TOP_TILE,
+      Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
+  }
+
+  // --- pipeline step-through ---------------------------------------------
+  // Re-runs the CURRENT map's config with a recorder and lets the viewer scrub
+  // through SM.PIPELINE_STAGES. Top-down only; brushes, undo and hover are off
+  // while it is open (they act on the final grid, not the stage on screen).
+  var pipeline = null; // { snaps: [...], index }
+
+  function enterPipeline() {
+    if (!grid || pipeline) return;
+    if (view !== 'top') setView('top');
+    var byId = {};
+    SM.generate(grid.config, function (id, snap) { byId[id] = snap; });
+    var stages = SM.PIPELINE_STAGES;
+    pipeline = {
+      snaps: stages.map(function (st) { return byId[st.id]; }),
+      index: stages.length - 1
+    };
+    $('stageSlider').max = String(stages.length - 1);
+    $('stageControls').hidden = false;
+    $('pipelineToggle').textContent = 'Exit step-through';
+    $('pipelineToggle').setAttribute('aria-pressed', 'true');
+    hoverEl.hidden = true;
+    hideBrushCursor();
+    showStage(0);
+  }
+
+  function exitPipeline(skipRefresh) {
+    if (!pipeline) return;
+    pipeline = null;
+    $('stageControls').hidden = true;
+    $('pipelineToggle').textContent = 'Step through generation';
+    $('pipelineToggle').setAttribute('aria-pressed', 'false');
+    if (!skipRefresh) refresh(false);
+  }
+
+  function showStage(k) {
+    var stages = SM.PIPELINE_STAGES;
+    k = Math.max(0, Math.min(stages.length - 1, k));
+    pipeline.index = k;
+    var st = stages[k];
+    stopAnim();
+    content = SM.renderStage(map, pipeline.snaps[k], st, {
+      tile: topTile(),
+      grid: $('showGrid').checked,
+      shade: $('showShade').checked
+    });
+    if (content.width !== lastW || content.height !== lastH) fitCam();
+    lastW = content.width;
+    lastH = content.height;
+    applyCam();
+    $('stageSlider').value = String(k);
+    paintRange($('stageSlider'));
+    $('stageLabel').textContent = (k + 1) + ' / ' + stages.length + ' \u00b7 ' + st.label;
+    $('stageDesc').textContent = st.desc;
+    $('stagePrev').disabled = k === 0;
+    $('stageNext').disabled = k === stages.length - 1;
+  }
+
   function drawContent() {
     if (editRenderTimer) { clearTimeout(editRenderTimer); editRenderTimer = 0; }
     stopAnim();
     // 2D artık YALNIZCA üstten görünüm. İzometrik canvas yolu (dört yönlü bake
     // edilmiş görüntü + rotasyon önbelleği) 2026-09-06'da kaldırıldı; izometrik
     // görünümü WebGL voxel çiziyor ve buraya hiç uğramıyor.
-    //
-    // shrink the tile for very large maps so the canvas stays GPU-friendly
-    var tt = Math.max(3, Math.min(TOP_TILE,
-      Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
+    var tt = topTile();
     content = SM.renderTopDown(map, grid, {
       tile: tt,
       grid: $('showGrid').checked,
@@ -470,6 +530,8 @@
 
   function refresh(refit, fitVoxel) {
     if (!grid) return;
+    // grid lines / hillshade toggles re-render the STAGE while stepping through
+    if (pipeline && view === 'top') { showStage(pipeline.index); return; }
     if (isVoxelMode()) {
       if (startVoxel()) {
         rebuildVoxelMesh(fitVoxel);
@@ -495,6 +557,7 @@
   }
 
   function regenerate() {
+    exitPipeline(true);
     var cfg = readConfig();
     var t0 = performance.now();
     grid = SM.generate(cfg);
@@ -523,6 +586,7 @@
 
   function setView(mode) {
     if (mode === view) return;
+    if (mode === 'iso') exitPipeline(true);
     view = mode;
     stopAnim();
     $('viewTop').classList.toggle('active', mode === 'top');
@@ -872,14 +936,14 @@
   }
 
   function undoEdit() {
-    if (!undoStack.length || !grid) return;
+    if (!undoStack.length || !grid || pipeline) return;
     var record = undoStack.pop();
     redoStack.push(restoreRecord(record));
     afterHistoryStep(record);
   }
 
   function redoEdit() {
-    if (!redoStack.length || !grid) return;
+    if (!redoStack.length || !grid || pipeline) return;
     var record = redoStack.pop();
     undoStack.push(restoreRecord(record));
     afterHistoryStep(record);
@@ -913,6 +977,7 @@
 
   function onHover(ev) {
     if (view !== 'top' || !grid || drag || editStroke || !content || !content.tile) return;
+    if (pipeline) return; // hover reads the final grid, not the stage on screen
     var tile = eventTile(ev);
     showBrushCursor(tile);
     if (!tile) {
@@ -943,7 +1008,7 @@
       stage.classList.add('dragging');
       return;
     }
-    if (ev.button === 0 && view === 'top' && grid && $('editTool').value !== 'pan') {
+    if (ev.button === 0 && view === 'top' && grid && !pipeline && $('editTool').value !== 'pan') {
       var tile = eventTile(ev);
       if (!tile) return;
       ev.preventDefault();
@@ -1227,6 +1292,14 @@
   $('editRedo').addEventListener('click', redoEdit);
   $('editReset').addEventListener('click', regenerate);
   $('viewTop').addEventListener('click', function () { setView('top'); });
+  $('pipelineToggle').addEventListener('click', function () {
+    if (pipeline) exitPipeline(); else enterPipeline();
+  });
+  $('stageSlider').addEventListener('input', function () {
+    if (pipeline) showStage(parseInt(this.value, 10));
+  });
+  $('stagePrev').addEventListener('click', function () { if (pipeline) showStage(pipeline.index - 1); });
+  $('stageNext').addEventListener('click', function () { if (pipeline) showStage(pipeline.index + 1); });
   $('viewIso').addEventListener('click', function () { setView('iso'); });
   $('rotSlider').addEventListener('input', function () {
     if (!isVoxelMode() || !voxelCamera) return;
@@ -1317,6 +1390,10 @@
       if (key === 'z') { ev.preventDefault(); if (ev.shiftKey) redoEdit(); else undoEdit(); }
       else if (key === 'y') { ev.preventDefault(); redoEdit(); }
       return;
+    }
+    if (pipeline && target && target.type !== 'range') {
+      if (key === 'arrowleft') { ev.preventDefault(); showStage(pipeline.index - 1); return; }
+      if (key === 'arrowright') { ev.preventDefault(); showStage(pipeline.index + 1); return; }
     }
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
