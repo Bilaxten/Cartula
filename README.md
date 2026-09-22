@@ -39,8 +39,10 @@ değil, kurallı:
    beyaz şeritler; iniş havuzunda köpük — `aFall`, doğrulaması
    `node tools/headless.js --falls`). Ağız
    oyucusunun çapraz kanallarından kalan tek-tile çukurlar doldurulur
-8. **voxelize** — işaretli ayrık kademeler: kara +, deniz ≤ 0 (kıyı rafında 0,
-   raf kırılınca −), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.
+8. **voxelize** — ayrık kademeler: kara +, **deniz düz bir yüzey (0) — derinliği
+   geometri değil RENK gösterir** (`SM.seaColor`, `biome.js`: deniz tabanının
+   gerçek derinliğinden 6 bantlı koyulaşma + kıyı tonu; iki görünüm ve editör
+   aynı fonksiyonu kullanır), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.
    Yükseklik→kademe tek tanım: `SM.quantLandLevel` (`src/grid.js`), editör de
    aynısını kullanır. Ardından şelaleler son kademelerden GEOMETRİYLE
    etiketlenir (`SM.tagWaterfalls`, `grid.js`; editör her fırça/undo sonrası
@@ -66,7 +68,8 @@ monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measureme
 - [x] **M2 — İzometrik voxel projeksiyon.** `src/render/voxel3d.js` — WebGL2,
   gerçek 3D mesh, 360° orbit kamera (yaw/pitch/zoom, Q/E çeyrek tur snap),
   per-vertex AO, cast shadow, gün döngüsü. İşaretli yükseklik kademeleri (kara
-  yukarı, su aşağı — deniz baseni), "Yükseklik abartısı" slider'ı mesh'i
+  yukarı; deniz düz yüzey, derinlik renkle — 2026-09-22'ye kadar deniz baseni
+  aşağı kademeliydi), "Yükseklik abartısı" slider'ı mesh'i
   yeniden kurmadan uygular. 18 biyom, eğim tabanlı yalıyar, biyom-içi renk
   varyasyonu.
   ⚠️ **2026-09-06:** bu iş önce canvas 2D'de (`src/render/iso.js`, dört yönlü

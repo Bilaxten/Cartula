@@ -856,8 +856,8 @@
         // yüksekliğiyle konumlanır — eski şelale pass'i quantLandLevel ile
         // aynı veriden bir kademe çıkarıyordu, voxelize bunu 0'a eziyordu
         // (aynı veri için iki farklı kademe tanımı, kod taraması 2026-09-15,
-        // bulgu 2). Yalnız okyanus (river/lake DEĞİL) kıyı rafı modelini
-        // kullanır.
+        // bulgu 2). Okyanus (river/lake DEĞİL) düz yüzey, kademe 0; derinliği
+        // renk gösterir (seaVoxelLevel).
         if (grid.biome[i] === B.river || grid.biome[i] === B.lake) {
           grid.level[i] = quantLandLevel(e[i], seaThresh, landSpan, cfg.levels);
         } else {
@@ -1115,12 +1115,12 @@
     }
   }
 
-  // Sea voxel level: flush with the sea plane over the shelf, then sinks past
-  // the shelf break. One definition, used by voxelize and by river grading.
-  function seaVoxelLevel(grid, i, cfg) {
-    var shelf = grid._shelf || 9;
-    var df = grid._shoreDist ? grid._shoreDist[i] : shelf + 12;
-    return df <= shelf ? 0 : -Math.min(cfg.waterDepth, Math.ceil((df - shelf) / 4));
+  // Sea voxel level: the sea is ONE flat surface at level 0. Depth is shown as
+  // colour from the elevation below seaThresh (SM.seaColor, biome.js) -- a
+  // stepped-down basin read as holes in the map (Uğur, 2026-09-22). One
+  // definition, used by voxelize and by river grading.
+  function seaVoxelLevel() {
+    return 0;
   }
 
   // An elevation that quantises to voxel level `T` (inverse of quantLandLevel

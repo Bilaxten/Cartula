@@ -263,8 +263,9 @@ function runMeshChecks() {
   // 09-15 fixes 1-4 (`46d6e71` climate band, `5fb00d9` fresh-water levels) both
   // reshaped the mesh and the number went stale unnoticed because --mesh was not
   // in checks.sh. It is now. 124392 → 124430: river bed grading (tarama
-  // 2026-09-22 #2, 2-level steps carved, one-tile pits filled).
-  const triangleCount = mesh.triangleCount === 124430;
+  // 2026-09-22 #2, 2-level steps carved, one-tile pits filled). 124430 →
+  // 123314: sea is one flat surface at level 0, depth drawn as colour.
+  const triangleCount = mesh.triangleCount === 123314;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -1035,12 +1036,13 @@ function runEditChecks() {
         g.elevation[i] = g.seaThresh + 0.05;
         SM.deriveEditedTile(g, i, e0);
         if (g.water[i] || SM.BIOME_LIST[g.biome[i]].id.indexOf('water') >= 0 || g.level[i] < 1) seaFail.push(`sea→land #${i} L${g.level[i]}`);
-        // 5) A deep tile nudged deeper keeps its shelf depth instead of popping to 0.
-        if (l0 < 0) {
+        // 5) The sea stays one flat surface at level 0 under any Lower; depth
+        //    is colour (SM.seaColor), never geometry.
+        {
           g.elevation[i] = e0; g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
           g.elevation[i] = Math.max(0, e0 - 0.01);
           SM.deriveEditedTile(g, i, e0);
-          if (g.level[i] !== l0) deepFail.push(`#${i} L${l0}→${g.level[i]}`);
+          if (g.level[i] !== 0) deepFail.push(`#${i} L${l0}→${g.level[i]}`);
         }
       }
       g.elevation[i] = e0; g.water[i] = w0; g.biome[i] = b0; g.level[i] = l0;
@@ -1056,7 +1058,7 @@ function runEditChecks() {
   push(`light Lower does not dry sea above the threshold (${highSea} tiles)`,
     highSea > 0 && highSeaFail.length === 0, highSeaFail.join('; '));
   push('sea <-> land still follows the sea threshold', seaFail.length === 0, seaFail.slice(0, 4).join('; '));
-  push('deep sea keeps its shelf depth under a light Lower', deepFail.length === 0, deepFail.slice(0, 4).join('; '));
+  push('sea stays flush at level 0 under a light Lower (depth is colour)', deepFail.length === 0, deepFail.slice(0, 4).join('; '));
 
   // 6) Waterfall tagging is pure geometry on the final levels (the editor
   //    re-tags after every stroke/undo, the generator after voxelize).

@@ -120,9 +120,8 @@
   //   - fresh water (river/lake) sits at its OWN height, like land. It is never
   //     re-derived from `seaThresh`: a river is fresh water ABOVE sea level, so
   //     Raise/Lower/Smooth over it must not dry it out (tarama 2026-09-22 #1).
-  //   - sea water keeps its shelf depth (<= 0). The editor has no shore-distance
-  //     field, so a tile that just became sea is flush with the sea plane (0) and
-  //     an already-deep tile keeps its depth instead of popping up to 0.
+  //   - sea water is a flat surface at level 0; its depth is drawn as colour
+  //     from the elevation below `seaThresh` (SM.seaColor), not as geometry.
   function deriveEditedTile(grid, i, prevElevation) {
     var B = SM.BIOME_IDX;
     if (prevElevation != null && !isFreshWater(grid, i)) {
@@ -142,7 +141,7 @@
     if (!grid.water[i] || isFreshWater(grid, i)) {
       grid.level[i] = quantLandLevel(grid.elevation[i], grid.seaThresh, grid.landSpan, levels);
     } else {
-      grid.level[i] = Math.min(0, grid.level[i]);
+      grid.level[i] = 0;
     }
   }
 

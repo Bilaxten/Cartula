@@ -133,7 +133,6 @@
     var rgb = SM.BIOME_LIST.map(function (biome) {
       return hexToRgb(biome.color);
     });
-    var shallow = SM.BIOME_IDX.shallow_water;
     var lava = grid.lava || [];
     // Owner-designed feature (see module header): SM.tagWaterfalls (grid.js,
     // a separate lane) marks grid.waterfalls[i] 1 on the LIP (the fresh-water
@@ -331,28 +330,16 @@
     function terrainColor(x, y, i, L) {
       var c = rgb[grid.biome[i]].slice();
       var topC = c;
-      var shoreN = 0;
-      var shoreDiag = 0;
       var wt = 0;
       var sv;
       var topF;
 
-      if (grid.biome[i] === shallow) {
-        // A shoreline tint preserves the water's readable shallows in 3D.
-        if (x > 0 && !grid.water[i - 1]) shoreN++;
-        if (x < W - 1 && !grid.water[i + 1]) shoreN++;
-        if (y > 0 && !grid.water[i - W]) shoreN++;
-        if (y < H - 1 && !grid.water[i + W]) shoreN++;
-        if (x > 0 && y > 0 && !grid.water[i - W - 1]) shoreDiag++;
-        if (x < W - 1 && y > 0 && !grid.water[i - W + 1]) shoreDiag++;
-        if (x > 0 && y < H - 1 && !grid.water[i + W - 1]) shoreDiag++;
-        if (x < W - 1 && y < H - 1 && !grid.water[i + W + 1]) shoreDiag++;
-        wt = Math.min(1, shoreN * 0.5 + shoreDiag * 0.125) * 0.55;
-        topC = [
-          c[0] + (122 - c[0]) * wt,
-          c[1] + (196 - c[1]) * wt,
-          c[2] + (201 - c[2]) * wt
-        ];
+      // Sea depth is COLOUR now (flat surface at level 0), from the shared
+      // definition in biome.js -- same tones as the top-down bake.
+      if (SM.isSea(grid, i)) {
+        topC = SM.seaColor(grid, i);
+        c = topC;
+        wt = SM.seaShoreWeight(grid, i);
       }
 
       sv = SM.biomeShade(grid, i);

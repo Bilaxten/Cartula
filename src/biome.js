@@ -77,6 +77,72 @@
     return 0.95 + 0.055 * m + 0.03 * (1 - e) + 0.04 * h; // ~0.95 .. 1.08
   }
 
+  // --- sea colour: depth is shown by COLOUR, not geometry (2026-09-22) ---
+  //
+  // The sea is a flat surface at voxel level 0; how deep it is lives in the
+  // continuous elevation below `seaThresh` and is drawn as progressively
+  // darker water. Uğur's call: a stepped-down basin read as holes in the map,
+  // a darkening ramp reads as depth. Every view (top-down bake, voxel mesh,
+  // the editor's live repaint) calls THIS, so they cannot drift apart --
+  // the shoreline tint used to be copied three times and the editor's copy
+  // had already lost it.
+  //
+  // SEA_DEPTH_REF is absolute, not a per-map percentile: the same depth gets
+  // the same tone on every seed and size (P2), and a low sea level really
+  // does leave pale, shallow seas. 0.32 ≈ p95 of depth on the default map.
+  var SEA_DEPTH_REF = 0.32;
+  var SEA_BANDS = 6;
+  var SEA_RAMP = [[58, 124, 168], [34, 82, 126], [14, 36, 62]]; // shallow → mid → abyss
+
+  function isSea(grid, i) {
+    if (!grid.water[i]) return false;
+    var b = grid.biome[i];
+    return b !== IDX.river && b !== IDX.lake;
+  }
+
+  // 0 (at the surface) .. 1 (abyss), quantised into SEA_BANDS flat bands so
+  // the voxel view gets clean contour-like steps instead of per-tile noise.
+  function seaDepthT(grid, i) {
+    var st = grid.seaThresh != null ? grid.seaThresh : 0.44;
+    var t = (st - grid.elevation[i]) / SEA_DEPTH_REF;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return Math.min(SEA_BANDS - 1, Math.floor(t * SEA_BANDS)) / (SEA_BANDS - 1);
+  }
+
+  // How much a sea tile touches land (0..0.55): drives the pale shoreline tint
+  // and, in the voxel view, the surf foam.
+  function seaShoreWeight(grid, i) {
+    var w = grid.width, h = grid.height, x = i % w, y = (i / w) | 0;
+    var n = 0, d = 0;
+    if (x > 0 && !grid.water[i - 1]) n++;
+    if (x < w - 1 && !grid.water[i + 1]) n++;
+    if (y > 0 && !grid.water[i - w]) n++;
+    if (y < h - 1 && !grid.water[i + w]) n++;
+    if (x > 0 && y > 0 && !grid.water[i - w - 1]) d++;
+    if (x < w - 1 && y > 0 && !grid.water[i - w + 1]) d++;
+    if (x > 0 && y < h - 1 && !grid.water[i + w - 1]) d++;
+    if (x < w - 1 && y < h - 1 && !grid.water[i + w + 1]) d++;
+    return Math.min(1, n * 0.5 + d * 0.125) * 0.55;
+  }
+
+  // Unshaded sea colour for tile i: depth ramp, then the shoreline tint.
+  function seaColor(grid, i) {
+    var t = seaDepthT(grid, i) * (SEA_RAMP.length - 1);
+    var k = Math.min(SEA_RAMP.length - 2, Math.floor(t)), f = t - k;
+    var a = SEA_RAMP[k], b = SEA_RAMP[k + 1];
+    var c = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+    var wt = seaShoreWeight(grid, i);
+    if (wt > 0) {
+      c[0] += (122 - c[0]) * wt; c[1] += (196 - c[1]) * wt; c[2] += (201 - c[2]) * wt;
+    }
+    return c;
+  }
+
+  SM.SEA_DEPTH_REF = SEA_DEPTH_REF;
+  SM.isSea = isSea;
+  SM.seaDepthT = seaDepthT;
+  SM.seaShoreWeight = seaShoreWeight;
+  SM.seaColor = seaColor;
   SM.BIOME_LIST = BIOME_LIST;
   SM.BIOME_IDX = IDX;
   SM.classifyBiome = classify;
