@@ -7,23 +7,31 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 **Güncellendi:** 2026-09-22
 **Dal:** `master`
-**Çalışma alanı:** temiz
+**Çalışma alanı:** temiz (renderer şeridi ayrı worktree'de)
 
-## Şu anki görev — 2026-09-22 taramasının düzeltmeleri (başlanmadı)
+## Şu anki görev — 2026-09-22 taramasının düzeltmeleri (sürüyor)
 
-Genel tarama yapıldı, bulgular `TODO.md` NOW'da (kod/ölçümle doğrulandı).
-Arada 09-15 kod taraması bulgu 1-4 düzeltildi (`46d6e71`, `5fb00d9`); 5-7 açık.
-Uğur'la anlaşılan sıra:
-1. Fırça/deriveTile tatlı su düzeltmesi (`main.js:694-711`: nehir/göl level'ı
-   `quantLandLevel` ile, Raise/Lower/Smooth deniz üstü tatlı suyu kurutmasın).
-2. İzometrikte Undo/Redo → voxel mesh yeniden kurulsun; `pageshow` /
-   `webglcontextlost` toparlama.
-3. Nehir kademe sıçramaları: **tasarım kararı Uğur'da** (şelaleyi gerçekten
-   çizmek mi, yatağı yumuşatmak mı). Sonra `--geo` P4 muafiyetini ve README'deki
-   "nehirler tırmanmaz" iddiasını buna göre düzelt.
-4. Tarayıcıda test: `python scripts/serve.py 8000` + Chrome otomasyonu, ölçerek.
+Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22, Claude Code app):
 
-README de sürüklenmiş (su seviyesi modeli, P4 iddiası) — düzeltmelerle birlikte.
+- ✅ **#1 fırça/tatlı su** (`4d645b2`): `SM.deriveEditedTile` (`grid.js`, saf).
+  Tatlı su yükseklik fırçalarında tatlı su kalır; deniz↔kara yalnız fırçanın
+  YÖNÜNDE eşik geçilince değişir (eski kod hafif Raise'de sahili su basıyordu —
+  TODO'da yazmayan ikinci bug). `--edit` harness'ı eski mantıkta 6/7 kırmızı.
+- ✅ **#4 iso Undo/Redo + bfcache + bağlam kaybı** (`8dbe220`). Tarayıcıda
+  `buildVoxelMesh` sayacıyla ölçüldü.
+- ✅ **#2 generatör yarısı** (`4286218`): Uğur **hibrit** seçti — 2 kademe
+  basamak oyulur (`gradeRiverBeds`), 3+ şelale (`SM.tagWaterfalls`, geometriyle,
+  lip=1 / landing=2). P4 yeniden yazıldı (toleranssız). Tek istisna: göl taşma
+  eşiği (göl nehrin 2 üstünde; göller sabit çapa) — 5 haritada 3 kenar.
+- 🔄 **#2 renderer yarısı**: voxel'de şelale yüzeyi + köpük — bir alt-ajan
+  worktree'de yazıyor; birleşince tarayıcıda gözle + ölçerek doğrulanacak,
+  `--mesh` baseline yeniden uzlaştırılacak.
+- Yan bulgu: `--mesh` baseline 09-15'ten beri kırmızıydı, checks'e bağlı
+  değildi. Artık `--edit/--river/--mesh/--sky` hepsi `checks.sh`'te.
+
+Kalan: TODO #3 (P2 "ada aynı kalır": büyük haritada kapalı kalan deniz → göl;
+iç deniz boyut eşiği muhtemelen doğru cevap ama karar Uğur'da), #5 (09-15'ten
+açık 5-7).
 
 ## Önceki görev (2026-09-08)
 
