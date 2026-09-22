@@ -41,7 +41,7 @@ değil, kurallı:
    oyucusunun çapraz kanallarından kalan tek-tile çukurlar doldurulur
 8. **voxelize** — ayrık kademeler: kara +, **deniz düz bir yüzey (0) — derinliği
    geometri değil RENK gösterir** (`SM.seaColor`, `biome.js`: deniz tabanının
-   gerçek derinliğinden 6 bantlı koyulaşma + kıyı tonu; iki görünüm ve editör
+   gerçek derinliğinden 3 bant — paletin sığ/orta/derin mavisi — + kıyı tonu; iki görünüm ve editör
    aynı fonksiyonu kullanır), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.
    Yükseklik→kademe tek tanım: `SM.quantLandLevel` (`src/grid.js`), editör de
    aynısını kullanır. Ardından şelaleler son kademelerden GEOMETRİYLE
