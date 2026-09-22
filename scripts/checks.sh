@@ -77,6 +77,18 @@ else
             printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/^/       /' >&2
         fi
     done
+
+    # ---------- 1d. Şelale (voxel waterfall) yüz testleri ----------
+    # grid.waterfalls artık 1=LIP / 2=LANDING taşıyor (SM.tagWaterfalls, ayrı
+    # bir hat); buildVoxelMesh bu etiketi grid.flow'a güvenmeden GEOMETRİDEN
+    # (yükseklik farkı + komşu su mu) bir "düşen su" yüzüne çeviriyor. Sessizce
+    # eski taş uçurum olarak kalması riski var, bu yüzden kırmızı/yeşil testli.
+    if out="$(node tools/headless.js --falls 2>&1)"; then
+        ok "şelale yüz testleri geçti"
+    else
+        err "şelale yüz testleri BAŞARISIZ"
+        printf '%s\n' "$out" | grep -E 'FAIL' | sed 's/^/       /' >&2
+    fi
 fi
 
 # ---------- 2. index.html script etiketleri gerçekten var mı ----------

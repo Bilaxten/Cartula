@@ -121,6 +121,7 @@
     var water = [];
     var shore = [];
     var ao = [];
+    var fall = [];
     var indices = [];
     var minX = Infinity;
     var minY = Infinity;
@@ -134,10 +135,41 @@
     });
     var shallow = SM.BIOME_IDX.shallow_water;
     var lava = grid.lava || [];
+    // Owner-designed feature (see module header): SM.tagWaterfalls (grid.js,
+    // a separate lane) marks grid.waterfalls[i] 1 on the LIP (the fresh-water
+    // tile the water falls FROM) and 2 on the LANDING tile it falls INTO.
+    // Absent on older grids -- must not crash (module header contract).
+    var waterfalls = grid.waterfalls;
+    // After bed grading, every river water-water edge is <=1 or >=MIN_DROP;
+    // the one remaining 2-step (a lake sill sitting above a river) is left
+    // untagged on purpose and must draw as an ordinary cliff, not a fall.
+    // Read from the shared constant when the other lane's grid.js is present
+    // so the two stay in lockstep; default 3 keeps this file correct alone.
+    var WATERFALL_MIN_DROP = SM.WATERFALL_MIN_DROP || 3;
+    // 0.9 sits well above any shoreline-derived shore weight (max ~0.55, see
+    // terrainColor) so a plunge pool always reads as the strongest foam on
+    // the map rather than blending with ordinary shoreline foam.
+    var FALL_FOAM_SHORE = 0.9;
+
+    function isFallFace(i, x, y, L, dx, dy, NL) {
+      // Direction is derived from GEOMETRY, not grid.flow: flow is empty on
+      // ~75% of river tiles (see module header), but "this LIP tile sits
+      // MIN_DROP+ levels above that orthogonal water tile" is always
+      // computable straight from level + the LIP tag.
+      var nx = x + dx;
+      var ny = y + dy;
+      var ni;
+
+      if (!waterfalls || waterfalls[i] !== 1 || !grid.water[i]) return false;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) return false;
+      ni = ny * W + nx;
+      if (!grid.water[ni]) return false;
+      return (L - NL) >= WATERFALL_MIN_DROP;
+    }
 
     function addVertex(
       x, y, z, nx, ny, nz, c, d, cellX, cellY, glow, waterTop, shoreWeight,
-      vertexAo
+      vertexAo, fallFlag
     ) {
       // Positions preserve the raw integer level. uVScale later exaggerates Y
       // without invalidating the mesh topology.
@@ -157,6 +189,9 @@
       shore.push(shoreWeight);
       // AO remains a discrete 0..3 visibility count until fragment lighting.
       ao.push(vertexAo);
+      // 0/1: a falling-water face swaps its cliff material for an animated
+      // cascade in the fragment shader (see makeProgram's vFall handling).
+      fall.push(fallFlag ? 1 : 0);
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -177,7 +212,8 @@
       glow,
       waterTop,
       shoreWeight,
-      vertexAo
+      vertexAo,
+      fallFlag
     ) {
       var base = pos.length / 3;
 
@@ -185,22 +221,22 @@
       addVertex(
         vertices[0], vertices[1], vertices[2],
         normal[0], normal[1], normal[2], faceColor, sideDepth[0],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[0]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[0], fallFlag
       );
       addVertex(
         vertices[3], vertices[4], vertices[5],
         normal[0], normal[1], normal[2], faceColor, sideDepth[1],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[1]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[1], fallFlag
       );
       addVertex(
         vertices[6], vertices[7], vertices[8],
         normal[0], normal[1], normal[2], faceColor, sideDepth[2],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[2]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[2], fallFlag
       );
       addVertex(
         vertices[9], vertices[10], vertices[11],
         normal[0], normal[1], normal[2], faceColor, sideDepth[3],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[3]
+        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[3], fallFlag
       );
       if (shouldFlipVoxelQuad(vertexAo[0], vertexAo[1], vertexAo[2], vertexAo[3])) {
         indices.push(base, base + 1, base + 3);
@@ -353,7 +389,7 @@
       );
     }
 
-    function addSide(x, y, L, NL, dir, c, glow) {
+    function addSide(x, y, L, NL, dir, c, glow, fall) {
       var x0 = x - W / 2;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
@@ -374,7 +410,8 @@
           glow,
           0,
           0,
-          vertexAo
+          vertexAo,
+          fall
         );
       } else if (dir === 1) {
         addQuad(
@@ -387,7 +424,8 @@
           glow,
           0,
           0,
-          vertexAo
+          vertexAo,
+          fall
         );
       } else if (dir === 2) {
         addQuad(
@@ -400,7 +438,8 @@
           glow,
           0,
           0,
-          vertexAo
+          vertexAo,
+          fall
         );
       } else {
         addQuad(
@@ -413,7 +452,8 @@
           glow,
           0,
           0,
-          vertexAo
+          vertexAo,
+          fall
         );
       }
     }
@@ -430,7 +470,19 @@
         var east;
         var north;
         var south;
+        var fallWest;
+        var fallEast;
+        var fallNorth;
+        var fallSouth;
         var glow = lava[i] ? 1 : 0;
+
+        // A plunge pool churns even though its own biome/neighbours give it
+        // no shoreline weight of its own (terrainColor only computes shore
+        // tint for the shallow_water biome). LANDING (tag 2) is set by the
+        // generator on the tile a fall drops INTO, independent of geometry.
+        if (waterfalls && waterfalls[i] === 2) {
+          material.shore = Math.max(material.shore, FALL_FOAM_SHORE);
+        }
 
         // Top and sides share one material decision so biome seams stay sharp.
         addTop(
@@ -440,10 +492,29 @@
         east = levelAt(x + 1, y);
         north = levelAt(x, y - 1);
         south = levelAt(x, y + 1);
-        if (west < L) addSide(x, y, L, west, 0, material.side, glow);
-        if (east < L) addSide(x, y, L, east, 1, material.side, glow);
-        if (north < L) addSide(x, y, L, north, 2, material.side, glow);
-        if (south < L) addSide(x, y, L, south, 3, material.side, glow);
+        // A falling-water face is drawn in the water's OWN colour (material.top,
+        // the same tone its top surface uses), not the cliff's material.side --
+        // requirement is "rendered as WATER, not terrain".
+        fallWest = isFallFace(i, x, y, L, -1, 0, west);
+        fallEast = isFallFace(i, x, y, L, 1, 0, east);
+        fallNorth = isFallFace(i, x, y, L, 0, -1, north);
+        fallSouth = isFallFace(i, x, y, L, 0, 1, south);
+        if (west < L) {
+          addSide(x, y, L, west, 0, fallWest ? material.top : material.side,
+            glow, fallWest);
+        }
+        if (east < L) {
+          addSide(x, y, L, east, 1, fallEast ? material.top : material.side,
+            glow, fallEast);
+        }
+        if (north < L) {
+          addSide(x, y, L, north, 2, fallNorth ? material.top : material.side,
+            glow, fallNorth);
+        }
+        if (south < L) {
+          addSide(x, y, L, south, 3, fallSouth ? material.top : material.side,
+            glow, fallSouth);
+        }
       }
     }
 
@@ -516,6 +587,7 @@
       water: new Uint8Array(water),
       shore: new Float32Array(shore),
       ao: new Uint8Array(ao),
+      fall: new Uint8Array(fall),
       indices: new Uint32Array(indices),
       vertexCount: pos.length / 3,
       triangleCount: indices.length / 3,
@@ -693,6 +765,7 @@
       'in float aWater;',
       'in float aShore;',
       'in float aAO;',
+      'in float aFall;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
@@ -703,6 +776,8 @@
       'out float vEmissive;',
       'out float vShore;',
       'out float vAO;',
+      'out float vFall;',
+      'out float vFallCoord;',
       '',
       'void main() {',
       '  vNormal = aNormal;',
@@ -712,6 +787,12 @@
       '  vEmissive = aEmissive;',
       '  vShore = aShore;',
       '  vAO = aAO;',
+      '  vFall = aFall;',
+      '  // Falling-water faces have no per-vertex horizontal attribute of their',
+      '  // own; the wall already varies in exactly one of x/z (the other is the',
+      '  // wall plane, held constant), so their sum is a free per-vertex coordinate',
+      '  // along the face width, used only to offset the streak pattern below.',
+      '  vFallCoord = aPosition.x + aPosition.z;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
       '  // Shore damping keeps a deliberately small wave from opening a seam.',
@@ -735,6 +816,8 @@
       'in float vEmissive;',
       'in float vShore;',
       'in float vAO;',
+      'in float vFall;',
+      'in float vFallCoord;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -775,6 +858,20 @@
       '  float foam = topFace * vShore * smoothstep(0.15, 0.78,',
       '    0.5 + 0.5 * foamPhase);',
       '  vec3 foamColor = vec3(0.22, 0.31, 0.33) * foam;',
+      '  // Falling water: a >=2-level drop next to a lower water tile is drawn',
+      '  // as a moving cascade instead of the static cliff addSide() would',
+      '  // otherwise emit. vSideDepth already interpolates 0 at the lip to the',
+      '  // full drop height at the plunge, so it doubles as the fall\'s local',
+      '  // flow coordinate with no extra per-vertex data; only vFallCoord (the',
+      '  // face-width position) is new. Subtracting uTime slides the streaks',
+      '  // DOWN the face as time advances.',
+      '  float fallFlow = fract(vSideDepth * 1.5 - uTime * 1.8 +',
+      '    vFallCoord * 0.9);',
+      '  float fallStreak = smoothstep(0.0, 0.10, fallFlow) *',
+      '    (1.0 - smoothstep(0.35, 0.55, fallFlow));',
+      '  vec3 fallColor = vColor * (0.85 + 0.35 * fallStreak) +',
+      '    vec3(0.65, 0.78, 0.82) * fallStreak * 0.5;',
+      '  vec3 baseColor = mix(vColor, fallColor, vFall);',
       '  // Cloud shadow: soft-edged discs sliding over the map. Side faces take',
       '  // less of it, the same split the sun shadow uses -- a wall in shade',
       '  // from a passing cloud should not read darker than the ground.',
@@ -793,7 +890,7 @@
       '  float cloudFactor = 1.0 - uCloudShadow * cloudCover *',
       '    mix(0.55, 1.0, topFace) * daylight;',
       '  outColor = vec4(',
-      '    vColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor +',
+      '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor +',
       '      emission + foamColor,',
       '    1.0',
       '  );',
@@ -983,6 +1080,7 @@
     var waterBuffer = gl.createBuffer();
     var shoreBuffer = gl.createBuffer();
     var aoBuffer = gl.createBuffer();
+    var fallBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
@@ -998,6 +1096,7 @@
     var water = gl.getAttribLocation(program, 'aWater');
     var shore = gl.getAttribLocation(program, 'aShore');
     var ambientOcclusion = gl.getAttribLocation(program, 'aAO');
+    var fall = gl.getAttribLocation(program, 'aFall');
     var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
     var verticalScale = gl.getUniformLocation(program, 'uVScale');
     var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
@@ -1057,6 +1156,7 @@
     setupAttrib(waterBuffer, water, 1, gl.UNSIGNED_BYTE);
     setupAttrib(shoreBuffer, shore, 1);
     setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
+    setupAttrib(fallBuffer, fall, 1, gl.UNSIGNED_BYTE);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -1308,6 +1408,15 @@
       gl.bufferData(gl.ARRAY_BUFFER, mesh.shore, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, aoBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, mesh.ao, gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, fallBuffer);
+      // mesh.fall is optional in principle (older callers), but buildVoxelMesh
+      // always returns it now -- guard anyway so a hand-built mesh without it
+      // does not throw here.
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        mesh.fall || new Uint8Array(mesh.vertexCount),
+        gl.STATIC_DRAW
+      );
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
@@ -1494,6 +1603,7 @@
       gl.deleteBuffer(waterBuffer);
       gl.deleteBuffer(shoreBuffer);
       gl.deleteBuffer(aoBuffer);
+      gl.deleteBuffer(fallBuffer);
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       gl.deleteVertexArray(vao);
