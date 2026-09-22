@@ -75,6 +75,12 @@ kademe, B su), `map.json` (deniz seviyesi, lejant, nehir/göl/yerleşim/şelale)
 `README.txt` (içe aktarma adımları). Düzenlenmiş haritayı dışa aktarır.
 Doğrulama: `node tools/headless.js --export` (köşe/yön, CRC, zip dizini).
 
+**Render debug görünümleri** (View → *Render debug view*, yalnız izometrik):
+aydınlatmanın tek bir terimini izole eder — ambient occlusion, normaller,
+yükseklik (voxel kademe), albedo (ışıksız), güneş gölgesi, şelale yüzleri.
+Tek `uDebugView` uniform'u, yalnız fragment aşamasında (çapraz-aşama
+hassasiyet tuzağı yok); debug modunda gökyüzü çizilmez.
+
 **Canlı demo:** https://bilaxten.github.io/StilizedMaps/ (GitHub Pages, `master`).
 
 ## Milestone'lar

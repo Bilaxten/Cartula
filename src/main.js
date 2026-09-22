@@ -326,6 +326,7 @@
       // not refit.
       if (voxelCamera) voxelRenderer.setCamera(voxelCamera);
     }
+    if (voxelRenderer.setDebugView) voxelRenderer.setDebugView(parseInt($('debugView').value, 10));
     voxelRenderer.setTime(voxelTime);
     map.hidden = true;
     $('riverfx').hidden = true;
@@ -1352,6 +1353,13 @@
   });
   $('exportPng').addEventListener('click', exportPng);
   $('exportUnity').addEventListener('click', exportUnity);
+  // Render debug views live in the voxel shader; top-down has no lighting
+  // terms to isolate, so the control only acts in the isometric view.
+  $('debugView').addEventListener('change', function () {
+    if (!voxelRenderer || !voxelRenderer.setDebugView) return;
+    voxelRenderer.setDebugView(parseInt(this.value, 10));
+    requestVoxelRender();
+  });
   $('shareLink').addEventListener('click', shareLink);
   window.addEventListener('resize', function () {
     if (isVoxelMode()) resizeVoxel();

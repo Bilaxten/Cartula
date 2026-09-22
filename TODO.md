@@ -21,8 +21,9 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       4. ✅ **Unity export** — zip: r16 heightmap + albedo + biyom maskesi +
          map.json. ⚠️ Unity'de gerçekten içe aktarılıp denenmedi (Uğur, ya da
          VFX-Portfolyo'da ayrı bir sahnede).
-      5. **Debug görünümleri + shader cilası** — AO/normal/yükseklik/biyom/
-         gölge/şelale maskesi görünümleri; su köpük bandı, outline, sis.
+      5. ✅ **Debug görünümleri** (AO/normal/yükseklik/albedo/gölge/şelale).
+         ⏳ **Shader cilası** (su köpük bandı, outline, mesafe sisi) — estetik
+         karar, Uğur'la birlikte (Kurallar: paletten çık, ton az).
 
 - [ ] **Tarama 2026-09-22 bulguları (kod doğrulandı, düzeltilmedi):**
       3. P2 vaadi kısmen tutuyor: 128→256'da kara/su %78-96, biyom %41-89.

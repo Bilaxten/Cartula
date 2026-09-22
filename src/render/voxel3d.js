@@ -763,6 +763,7 @@
       'out float vEmissive;',
       'out float vShore;',
       'out float vAO;',
+      'out float vHeight;',
       'out float vFall;',
       'out float vFallCoord;',
       '',
@@ -774,6 +775,7 @@
       '  vEmissive = aEmissive;',
       '  vShore = aShore;',
       '  vAO = aAO;',
+      '  vHeight = aPosition.y; // raw voxel level, before uVScale',
       '  vFall = aFall;',
       '  // Falling-water faces have no per-vertex horizontal attribute of their',
       '  // own; the wall already varies in exactly one of x/z (the other is the',
@@ -803,6 +805,7 @@
       'in float vEmissive;',
       'in float vShore;',
       'in float vAO;',
+      'in float vHeight;',
       'in float vFall;',
       'in float vFallCoord;',
       'uniform vec3 uSunDirection;',
@@ -815,6 +818,10 @@
       'uniform vec3 uClouds[6];',
       'uniform int uCloudCount;',
       'uniform float uCloudShadow;',
+      // Render debug view (0 = lit). Fragment-only on purpose: a uniform
+      // declared in both stages must match precision exactly or the program
+      // silently fails to link (uTime, uMode) -- one stage, no risk.
+      'uniform float uDebugView;',
       'out vec4 outColor;',
       '',
       'void main() {',
@@ -883,6 +890,20 @@
       '  // the lighting uses, so the shadow still fades out at dusk.',
       '  float cloudFactor = 1.0 - uCloudShadow * cloudCover *',
       '    mix(0.55, 1.0, topFace) * daylight;',
+      '  // Debug views isolate ONE term of the lighting above, so each can be',
+      '  // judged on its own: 1 AO, 2 normals, 3 height, 4 albedo (unlit),',
+      '  // 5 sun shadow, 6 waterfall faces over dimmed albedo.',
+      '  if (uDebugView > 0.5) {',
+      '    vec3 dbg;',
+      '    if (uDebugView < 1.5) dbg = vec3(aoFactor);',
+      '    else if (uDebugView < 2.5) dbg = normalize(vNormal) * 0.5 + 0.5;',
+      '    else if (uDebugView < 3.5) dbg = vec3(clamp(vHeight / 12.0, 0.0, 1.0));',
+      '    else if (uDebugView < 4.5) dbg = baseColor;',
+      '    else if (uDebugView < 5.5) dbg = vec3(1.0 - SHADOW_GAIN * shadowHit * shadow * 0.8);',
+      '    else dbg = mix(vColor * 0.35, vec3(1.0, 0.55, 0.15), vFall);',
+      '    outColor = vec4(dbg, 1.0);',
+      '    return;',
+      '  }',
       '  outColor = vec4(',
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor +',
       '      emission + foamColor,',
@@ -1086,6 +1107,7 @@
     var cloudsUniform = gl.getUniformLocation(program, 'uClouds');
     var cloudCountUniform = gl.getUniformLocation(program, 'uCloudCount');
     var cloudShadowUniform = gl.getUniformLocation(program, 'uCloudShadow');
+    var debugViewUniform = gl.getUniformLocation(program, 'uDebugView');
     var emission = gl.getAttribLocation(program, 'aEmissive');
     var water = gl.getAttribLocation(program, 'aWater');
     var shore = gl.getAttribLocation(program, 'aShore');
@@ -1124,6 +1146,7 @@
     var cloudWorldData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
     var meshBounds = null;
     var showSky = true;
+    var debugView = 0;
     // Tuned by eye against the map: below ~0.4 the shadow reads as a smudge,
     // above ~0.6 it competes with the sun shadow and the terrain goes muddy.
     var cloudShadowStrength = 0.5;
@@ -1289,7 +1312,8 @@
       var i;
       var spanX;
 
-      if (!skyProgram || !sky || !showSky || !meshBounds) return;
+      // Debug views show the terrain terms alone: clouds would only hide them.
+      if (!skyProgram || !sky || !showSky || debugView || !meshBounds) return;
       spanX = meshBounds.maxX - meshBounds.minX;
       gl.useProgram(skyProgram);
       gl.uniformMatrix4fv(sky.viewProjection, false, combined);
@@ -1335,6 +1359,11 @@
 
     function setSky(enabled) {
       showSky = enabled !== false;
+    }
+
+    // 0 = lit; 1 AO, 2 normals, 3 height, 4 albedo, 5 sun shadow, 6 waterfalls
+    function setDebugView(mode) {
+      debugView = Math.max(0, Math.min(6, mode | 0));
     }
 
     function setSun(nextSun) {
@@ -1533,6 +1562,7 @@
       gl.uniform1f(verticalScale, vScale);
       gl.uniform3fv(sunDirection, sun);
       gl.uniform1f(sunStrength, strength);
+      gl.uniform1f(debugViewUniform, debugView);
       gl.uniform1f(time, elapsedTime);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -1541,7 +1571,7 @@
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
       gl.uniform3fv(cloudsUniform, cloudShadowData);
-      gl.uniform1i(cloudCountUniform, showSky ? cloudNow.length : 0);
+      gl.uniform1i(cloudCountUniform, showSky && !debugView ? cloudNow.length : 0);
       gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
       gl.bindVertexArray(vao);
       gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
@@ -1634,6 +1664,7 @@
       setTime: setTime,
       setShadowMap: setShadowMap,
       setSky: setSky,
+      setDebugView: setDebugView,
       capture: capture,
       fitCamera: fitCamera,
       render: render,

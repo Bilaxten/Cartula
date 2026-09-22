@@ -86,6 +86,17 @@
           <label for="sun">Time of day <span id="sunVal">14:00</span></label>
           <input type="range" id="sun" min="6" max="29.5" step="0.5" value="14">
 
+          <label for="debugView" id="debugViewLabel">Render debug view</label>
+          <select id="debugView">
+            <option value="0">Lit (normal)</option>
+            <option value="1">Ambient occlusion</option>
+            <option value="2">Normals</option>
+            <option value="3">Height (voxel level)</option>
+            <option value="4">Albedo (unlit)</option>
+            <option value="5">Sun shadow</option>
+            <option value="6">Waterfall faces</option>
+          </select>
+
           <label class="check" id="cloudControl">
             <input type="checkbox" id="showClouds" checked> Clouds &amp; birds
           </label>
