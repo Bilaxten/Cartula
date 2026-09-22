@@ -34,7 +34,10 @@ değil, kurallı:
    denize/göle/kenara ulaşmayan küçük nehir parçaları budanır. **Yatak
    derecelendirme** (`gradeRiverBeds`): komşu nehir tile'ları arasında 2
    kademelik basamak kalmaz — yatak aşağı oyulur (ardışık basamaklar yukarı
-   doğru bir boğaz açar); 3+ kademe tasarlanmış **şelale** olarak kalır. Ağız
+   doğru bir boğaz açar); 3+ kademe tasarlanmış **şelale** olarak kalır
+   ve voxel görünümde çizilir (düşen su yüzü: sütun başına fazlı, aşağı akan
+   beyaz şeritler; iniş havuzunda köpük — `aFall`, doğrulaması
+   `node tools/headless.js --falls`). Ağız
    oyucusunun çapraz kanallarından kalan tek-tile çukurlar doldurulur
 8. **voxelize** — işaretli ayrık kademeler: kara +, deniz ≤ 0 (kıyı rafında 0,
    raf kırılınca −), **tatlı su (nehir/göl) kendi yüksekliğinde +**; kule klamp.

@@ -19,13 +19,17 @@ Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22, Claude Code app):
   TODO'da yazmayan ikinci bug). `--edit` harness'ı eski mantıkta 6/7 kırmızı.
 - ✅ **#4 iso Undo/Redo + bfcache + bağlam kaybı** (`8dbe220`). Tarayıcıda
   `buildVoxelMesh` sayacıyla ölçüldü.
-- ✅ **#2 generatör yarısı** (`4286218`): Uğur **hibrit** seçti — 2 kademe
+- ✅ **#2 generatör yarısı** (`b469ad4`): Uğur **hibrit** seçti — 2 kademe
   basamak oyulur (`gradeRiverBeds`), 3+ şelale (`SM.tagWaterfalls`, geometriyle,
   lip=1 / landing=2). P4 yeniden yazıldı (toleranssız). Tek istisna: göl taşma
   eşiği (göl nehrin 2 üstünde; göller sabit çapa) — 5 haritada 3 kenar.
-- 🔄 **#2 renderer yarısı**: voxel'de şelale yüzeyi + köpük — bir alt-ajan
-  worktree'de yazıyor; birleşince tarayıcıda gözle + ölçerek doğrulanacak,
-  `--mesh` baseline yeniden uzlaştırılacak.
+- ✅ **#2 renderer yarısı** (`dc8db43`): alt-ajan (Sonnet, worktree) yazdı,
+  birleştirildi. `aFall` vertex attribute'u; düşen su yüzü suyun rengi +
+  shader'da aşağı akan şeritler; iniş tile'ında köpük (`shore` 0.9). Tarayıcıda
+  ilk sürüm çapraz zebra gibi okundu → sütun başına hash'li faz + beyaz su
+  tabanı. Ölçüm: 124430 üçgen (fall yüzleri quad eklemiyor), 1337/192²'de 23
+  fall quad. ⚠️ Animasyonlu hâli gözle İZLENMEDİ (inceleme için anim
+  kapatıldı) — Uğur'un bakacağı: akış hızı/yoğunluğu (`1.6`/`0.9`).
 - Yan bulgu: `--mesh` baseline 09-15'ten beri kırmızıydı, checks'e bağlı
   değildi. Artık `--edit/--river/--mesh/--sky` hepsi `checks.sh`'te.
 

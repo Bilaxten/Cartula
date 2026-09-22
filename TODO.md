@@ -10,9 +10,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 ## NOW
 
 - [ ] **Tarama 2026-09-22 bulguları (kod doğrulandı, düzeltilmedi):**
-      2. Varsayılan haritada nehir komşuları %5-16 oranında >1 kademe sıçrıyor
-         (max 7). Şelale işareti yalnız `decorations:true`'da var ve hiçbir
-         renderer çizmiyor; `--geo` P4 bunları muaf tutup eşiği %10'a çekmiş.
       3. P2 vaadi kısmen tutuyor: 128→256'da kara/su %78-96, biyom %41-89.
          Ana sebep kenara değen su kütlesinin büyük haritada "göl" olması
          (seed 11: ~4900 hücre shallow_water→lake).
