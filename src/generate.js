@@ -101,7 +101,7 @@
     moistureScale: 3.0,
     temperatureBias: 0.0,
     moistureBias: 0.0,
-    islandFalloff: 0.0,    // 0 = continents to the edge, 1 = single centred island
+    islandFalloff: 0.0,    // 0 = continents to the edge, 1 = land gathers into one centred mass
     rivers: 1.0,           // 0 = none, 1 = normal, 2 = many
     levels: 10,
     waterDepth: 3,
@@ -146,10 +146,18 @@
       if (rb > 0) e += Math.pow(rb, 1.5) * RIDGE_H * (0.55 + 0.45 * ridge);
     }
 
+    // Island shape: sink the terrain with distance from the centre so land
+    // gathers into one central mass. The sink NEVER reaches zero (at most
+    // ×0.15): the old falloff drove everything past ISLAND_R to exactly 0, so
+    // a large share of the sea reference tied at 0, the threshold landed on 0,
+    // `0 < 0` is false, and the "island" filled the whole disc (97% land).
+    // A subtractive sink clamped at 0 hit the same tie. Scaling keeps every
+    // height distinct. With the sink inside the sea reference too, the sea
+    // slider keeps choosing HOW MUCH land and this one only WHERE it gathers.
     if (cfg.islandFalloff > 0) {
       var d = Math.sqrt(wx * wx + wy * wy) / ISLAND_R;
-      var fall = Math.max(0, 1 - d * d);
-      e = e * (1 - cfg.islandFalloff) + e * fall * cfg.islandFalloff;
+      var t = Math.max(0, Math.min(1, (d - 0.25) / 1.2));
+      e *= 1 - cfg.islandFalloff * 0.85 * t * t * (3 - 2 * t);
     }
     return clamp01(e);
   }
@@ -192,9 +200,13 @@
 
     var rfield = makeRidgeField(cfg);
 
-    // sea level first — an absolute threshold from a fixed reference sample
-    // (no island falloff) so it doesn't depend on map size.
-    var refCfg0 = Object.assign({}, cfg, { islandFalloff: 0 });
+    // sea level first — an absolute threshold from a fixed reference sample,
+    // so it doesn't depend on map size. The island falloff IS included: it is
+    // world-space too (size-independent), and leaving it out made "Island"
+    // lower the whole terrain against a threshold measured without it -- the
+    // slider melted land away (65% → 10% at 1) and duplicated the sea slider
+    // instead of shaping one centred landmass (panel review, 2026-09-23).
+    var refCfg0 = cfg;
     var RS = 96, ref = new Float32Array(RS * RS), rk = 0;
     for (y = 0; y < RS; y++) {
       for (x = 0; x < RS; x++) {

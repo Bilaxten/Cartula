@@ -48,23 +48,28 @@
   var AUTOROTATE_DEG_PER_SEC = 5;   // one full turn every 72s -- "yavaş" per Uğur
   function isoExag() { return parseFloat($('isoexag').value); }
 
-  function signed(v) {
-    var n = +v;
-    return (n >= 0 ? '+' : '') + n.toFixed(2);
-  }
-
   var SLIDERS = {
     size: { label: 'sizeVal', fmt: function (v) { return v + '²'; } },
-    sea: { label: 'seaVal', fmt: function (v) { return Math.round((1 - v) * 100) + '% land'; } },
+    // Sea level is a percentile of a fixed reference area, and later passes
+    // (lakes, island consolidation) move land further, so (1 - v) was never
+    // the land share: the old label said "62% land" over a 70% land map. The
+    // TRUE share is written after each generation (regenerate); while
+    // dragging, the label keeps the last measured value.
+    sea: { label: 'seaVal', fmt: function () { return $('seaVal').textContent; } },
     rugged: { label: 'ruggedVal', fmt: function (v) { return (+v).toFixed(2); } },
     warp: { label: 'warpVal', fmt: function (v) { return (+v).toFixed(2); } },
     escale: { label: 'escaleVal', fmt: function (v) { return (+v).toFixed(1); } },
     octaves: { label: 'octavesVal', fmt: function (v) { return v; } },
-    island: { label: 'islandVal', fmt: function (v) { return (+v).toFixed(2); } },
-    mscale: { label: 'mscaleVal', fmt: function (v) { return (+v).toFixed(1); } },
-    tbias: { label: 'tbiasVal', fmt: signed },
-    mbias: { label: 'mbiasVal', fmt: signed },
-    rivers: { label: 'riversVal', fmt: function (v) { return (+v).toFixed(2); } },
+    island: { label: 'islandVal', fmt: function (v) { return +v === 0 ? 'off' : (+v).toFixed(2); } },
+    tbias: { label: 'tbiasVal', fmt: function (v) {
+      v = +v; return v <= -0.2 ? 'Frozen' : v <= -0.08 ? 'Cold' : v < 0.08 ? 'Temperate' : v < 0.2 ? 'Warm' : 'Hot';
+    } },
+    mbias: { label: 'mbiasVal', fmt: function (v) {
+      v = +v; return v <= -0.2 ? 'Arid' : v <= -0.08 ? 'Dry' : v < 0.08 ? 'Normal' : v < 0.2 ? 'Wet' : 'Very wet';
+    } },
+    rivers: { label: 'riversVal', fmt: function (v) {
+      v = +v; return v === 0 ? 'None' : v < 1 ? 'Few' : v === 1 ? 'Normal' : v < 2 ? 'More' : 'Many';
+    } },
     brushSize: { label: 'brushSizeVal', fmt: function (v) { return v; } },
     brushStrength: { label: 'brushStrengthVal', fmt: function (v) { return (+v).toFixed(1); } },
     isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } },
@@ -121,7 +126,6 @@
       elevationScale: parseFloat($('escale').value),
       octaves: parseInt($('octaves').value, 10),
       islandFalloff: parseFloat($('island').value),
-      moistureScale: parseFloat($('mscale').value),
       temperatureBias: parseFloat($('tbias').value),
       moistureBias: parseFloat($('mbias').value),
       rivers: parseFloat($('rivers').value)
@@ -571,6 +575,7 @@
     refresh(true, true);
 
     var s = SM.summarize(grid);
+    $('seaVal').textContent = s.landPct + '% land';
     statsBase =
       cfg.width + '×' + cfg.height + ' · ' +
       dt.toFixed(1) + ' ms · land ' + s.landPct + '%';
@@ -1123,8 +1128,11 @@
     input.style.setProperty('--fill', pct.toFixed(1) + '%');
   }
 
+  // `mscale` (Moisture scale) was removed from the panel 2026-09-23 -- the
+  // weakest slider (20-25% of tiles) with a jargon name; old links carrying it
+  // are simply ignored and the generator keeps its default.
   var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
-    'island', 'mscale', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'yaw',
+    'island', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'yaw',
     'pitch', 'zoom'];
 
   function applyQueryValue(input, value) {
@@ -1273,8 +1281,64 @@
       if (input.type === 'range') paintRange(input);
     });
   });
-  ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'mscale', 'tbias', 'mbias', 'rivers']
-    .forEach(function (id) { $(id).addEventListener('change', regenerate); });
+  // World types: every generation slider at once. Values were chosen by
+  // measurement (3 seeds; panel review 2026-09-23), not by eye:
+  //   island   → one landmass, open sea on every edge at 256²
+  //   frozen   → tundra 22% + taiga 15% of land
+  //   arid     → desert 20% + shrubland 24%
+  //   tropical → jungle 26% + forest 21%
+  // "Archipelago" and "Pangaea" were tried and dropped: island consolidation
+  // (a documented rule: more sea → fewer, merged islands) defeats both.
+  var WORLD_DEFAULTS = { sea: 0.38, rugged: 0.35, warp: 0.18, escale: 2.5, octaves: 5,
+    island: 0, tbias: 0, mbias: 0, rivers: 1 };
+  var WORLD_TYPES = {
+    continents: {},
+    island: { sea: 0.55, island: 1 },
+    frozen: { tbias: -0.26, mbias: 0.06, rivers: 0.75 },
+    arid: { tbias: 0.22, mbias: -0.26, rivers: 0.5 },
+    tropical: { tbias: 0.2, mbias: 0.28, rivers: 1.25 }
+  };
+  var WORLD_KEYS = Object.keys(WORLD_DEFAULTS);
+
+  function worldValues(type) {
+    return Object.assign({}, WORLD_DEFAULTS, WORLD_TYPES[type] || {});
+  }
+
+  function applyWorldType(type) {
+    var values = worldValues(type);
+    WORLD_KEYS.forEach(function (id) {
+      var input = $(id);
+      input.value = values[id];
+      paintRange(input);
+      $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value);
+    });
+    regenerate();
+  }
+
+  // Which world type the sliders currently match (a shared link, or a user
+  // who moved a slider back) -- 'custom' when none.
+  function matchWorldType() {
+    var types = Object.keys(WORLD_TYPES);
+    for (var k = 0; k < types.length; k++) {
+      var values = worldValues(types[k]);
+      var same = WORLD_KEYS.every(function (id) {
+        return Math.abs(parseFloat($(id).value) - values[id]) < 1e-6;
+      });
+      if (same) return types[k];
+    }
+    return 'custom';
+  }
+
+  $('worldType').addEventListener('change', function () {
+    if (this.value !== 'custom') applyWorldType(this.value);
+  });
+  ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'tbias', 'mbias', 'rivers']
+    .forEach(function (id) {
+      $(id).addEventListener('change', function () {
+        $('worldType').value = matchWorldType();
+        regenerate();
+      });
+    });
   $('isoexag').addEventListener('change', function () {
     if (isVoxelMode() && voxelRenderer && voxelMesh) {
       voxelRenderer.setVerticalScale(isoExag());
@@ -1461,6 +1525,7 @@
     var input = $(id);
     if (input.type === 'range') { paintRange(input); $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value); }
   });
+  $('worldType').value = matchWorldType();
   buildLegend();
   buildBiomeSelect();
   syncEditControls();

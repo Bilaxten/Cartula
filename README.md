@@ -81,6 +81,15 @@ yükseklik (voxel kademe), albedo (ışıksız), güneş gölgesi, şelale yüzl
 Tek `uDebugView` uniform'u, yalnız fragment aşamasında (çapraz-aşama
 hassasiyet tuzağı yok); debug modunda gökyüzü çizilmez.
 
+**Panel (2026-09-23 gözden geçirme, her slider 3 seed'de ölçülerek):**
+*World type* hazır ayarları (Continents / Single island / Frozen / Arid /
+Tropical — değerler ölçümle seçildi; slider oynatılınca *Custom*). *Sea
+level* etiketi üretilen haritanın GERÇEK kara payını gösterir (eskiden
+`1 − seaLevel` yazıyordu: "62%" dediği harita %70 karaydı). *Island* artık
+karayı eritmez, merkezde toplar (deniz eşiği falloff'u hesaba katar; `--geo`
+P7). *Moisture scale* kaldırıldı (en zayıf etki, %20-25). Temperature /
+Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını söyler.
+
 **Yeni harita:** zar ikonlu *Random* düğmesi (kısayol `R`) — rastgele seed,
 slider ayarları korunur. Ayrı bir "Regenerate" yok: her ayar ve seed alanı
 değişince harita zaten yeniden üretilir; fırça düzenlemelerini geri almak

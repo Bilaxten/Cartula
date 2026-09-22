@@ -974,6 +974,31 @@ function runGeoProperties() {
       order && same && copies && finalMatches);
   }
 
+  // --- P7: "Island" shapes land, it does not melt it (panel review
+  // 2026-09-23). Before the fix the sea threshold ignored the falloff, so the
+  // slider just deleted land (65% → 10%) -- a second sea slider. Now: land
+  // share stays near the island-off map at 0.5, the edges empty out as the
+  // slider rises, and island=1 + sea 0.55 on a big map is ONE landmass with
+  // open sea on every edge.
+  {
+    const fails = [];
+    const edgeLand = g => { const w = g.width; let c = 0, t = 0;
+      for (let i = 0; i < w; i++) for (const j of [i, (w - 1) * w + i, i * w, i * w + w - 1]) { t++; if (!g.water[j]) c++; }
+      return c / t; };
+    for (const seed of [1337, 4242, 90210]) {
+      const off = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38 });
+      const half = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38, islandFalloff: 0.5 });
+      const full = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38, islandFalloff: 1 });
+      const lone = SM.generate({ seed, width: 256, height: 256, seaLevel: 0.55, islandFalloff: 1 });
+      const dLand = Math.abs(SM.summarize(half).landPct - SM.summarize(off).landPct);
+      if (dLand > 10) fails.push(`seed ${seed}: island 0.5 moved land by ${dLand}pp`);
+      if (!(edgeLand(full) < edgeLand(off))) fails.push(`seed ${seed}: edges did not empty`);
+      const bodies = countIslands(lone).filter(sz => sz >= 12).length;
+      if (edgeLand(lone) > 0.02 || bodies !== 1) fails.push(`seed ${seed}: lone island edge ${edgeLand(lone).toFixed(2)} bodies ${bodies}`);
+    }
+    push('Island slider gathers land instead of deleting it', fails.length === 0, fails.join('; '));
+  }
+
   // --- P5: no towers, any seed. The README's "no spikes" claim. --------------
   {
     const bad = SEEDS.filter(s => run(s, 160, 0.38).towers > 0);
