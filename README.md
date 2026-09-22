@@ -68,6 +68,13 @@ dağlar → deniz eşiği → iklim/biyom → kıyı → fiyort/volkan → nehir
 riparian → yatak derecelendirme → voxel) slider / ◀ ▶ / ←→ ile gezilir.
 Kayıtsız üretim ek maliyet ödemez; kayıt haritayı değiştirmez (`--geo` P6).
 
+**Unity export** (*Export for Unity (.zip)*, `src/export.js`, bağımlılıksız
+STORE zip): `heightmap.r16` (16-bit LE RAW, 2ⁿ+1 — Unity *Import Raw*, satır 0 =
+güney, flip yok), `albedo.png` (hücre başına 1 px), `biome.png` (R biyom, G
+kademe, B su), `map.json` (deniz seviyesi, lejant, nehir/göl/yerleşim/şelale),
+`README.txt` (içe aktarma adımları). Düzenlenmiş haritayı dışa aktarır.
+Doğrulama: `node tools/headless.js --export` (köşe/yön, CRC, zip dizini).
+
 **Canlı demo:** https://bilaxten.github.io/StilizedMaps/ (GitHub Pages, `master`).
 
 ## Milestone'lar

@@ -6,6 +6,7 @@
  *   node tools/headless.js --mesh       # voxel mesh integrity and determinism
  *   node tools/headless.js --river      # river brush channel planning (M3)
  *   node tools/headless.js --edit       # brush re-derivation: fresh water, levels
+ *   node tools/headless.js --export     # Unity bundle: r16 heightmap, json, zip
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
@@ -21,7 +22,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'render/topdown.js', 'render/sky.js',
-                 'render/voxel3d.js', 'time.js']) {
+                 'render/voxel3d.js', 'time.js', 'export.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -1104,6 +1105,80 @@ function runEditChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
+// Engine export (portfolio roadmap #4). The bytes a user drags into Unity are
+// easy to get silently wrong: a heightmap upside down, off by one row, the
+// wrong byte order, or a zip that only THIS code can read. Checked here
+// against the grid itself; the zip is re-parsed from its own directory.
+function runExportChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const X = SM.Export;
+
+  push('Unity resolution is 2^n+1 and never loses detail',
+    X.unityResolution(128) === 129 && X.unityResolution(129) === 257 &&
+    X.unityResolution(192) === 257 && X.unityResolution(448) === 513);
+
+  const g = SM.generate({ seed: 1337, width: 192, height: 192, seaLevel: 0.38 });
+  const res = X.unityResolution(192);
+  const r16 = X.heightmapR16(g, res);
+  const at = (r, c) => r16[(r * res + c) * 2] | (r16[(r * res + c) * 2 + 1] << 8);
+  const q = v => Math.round(Math.min(1, Math.max(0, v)) * 65535);
+  const W = g.width, H = g.height, e = g.elevation;
+  push(`heightmap is ${res}² × 16 bit`, r16.length === res * res * 2);
+  // Row 0 = SOUTH edge (Unity z = 0); corners land exactly on grid corners.
+  const corners = at(0, 0) === q(e[(H - 1) * W]) && at(0, res - 1) === q(e[(H - 1) * W + W - 1]) &&
+    at(res - 1, 0) === q(e[0]) && at(res - 1, res - 1) === q(e[W - 1]);
+  push('corners: row 0 is the south edge, little-endian, exact at grid corners', corners,
+    corners ? '' : `got ${at(0, 0)} want ${q(e[(H - 1) * W])}`);
+
+  const meta = X.exportMeta(g);
+  const rivers = g.biome.filter(b => b === SM.BIOME_IDX.river).length;
+  const lips = g.waterfalls.filter(v => v === 1).length;
+  push('map.json: sea level, rivers, waterfalls, legend match the grid',
+    meta.seaLevelNormalized === g.seaThresh && meta.rivers.length === rivers &&
+    meta.waterfalls.length === lips && meta.biomes.length === SM.BIOME_LIST.length &&
+    meta.heightmap.resolution === res);
+
+  // zip: walk the central directory, re-read every local entry, check CRC.
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]); // stand-in bytes
+  const zip = X.buildUnityBundle(g, { albedo: png, biome: png });
+  const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  const eocd = zip.length - 22;
+  let names = [], zipOk = dv.getUint32(eocd, true) === 0x06054b50;
+  if (zipOk) {
+    const count = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    for (let k = 0; k < count && zipOk; k++) {
+      zipOk = dv.getUint32(p, true) === 0x02014b50;
+      const crc = dv.getUint32(p + 16, true), len = dv.getUint32(p + 20, true);
+      const nlen = dv.getUint16(p + 28, true), off = dv.getUint32(p + 42, true);
+      const name = Buffer.from(zip.subarray(p + 46, p + 46 + nlen)).toString('utf8');
+      zipOk = zipOk && dv.getUint32(off, true) === 0x04034b50;
+      const data = zip.subarray(off + 30 + nlen, off + 30 + nlen + len);
+      zipOk = zipOk && X.crc32(data) === crc;
+      if (name === 'map.json') {
+        try { zipOk = zipOk && JSON.parse(Buffer.from(data).toString('utf8')).seed === 1337; }
+        catch (err) { zipOk = false; }
+      }
+      names.push(name);
+      p += 46 + nlen;
+    }
+  }
+  push(`zip: directory + CRCs valid (${names.join(', ')})`, zipOk && names.length === 5);
+  push('crc32 matches the reference value for "123456789"',
+    X.crc32(new Uint8Array(Buffer.from('123456789'))) === 0xCBF43926);
+  const again = X.buildUnityBundle(g, { albedo: png, biome: png });
+  push('bundle is deterministic', Buffer.compare(Buffer.from(zip), Buffer.from(again)) === 0);
+
+  if (process.env.EXPORT_ZIP_OUT) fs.writeFileSync(process.env.EXPORT_ZIP_OUT, zip);
+  console.log('export checks (seed 1337, 192²):');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 if (process.argv[2] === '--shaders') {
   runShaderChecks();
 } else if (process.argv[2] === '--sky') {
@@ -1112,6 +1187,8 @@ if (process.argv[2] === '--shaders') {
   runRiverChecks();
 } else if (process.argv[2] === '--edit') {
   runEditChecks();
+} else if (process.argv[2] === '--export') {
+  runExportChecks();
 } else if (process.argv[2] === '--mesh') {
   runMeshChecks();
 } else if (process.argv[2] === '--falls') {

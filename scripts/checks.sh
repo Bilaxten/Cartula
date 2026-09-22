@@ -83,7 +83,7 @@ else
     # (09-15, `46d6e71` + `5fb00d9`) sessizce kırmızı kaldı çünkü buraya bağlı
     # değildi. Harness yazılıp checks'e bağlanmazsa çürür. --falls: şelale
     # yüzleri (grid.waterfalls → buildVoxelMesh), sessizce taş uçuruma dönmesin.
-    for hmode in --edit --river --mesh --falls --sky; do
+    for hmode in --edit --river --mesh --falls --sky --export; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else

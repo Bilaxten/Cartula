@@ -1192,6 +1192,42 @@
     else done('—');
   }
 
+  // Engine bundle (portfolio roadmap #4). The data half is pure
+  // (SM.Export, src/export.js, `--export`); only the two PNGs need a canvas.
+  // Exports the grid AS EDITED -- brush work is part of the map.
+  function pngBytes(width, height, paint) {
+    var c = document.createElement('canvas');
+    c.width = width; c.height = height;
+    paint(c.getContext('2d'));
+    return new Promise(function (resolve) {
+      c.toBlob(function (blob) {
+        blob.arrayBuffer().then(function (buf) { resolve(new Uint8Array(buf)); });
+      }, 'image/png');
+    });
+  }
+
+  function exportUnity() {
+    if (!grid || !SM.Export) return;
+    var w = grid.width, h = grid.height;
+    var albedo = pngBytes(w, h, function (ctx) {
+      var big = document.createElement('canvas');
+      SM.renderTopDown(big, grid, { tile: 1, grid: false, shade: $('showShade').checked });
+      ctx.drawImage(big, 0, 0);
+    });
+    var biome = pngBytes(w, h, function (ctx) {
+      ctx.putImageData(new ImageData(SM.Export.biomeRGBA(grid), w, h), 0, 0);
+    });
+    Promise.all([albedo, biome]).then(function (pngs) {
+      var zip = SM.Export.buildUnityBundle(grid, { albedo: pngs[0], biome: pngs[1] });
+      var url = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
+      var a = document.createElement('a');
+      a.download = 'stilizedmaps-' + (grid.config ? grid.config.seed : 'map') + '-unity.zip';
+      a.href = url;
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    });
+  }
+
   function exportPng() {
     var out;
     var octx;
@@ -1315,6 +1351,7 @@
     });
   });
   $('exportPng').addEventListener('click', exportPng);
+  $('exportUnity').addEventListener('click', exportUnity);
   $('shareLink').addEventListener('click', shareLink);
   window.addEventListener('resize', function () {
     if (isVoxelMode()) resizeVoxel();

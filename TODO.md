@@ -10,15 +10,17 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 ## NOW
 
 - [ ] **Portfolyo yol haritası (2026-09-22, Uğur onayladı, bu sırayla):**
-      1. **Canlı demo** — GitHub Pages: `https://bilaxten.github.io/StilizedMaps/`
+      1. ✅ **Canlı demo** — GitHub Pages: `https://bilaxten.github.io/StilizedMaps/`
          (`master` kökünden, build yok).
-      2. **Pipeline adım adım modu** — üretimi pass pass izlet (ham noise →
+      2. ✅ **Pipeline adım adım modu** — üretimi pass pass izlet (ham noise →
          dağ → deniz eşiği → iklim → biyom → nehir → yatak oyma → voxel).
          Vaka çalışmasının görselleri buradan çıkar.
-      3. **Vaka çalışması** — `bilaxten.art` `site` dalında `work/`; demo linki
-         + pipeline görselleri + ölçümler (`--manifest`, harness'lar).
-      4. **Unity export** — 16-bit heightmap, biyom splatmap, nehir/yerleşim
-         JSON; VFX-Portfolyo Unity sahnesine bağlar.
+      3. ✅ **Vaka çalışması** (`bilaxten.art` `site` `64fbd1c`) — görseller +
+         ölçümler + demo linki. Uğur'da: `[SES]` cümleleri, şelale/gökyüzü GIF'i,
+         `site` → `master` kararı.
+      4. ✅ **Unity export** — zip: r16 heightmap + albedo + biyom maskesi +
+         map.json. ⚠️ Unity'de gerçekten içe aktarılıp denenmedi (Uğur, ya da
+         VFX-Portfolyo'da ayrı bir sahnede).
       5. **Debug görünümleri + shader cilası** — AO/normal/yükseklik/biyom/
          gölge/şelale maskesi görünümleri; su köpük bandı, outline, sis.
 

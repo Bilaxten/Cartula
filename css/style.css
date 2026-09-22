@@ -317,6 +317,7 @@ details.group .body { padding: 2px 18px 18px; }
   font-variant-numeric: tabular-nums;
 }
 #tools .toolrow { display: flex; gap: 7px; }
+#tools .toolrow + .toolrow { margin-top: 7px; }
 #tools .toolrow button { flex: 1; padding: 7px 8px; font-size: 12px; }
 #tools .toolrow button.ok { border-color: var(--accent); color: var(--accent); }
 
