@@ -816,6 +816,7 @@
       // position. Fixed-size array: GLSL uniform arrays cannot be dynamic, and
       // `SM.Sky.MAX_CLOUDS` is the JS half of the same contract.
       'uniform vec3 uClouds[6];',
+      'uniform float uCloudFade[6];',  // the shadow fades with its cloud
       'uniform int uCloudCount;',
       'uniform float uCloudShadow;',
       // Render debug view (0 = lit). Fragment-only on purpose: a uniform
@@ -881,8 +882,8 @@
       '    if (c >= uCloudCount) break;',
       '    vec2 delta = vCellUV - uClouds[c].xy;',
       '    float radius = max(1e-4, uClouds[c].z);',
-      '    cloudCover = max(cloudCover,',
-      '      1.0 - smoothstep(radius * 0.45, radius, length(delta)));',
+      '    cloudCover = max(cloudCover, uCloudFade[c] *',
+      '      (1.0 - smoothstep(radius * 0.45, radius, length(delta))));',
       '  }',
       '  // `daylight`, not raw uSunStrength: the raw value is ~0.34 at noon and',
       '  // multiplying by it left the shadow at ~12% -- present in the numbers,',
@@ -959,6 +960,9 @@
       'uniform mat4 uViewProjection;',
       'uniform highp float uTime;',
       'uniform vec3 uCloudPos[6];',
+      // Per-cloud opacity (SM.Sky.cloudFade). Vertex-only, so no cross-stage
+      // precision question; the fragment gets it through vFade.
+      'uniform float uCloudFade[6];',
       // ⚠️ EXPLICIT PRECISION ON BOTH STAGES. `int` defaults to highp in the
       // vertex shader and mediump in the fragment shader, and a uniform of the
       // same name with different precision is a LINK ERROR -- silent, because
@@ -970,6 +974,7 @@
       'uniform vec2 uFlockSpan;',      // orbit radius, height above terrain
       'out vec3 vNormal;',
       'out float vShade;',
+      'out float vFade;',
       '',
       'float birdHash(float i, float salt) {',
       '  return fract(sin(i * 12.9898 + salt * 78.233) * 43758.5453);',
@@ -980,6 +985,14 @@
       '  if (uMode == 0) {',
       '    world = aPosition + uCloudPos[int(aCloudIndex)];',
       '    vShade = 1.0;',
+      '    vFade = uCloudFade[int(aCloudIndex)];',
+      '    // A fully faded cloud is not drawn at all: without this it would',
+      '    // still write depth in the prepass and hide birds behind nothing.',
+      '    if (vFade < 0.004) {',
+      '      vNormal = aNormal;',
+      '      gl_Position = vec4(2.0, 2.0, 2.0, 1.0);',
+      '      return;',
+      '    }',
       '  } else {',
       '    float id = aCloudIndex;',
       '    // Each bird keeps its own orbit radius, height and phase, so the',
@@ -1006,6 +1019,7 @@
       '    world = uFlockCenter + turned + vec3(',
       '      cos(angle) * radius, lift + bob, sin(angle) * radius);',
       '    vShade = 1.0;',
+      '    vFade = 1.0;',
       '  }',
       '  vNormal = aNormal;',
       '  gl_Position = uViewProjection * vec4(world, 1.0);',
@@ -1016,6 +1030,7 @@
       'precision mediump float;',
       'in vec3 vNormal;',
       'in float vShade;',
+      'in float vFade;',
       'uniform vec3 uColor;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
@@ -1035,7 +1050,7 @@
       '    // Birds read as silhouettes: shape carries them, not shading.',
       '    tint = uColor * mix(0.45, 1.0, daylight);',
       '  }',
-      '  outColor = vec4(tint * vShade, 1.0);',
+      '  outColor = vec4(tint * vShade, vFade);',
       '}'
     ].join('\n');
     var vertex = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
@@ -1105,6 +1120,7 @@
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
     var cellUV = gl.getAttribLocation(program, 'aCellUV');
     var cloudsUniform = gl.getUniformLocation(program, 'uClouds');
+    var cloudFadeUniform = gl.getUniformLocation(program, 'uCloudFade');
     var cloudCountUniform = gl.getUniformLocation(program, 'uCloudCount');
     var cloudShadowUniform = gl.getUniformLocation(program, 'uCloudShadow');
     var debugViewUniform = gl.getUniformLocation(program, 'uDebugView');
@@ -1144,6 +1160,8 @@
     // per-frame path -- three small arrays a frame is 180 allocations a second
     // for numbers that never change shape.
     var cloudWorldData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+    // Per-cloud opacity for both programs; zero-padded, reused every frame.
+    var cloudFadeData = new Float32Array(SM.Sky.MAX_CLOUDS);
     var meshBounds = null;
     var showSky = true;
     var debugView = 0;
@@ -1253,6 +1271,7 @@
           viewProjection: gl.getUniformLocation(skyProgram, 'uViewProjection'),
           time: gl.getUniformLocation(skyProgram, 'uTime'),
           cloudPosUniform: gl.getUniformLocation(skyProgram, 'uCloudPos'),
+          cloudFadeUniform: gl.getUniformLocation(skyProgram, 'uCloudFade'),
           mode: gl.getUniformLocation(skyProgram, 'uMode'),
           color: gl.getUniformLocation(skyProgram, 'uColor'),
           sunDirection: gl.getUniformLocation(skyProgram, 'uSunDirection'),
@@ -1305,6 +1324,10 @@
       // allocation at all.
       SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
       SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData);
+      cloudFadeData.fill(0);
+      for (var f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
+        cloudFadeData[f] = cloudNow[f].fade;
+      }
     }
 
     function drawSky() {
@@ -1329,10 +1352,25 @@
           flat[i * 3 + 2] = cloudNow[i].z;
         }
         gl.uniform3fv(sky.cloudPosUniform, flat);
+        gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
         gl.uniform1i(sky.mode, 0);
         gl.uniform3f(sky.color, 0.93, 0.95, 0.99);
         gl.bindVertexArray(sky.cloudVao);
+        // Fading clouds are translucent, and a voxel cloud is many touching
+        // boxes: plain alpha would show every inner face through the others.
+        // Pass 1 writes depth only, pass 2 colours only the front-most
+        // surface (LEQUAL) with blending -- each pixel is blended once.
+        gl.colorMask(false, false, false, false);
         gl.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
+        gl.colorMask(true, true, true, true);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(false);
+        gl.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
+        gl.depthMask(true);
+        gl.depthFunc(gl.LESS);
+        gl.disable(gl.BLEND);
       }
 
       if (sky.birdCount) {
@@ -1571,6 +1609,7 @@
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
       gl.uniform3fv(cloudsUniform, cloudShadowData);
+      gl.uniform1fv(cloudFadeUniform, cloudFadeData);
       gl.uniform1i(cloudCountUniform, showSky && !debugView ? cloudNow.length : 0);
       gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
       gl.bindVertexArray(vao);

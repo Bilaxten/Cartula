@@ -81,6 +81,16 @@ yükseklik (voxel kademe), albedo (ışıksız), güneş gölgesi, şelale yüzl
 Tek `uDebugView` uniform'u, yalnız fragment aşamasında (çapraz-aşama
 hassasiyet tuzağı yok); debug modunda gökyüzü çizilmez.
 
+**Yeni harita:** zar ikonlu *Random* düğmesi (kısayol `R`) — rastgele seed,
+slider ayarları korunur. Ayrı bir "Regenerate" yok: her ayar ve seed alanı
+değişince harita zaten yeniden üretilir; fırça düzenlemelerini geri almak
+Edit → *Reset to generated*.
+
+**Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
+(`SM.Sky.cloudFade`); başa dönme noktasında opaklık tam 0, gölge de bulutla
+birlikte solar. Saydam voxel bulut iki geçişle çizilir (önce yalnız derinlik,
+sonra en öndeki yüzey karıştırılarak) — iç kutu yüzleri görünmez. `--sky`.
+
 **Canlı demo:** https://bilaxten.github.io/StilizedMaps/ (GitHub Pages, `master`).
 
 ## Milestone'lar

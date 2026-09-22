@@ -261,7 +261,6 @@ details.group .body { padding: 2px 18px 18px; }
 #tools .toolrow button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
 #panel button:disabled,
 #tools .toolrow button:disabled { opacity: 0.4; cursor: default; }
-#panel #randomSeed { flex: none; }
 #panel button.primary {
   margin: 13px 18px;
   padding: 10px;
@@ -272,6 +271,9 @@ details.group .body { padding: 2px 18px 18px; }
   letter-spacing: 0.01em;
 }
 #panel button.primary:hover { background: var(--accent-press); border-color: var(--accent-press); }
+#randomMap { display: flex; align-items: center; justify-content: center; gap: 8px; }
+#randomMap .dice { flex: none; transition: transform 0.35s ease; }
+#randomMap.rolling .dice { transform: rotate(180deg); }
 
 .edit-actions {
   display: grid;

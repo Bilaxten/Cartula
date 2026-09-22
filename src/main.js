@@ -1290,12 +1290,21 @@
     applyDayNight();
   });
 
-  $('regen').addEventListener('click', regenerate);
-  $('seed').addEventListener('change', regenerate);
-  $('randomSeed').addEventListener('click', function () {
+  // One "new map" action: a random seed, the sliders stay as set. There is
+  // no Regenerate button any more -- every setting (and the seed field)
+  // already regenerates on change, and "undo my brush edits" is Edit →
+  // Reset to generated. (Uğur, 2026-09-23: shuffle + Regenerate replaced.)
+  function randomMap() {
     $('seed').value = Math.floor(Math.random() * 1e6);
     regenerate();
-  });
+    var btn = $('randomMap');
+    btn.classList.remove('rolling');
+    void btn.offsetWidth; // restart the dice spin
+    btn.classList.add('rolling');
+    setTimeout(function () { btn.classList.remove('rolling'); }, 360);
+  }
+  $('randomMap').addEventListener('click', randomMap);
+  $('seed').addEventListener('change', regenerate);
   $('showGrid').addEventListener('change', function () {
     if (view === 'top') refresh(false);
   });
@@ -1440,6 +1449,7 @@
       if (key === 'arrowleft') { ev.preventDefault(); showStage(pipeline.index - 1); return; }
       if (key === 'arrowright') { ev.preventDefault(); showStage(pipeline.index + 1); return; }
     }
+    if (key === 'r' && !ev.altKey && !ev.shiftKey) { randomMap(); return; }
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
   });

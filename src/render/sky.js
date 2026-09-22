@@ -71,6 +71,25 @@
    * over a span padded by the cloud radius so a cloud leaves the map completely
    * before reappearing on the other side.
    */
+  function smoothstep(a, b, x) {
+    var t = (x - a) / (b - a);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t * t * (3 - 2 * t);
+  }
+
+  /* Opacity of a cloud at drift position x (0..1). Clouds wrap around the
+   * map, and the orthographic camera sees past its edges, so a cloud used to
+   * pop into existence at the wrap point and vanish at the far side (Uğur,
+   * 2026-09-23). It now fades in while it crosses onto the map and out as it
+   * leaves; at the wrap point (x = minX - pad or maxX + pad) the opacity is
+   * exactly 0, so the jump itself is invisible. */
+  function cloudFade(x, radius, bounds) {
+    var pad = radius * 2;
+    var fadeIn = smoothstep(bounds.minX - pad, bounds.minX + radius, x);
+    var fadeOut = 1 - smoothstep(bounds.maxX - radius, bounds.maxX + pad, x);
+    return Math.min(fadeIn, fadeOut);
+  }
+
   function driftClouds(instances, time, bounds, vScale, out) {
     var spanX = bounds.maxX - bounds.minX;
     var topY = bounds.maxY * (vScale || 1);
@@ -86,8 +105,9 @@
       var wrapped = travelled - Math.floor(travelled / range) * range;
       // `out` is reused across frames by the renderer, so entries are updated
       // in place rather than replaced -- this runs once per frame.
-      if (!result[i]) result[i] = { x: 0, y: 0, z: 0, radius: 0 };
+      if (!result[i]) result[i] = { x: 0, y: 0, z: 0, radius: 0, fade: 0 };
       result[i].x = bounds.minX - pad + wrapped;
+      result[i].fade = cloudFade(result[i].x, cloud.radius, bounds);
       result[i].y = topY + cloud.lift * (vScale || 1);
       result[i].z = cloud.z;
       result[i].radius = cloud.radius;
@@ -288,6 +308,7 @@
   }
 
   SM.Sky = {
+    cloudFade: cloudFade,
     MAX_CLOUDS: MAX_CLOUDS,
     ceiling: ceiling,
     cloudInstances: cloudInstances,

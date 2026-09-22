@@ -660,6 +660,25 @@ function runSkyChecks() {
   SM.Sky.cloudShadowUniforms(first.slice(0, 1), bounds, [0, 1, 0], shadowTarget);
   results.push(['reused shadow buffer is cleared, not left stale',
     shadowTarget.slice(3).every(v => v === 0)]);
+  // Clouds fade in/out instead of popping at the wrap point (Uğur,
+  // 2026-09-23). Opacity is exactly 0 where the jump happens, 1 over the
+  // middle of the map, and never jumps between consecutive small steps.
+  {
+    const r = instances[0].radius, pad = r * 2;
+    const f = x => SM.Sky.cloudFade(x, r, bounds);
+    const mid = (bounds.minX + bounds.maxX) / 2;
+    results.push(['cloud opacity is 0 at both wrap points, 1 mid-map',
+      f(bounds.minX - pad) === 0 && f(bounds.maxX + pad) === 0 && f(mid) === 1]);
+    let maxStep = 0, inRange = true, prev = null;
+    for (let t = 0; t < 4000; t++) {
+      const now = SM.Sky.driftClouds(instances.slice(0, 1), t * 0.25, bounds, 1.6)[0].fade;
+      if (now < 0 || now > 1) inRange = false;
+      if (prev !== null) maxStep = Math.max(maxStep, Math.abs(now - prev));
+      prev = now;
+    }
+    results.push([`cloud opacity never jumps, wrap included (max step ${maxStep.toFixed(3)})`,
+      inRange && maxStep < 0.1]);
+  }
 
   results.push(['sky meshes are deterministic',
     JSON.stringify([...cloudMesh.positions]) ===
