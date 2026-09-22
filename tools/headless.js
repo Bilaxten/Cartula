@@ -8,6 +8,7 @@
  *   node tools/headless.js --edit       # brush re-derivation: fresh water, levels
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
+ *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
  */
 'use strict';
 const fs = require('fs');
@@ -301,6 +302,154 @@ function runMeshChecks() {
   console.log(`  mesh: ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles, ${buildMs.toFixed(1)} ms`);
   console.log(`  density: ${quads} quads, ${perCell.toFixed(3)} quads/cell`);
   console.log(`  shadow map: ${shadow.byteLength} bytes, ${shadowMs.toFixed(1)} ms`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// Waterfalls (voxel view). SM.tagWaterfalls (grid.js, a separate lane) marks
+// grid.waterfalls[i]: 1 = LIP (the fresh-water tile the fall drops FROM),
+// 2 = LANDING (the water tile it drops INTO); grid.waterfallDrop[i] on a lip
+// is the drop in levels. buildVoxelMesh must NOT trust grid.flow (empty on
+// ~75% of river tiles) — the fall direction is re-derived from geometry: an
+// orthogonal WATER neighbour of a LIP tile that sits >=SM.WATERFALL_MIN_DROP
+// levels lower. These checks build small hand-tagged grids rather than
+// depending on the other lane's generator, per the coordinator's contract
+// note (2026-09-22).
+function makeFallGrid(W, H, levels, waterFlags, biomeFlags, waterfalls, waterfallDrop) {
+  const n = W * H;
+  const level = new Int8Array(n);
+  const water = new Uint8Array(n);
+  const biome = new Uint8Array(n);
+  const moisture = new Float32Array(n).fill(0.5);
+  const elevation = new Float32Array(n).fill(0.5);
+  for (let i = 0; i < n; i++) {
+    level[i] = levels[i];
+    water[i] = waterFlags[i];
+    biome[i] = biomeFlags[i];
+  }
+  const grid = {
+    width: W, height: H, level, water, biome, moisture, elevation,
+    config: { waterDepth: 3, levels: 10 }
+  };
+  if (waterfalls) grid.waterfalls = Uint8Array.from(waterfalls);
+  if (waterfallDrop) grid.waterfallDrop = Int8Array.from(waterfallDrop);
+  return grid;
+}
+
+// Sum of a mesh's per-vertex fall flags, and the Y range of the flagged
+// vertices — a real quad spans exactly its lip-to-landing height difference,
+// so this doubles as the "spans the height difference" check.
+function fallStats(mesh) {
+  let count = 0, minY = Infinity, maxY = -Infinity;
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    if (!mesh.fall[v]) continue;
+    count++;
+    const y = mesh.positions[v * 3 + 1];
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { count, minY, maxY };
+}
+
+function runFallsChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const RIVER = SM.BIOME_IDX.river;
+  const GRASS = SM.BIOME_IDX.grassland;
+
+  // 1) A river lip at level 6 next to a river landing at level 2 (drop 4,
+  //    over WATERFALL_MIN_DROP) must produce falling-water side faces on
+  //    EXACTLY that edge, spanning the full 6→2 height difference.
+  {
+    const g = makeFallGrid(2, 1, [6, 2], [1, 1], [RIVER, RIVER],
+      [1, 2], [4, 0]);
+    const mesh = SM.buildVoxelMesh(g);
+    const stats = fallStats(mesh);
+    push('lip (L6) next to landing (L2): exactly one fall quad',
+      stats.count === 4, `fall-flagged vertices: ${stats.count}`);
+    push('fall quad spans the full lip-to-landing height difference',
+      stats.count > 0 && stats.minY === 2 && stats.maxY === 6,
+      `y range: ${stats.minY}..${stats.maxY}`);
+  }
+
+  // 2) Identical geometry, but the tag is missing (waterfalls omitted) —
+  //    the same ordinary side faces must be emitted, with no fall flag.
+  {
+    const tagged = makeFallGrid(2, 1, [6, 2], [1, 1], [RIVER, RIVER],
+      [1, 2], [4, 0]);
+    const untagged = makeFallGrid(2, 1, [6, 2], [1, 1], [RIVER, RIVER]);
+    const meshTagged = SM.buildVoxelMesh(tagged);
+    const meshUntagged = SM.buildVoxelMesh(untagged);
+    push('same geometry without the tag keeps the same triangle count',
+      meshUntagged.triangleCount === meshTagged.triangleCount,
+      `tagged=${meshTagged.triangleCount} untagged=${meshUntagged.triangleCount}`);
+    push('same geometry without the tag: no falling-water flag anywhere',
+      Array.prototype.every.call(meshUntagged.fall, v => v === 0));
+  }
+
+  // 3) A land cliff (same 6/2 step, no water) must render exactly as before
+  //    — never treated as a fall even if (mis-)tagged, because the LIP guard
+  //    requires the source tile itself to be water.
+  {
+    const g = makeFallGrid(2, 1, [6, 2], [0, 0], [GRASS, GRASS],
+      [1, 2], [4, 0]);
+    const mesh = SM.buildVoxelMesh(g);
+    const stats = fallStats(mesh);
+    push('a land cliff is never flagged as a fall', stats.count === 0,
+      `fall-flagged vertices: ${stats.count}`);
+    push('a land cliff still gets its ordinary side wall',
+      mesh.triangleCount > 0);
+  }
+
+  // 4) grid.waterfalls entirely absent (older grid / SM.tagWaterfalls never
+  //    ran) — buildVoxelMesh must not throw, and nothing reads as a fall.
+  {
+    let threw = false;
+    let mesh = null;
+    try {
+      mesh = SM.buildVoxelMesh(makeFallGrid(2, 1, [6, 2], [1, 1],
+        [RIVER, RIVER]));
+    } catch (err) { threw = true; }
+    push('missing grid.waterfalls builds without throwing', !threw && !!mesh);
+    if (mesh) {
+      push('missing grid.waterfalls: fall array is all zero',
+        Array.prototype.every.call(mesh.fall, v => v === 0));
+    }
+  }
+
+  // 5) Determinism: same tagged grid, built twice, byte-identical fall array
+  //    (and positions, since a fall face reuses the ordinary quad geometry).
+  {
+    const a = makeFallGrid(2, 1, [6, 2], [1, 1], [RIVER, RIVER], [1, 2], [4, 0]);
+    const b = makeFallGrid(2, 1, [6, 2], [1, 1], [RIVER, RIVER], [1, 2], [4, 0]);
+    const meshA = SM.buildVoxelMesh(a);
+    const meshB = SM.buildVoxelMesh(b);
+    push('determinism: fall array is byte-identical across two builds',
+      typedEqual(meshA.fall, meshB.fall));
+    push('determinism: positions are byte-identical across two builds',
+      typedEqual(meshA.positions, meshB.positions));
+  }
+
+  // 6) A real, decorated map actually produces falling-water faces. This
+  //    checkout still carries the pre-contract-update generate.js (the
+  //    waterfall-tagging lane's rewrite lands separately), so the count is
+  //    whatever the current tagging produces — the assertion is only that
+  //    it is non-zero, per the task's spec; the exact number is printed for
+  //    visibility, not pinned as a baseline.
+  {
+    const g = SM.generate({
+      seed: 1337, width: 192, height: 192, seaLevel: 0.38, decorations: true
+    });
+    const mesh = SM.buildVoxelMesh(g);
+    const stats = fallStats(mesh);
+    push(`real map (seed 1337, 192², decorations) has falling-water faces ` +
+      `(${stats.count / 4} quads)`, stats.count > 0);
+  }
+
+  console.log('waterfall face checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
@@ -945,6 +1094,8 @@ if (process.argv[2] === '--shaders') {
   runEditChecks();
 } else if (process.argv[2] === '--mesh') {
   runMeshChecks();
+} else if (process.argv[2] === '--falls') {
+  runFallsChecks();
 } else if (process.argv[2] === '--sweep') {
   runSweepChecks();
 } else if (process.argv[2] === '--geo') {
