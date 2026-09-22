@@ -56,6 +56,13 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## LATER
 
+- [ ] **Pages önbellek karışması:** GitHub Pages `src/*.js`'i 10 dk
+      önbellekliyor; deploy'dan hemen sonra siteyi önceden açmış biri yeni
+      `index.html` + eski JS görebilir (2026-09-22'de canlıda görüldü:
+      pipeline düğmesi var, `SM.PIPELINE_STAGES` yok). Çözüm: script/link
+      URL'lerine tek bir `?v=` sürümü + `checks.sh`'te hepsinin aynı olduğu
+      kontrolü (build yok ilkesi korunur). Trafik düşükken acil değil.
+
 - [ ] **Görsel regresyon fikri:** `tools/headless.js` determinism'i yakalıyor ama
       render'ı yakalamıyor. Canvas'ı node-canvas ile PNG'ye basıp referansla
       karşılaştırmak mümkün — ama bu bir **bağımlılık** demek (`AGENTS.md` §2:
