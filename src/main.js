@@ -320,6 +320,11 @@
         return false;
       }
       voxelRenderer.setClearColor(0.055, 0.075, 0.11, 1);
+      // A renderer rebuilt after pagehide / context loss must pick up the
+      // camera the user left, not its own default. `rebuildVoxelMesh` only
+      // hands the camera over when it refits, and an unchanged footprint does
+      // not refit.
+      if (voxelCamera) voxelRenderer.setCamera(voxelCamera);
     }
     voxelRenderer.setTime(voxelTime);
     map.hidden = true;
@@ -851,20 +856,28 @@
     }
   }
 
+  // Undo/Redo also work from the isometric view (Ctrl+Z / the panel buttons),
+  // but both repaint paths above are top-down only. Without this the grid went
+  // back while the voxel mesh and its shadow map kept showing the edit
+  // (tarama 2026-09-22 #4).
+  function afterHistoryStep(record) {
+    paintEditedTiles(record.indices);
+    updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
+    if (isVoxelMode() && voxelRenderer) rebuildVoxelMesh(false);
+  }
+
   function undoEdit() {
     if (!undoStack.length || !grid) return;
     var record = undoStack.pop();
     redoStack.push(restoreRecord(record));
-    paintEditedTiles(record.indices);
-    updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
+    afterHistoryStep(record);
   }
 
   function redoEdit() {
     if (!redoStack.length || !grid) return;
     var record = redoStack.pop();
     undoStack.push(restoreRecord(record));
-    paintEditedTiles(record.indices);
-    updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
+    afterHistoryStep(record);
   }
 
   function eventTile(ev) {
@@ -1239,6 +1252,38 @@
       // de tetikler, yalnız sekme kapanışında değil.
       voxelRenderer = null;
     }
+  });
+  // ...and the other half: nothing rebuilt it on the way BACK from bfcache, so
+  // the isometric view came back as a dead canvas until the user switched tabs.
+  window.addEventListener('pageshow', function (ev) {
+    if (!ev.persisted || !grid || !isVoxelMode() || voxelRenderer) return;
+    // A context lost while cached comes back through `webglcontextrestored`;
+    // building on a lost context would fail to link and `startVoxel` would
+    // write the view off as "no WebGL2" for good.
+    if (voxelContextLost) return;
+    refresh(false);
+  });
+
+  // GPU reset, driver update, too many contexts: the browser drops the WebGL
+  // context and every buffer/program with it. preventDefault() is what asks
+  // for it back; without it the canvas stays black for the rest of the session.
+  var voxelContextLost = false;
+  glCanvas.addEventListener('webglcontextlost', function (ev) {
+    ev.preventDefault();
+    voxelContextLost = true;
+    if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
+    // Everything the renderer holds is already gone; drop it so every
+    // `if (!voxelRenderer)` guard stands down until the context is back.
+    if (voxelRenderer) {
+      try { voxelRenderer.dispose(); } catch (err) { /* lost context */ }
+      voxelRenderer = null;
+    }
+    if (isVoxelMode()) $('isohint').textContent = 'GPU context lost · waiting for the browser to restore it';
+  });
+  glCanvas.addEventListener('webglcontextrestored', function () {
+    voxelContextLost = false;
+    // In top-down view the next `startVoxel` builds a fresh renderer anyway.
+    if (grid && isVoxelMode()) refresh(false);
   });
 
   map.addEventListener('mousemove', onHover);

@@ -16,8 +16,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       3. P2 vaadi kısmen tutuyor: 128→256'da kara/su %78-96, biyom %41-89.
          Ana sebep kenara değen su kütlesinin büyük haritada "göl" olması
          (seed 11: ~4900 hücre shallow_water→lake).
-      4. İzometrikte Undo/Redo voxel mesh'i yeniden kurmuyor; `pageshow` /
-         `webglcontextlost` işleyicisi yok.
       5. 09-15'ten açık: #5 paintEditedTiles sapması, #6 bulut mesh'i, #7
          yerleşim tavanı + kozmetik (`tick` ölü iso artığı, çift `shade`).
 
