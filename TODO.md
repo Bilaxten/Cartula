@@ -9,6 +9,22 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **Tarama 2026-09-22 bulguları (kod doğrulandı, düzeltilmedi):**
+      1. Fırça tatlı suyu bozuyor: `deriveTile` (`main.js:706`) tüm suyu
+         `level=0`'a basıyor (09-15 bulgu 2'nin editör yolu); Raise/Lower/Smooth
+         `deriveTile(i,true)` ile deniz üstü nehir/gölü karaya çeviriyor.
+         Seviye formülü `quantLandLevel`'ın kopyası (`main.js:708-710`).
+      2. Varsayılan haritada nehir komşuları %5-16 oranında >1 kademe sıçrıyor
+         (max 7). Şelale işareti yalnız `decorations:true`'da var ve hiçbir
+         renderer çizmiyor; `--geo` P4 bunları muaf tutup eşiği %10'a çekmiş.
+      3. P2 vaadi kısmen tutuyor: 128→256'da kara/su %78-96, biyom %41-89.
+         Ana sebep kenara değen su kütlesinin büyük haritada "göl" olması
+         (seed 11: ~4900 hücre shallow_water→lake).
+      4. İzometrikte Undo/Redo voxel mesh'i yeniden kurmuyor; `pageshow` /
+         `webglcontextlost` işleyicisi yok.
+      5. 09-15'ten açık: #5 paintEditedTiles sapması, #6 bulut mesh'i, #7
+         yerleşim tavanı + kozmetik (`tick` ölü iso artığı, çift `shade`).
+
 - [ ] **İlk vaka çalışması — kuyruğun başı.** M1-M4 bitti + P3 (property test +
       ölçüm paketi, 2026-09-08). `bilaxten.art`'a konacak breakdown: üretim
       hattı, coğrafi kurallar (artık `--geo`/`--sweep` property testlerine
@@ -25,9 +41,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       düzenlemeyi açmak daha iyi olur. Karar verilmedi.
 
 ## NEXT
-
-- [ ] **M4 — animasyonun kalanı:** uçan kuşlar, bulut gölgesi. Gün/gece ve kamera
-      döndürme geldi (2026-09-02), bu maddeden düştü.
 
 - [ ] **README milestone listesi DEVLOG'un gerisinde.** Volkanik koniler, gün
       döngüsü, PNG export, paylaşım linki ve UI makeover DEVLOG'da var, README'nin
