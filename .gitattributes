@@ -1,0 +1,15 @@
+# Normalize line endings on checkin; check out per-OS default (LF on
+# Windows too, since core.autocrlf is not required by this repo — see
+# AGENTS.md, `index.html` çift tıklanınca çalışmalı, hâlâ dış araç yok).
+* text=auto
+
+# Binaries: never touch, never diff as text. `scripts/checks.sh`'in hijyen
+# taraması aynı listeyi (png/jpg/gif/ico/woff*) CRLF uyarısından muaf tutuyor.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
