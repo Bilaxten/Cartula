@@ -5,11 +5,40 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-09-22
+**Güncellendi:** 2026-09-23
 **Dal:** `master`
-**Çalışma alanı:** temiz (renderer şeridi ayrı worktree'de)
+**Çalışma alanı:** temiz
 
-## Şu anki görev — portfolyo yol haritası (2026-09-22, Uğur: "önerdiğin neyse yapalım")
+## Bu oturum — 3 madde kod taraması düzeltmesi (2026-09-23, Claude Opus 5.5)
+
+Uğur'un verdiği üç bulgu, hepsi düzeltildi + push'landı:
+
+1. **Satır sonları** (`7c3dad3`): `.gitattributes` (`* text=auto` + binary
+   listesi) eklendi, `git add --renormalize .`. Tek CRLF dosyası
+   (`scripts/agent-notify.ps1`) LF'e döndü; `git ls-files --eol` artık
+   `.nojekyll` dışında hepsi `i/lf`.
+2. **World type ayarları test edilmiyordu** (`efe5239`): saf veri +
+   eşleştirme `src/worldtypes.js`'e taşındı (`SM.WorldTypes`, DOM'suz),
+   `index.html` main.js'ten önce yüklüyor. Yeni harness
+   `node tools/headless.js --worldtypes` — slider min/max/step aralığı,
+   match round-trip, perturbe edilince 'custom', QS_KEYS kapsaması, 96²'de
+   ölçülen biyom etkisi (frozen/arid/tropical vs continents). RED-yeşil
+   kanıtlandı: arid'in mbias'ı geçici olarak 0'a çekilince "more desert"
+   iddiası kırmızıya düştü (exit 1), değer geri alınca yeşile döndü.
+   `scripts/checks.sh` harness döngüsüne eklendi.
+3. **Koyu tema swatch kenarlığı** (`52dac9e`): `#legend .sw` / `#hover .sw`
+   sabit `rgba(0,0,0,0.12)` kullanıyordu, koyu panelde görünmezdi.
+   `--swatch-edge` token'ı (`:root` eski değer, `:root[data-theme="dark"]`
+   `rgba(255,255,255,0.14)`).
+
+**Doğrulama:** `bash scripts/checks.sh` → temiz (12 JS, 0 uyarı, tüm
+harness'ler dahil `--worldtypes`). Tarayıcıda `scripts/serve.py 8000` +
+headless browser: konsol temiz, World type dropdown'da frozen/custom
+round-trip'i çalıştı, `--swatch-edge` koyu temada doğru değeri okudu.
+
+Kalan: TODO.md'de bu taramaya ait açık madde yok (ayrı, ad-hoc bir denetimdi).
+
+## Önceki görev — portfolyo yol haritası (2026-09-22, Uğur: "önerdiğin neyse yapalım")
 
 Sıra `TODO.md` NOW'da. Durum:
 1. ✅ Canlı demo — https://bilaxten.github.io/StilizedMaps/ (Pages, `master`
