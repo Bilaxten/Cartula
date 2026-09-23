@@ -18,6 +18,27 @@
   --card-shadow: rgba(70, 61, 51, 0.12);
   --radius: 8px;
   color-scheme: light;
+  /* Map background (#stage) and its overlays. Keyed on data-stage, NOT
+   * data-theme: it follows the theme by default but the background button
+   * can pin it either way. Light = the original daylight-sky gradient. */
+  --stage-bg: linear-gradient(180deg, #cfe9f5 0%, #e6f3f8 55%, #f1eee7 100%);
+  --stage-hint: #7d756a;
+  --chip-bg: rgba(255, 255, 255, 0.82);
+  --chip-edge: rgba(120, 108, 90, 0.26);
+  --chip-text: #3a342d;
+  --chip-btn-bg: rgba(0, 0, 0, 0.03);
+  --chip-btn-text: #6b6356;
+  --chip-btn-edge: rgba(120, 108, 90, 0.3);
+}
+:root[data-stage="dark"] {
+  --stage-bg: radial-gradient(130% 130% at 50% 0%, #1c222c 0%, #11151c 72%);
+  --stage-hint: #9a9284;
+  --chip-bg: rgba(17, 21, 28, 0.76);
+  --chip-edge: rgba(211, 201, 179, 0.24);
+  --chip-text: #e9e1d4;
+  --chip-btn-bg: rgba(255, 255, 255, 0.06);
+  --chip-btn-text: #c9c0af;
+  --chip-btn-edge: rgba(211, 201, 179, 0.28);
 }
 
 /* Dark theme: same accent and map palette, only the chrome changes. The
@@ -79,7 +100,8 @@ body {
   margin: -3px -2px -3px -4px;
 }
 #brand > div { flex: 1; min-width: 0; }
-#panel #themeToggle {
+#panel #themeToggle,
+#panel #stageToggle {
   display: grid;
   place-items: center;
   width: 30px;
@@ -88,7 +110,9 @@ body {
   flex: none;
   color: var(--muted);
 }
-#panel #themeToggle:hover { color: var(--text); }
+#panel #themeToggle:hover,
+#panel #stageToggle:hover { color: var(--text); }
+#panel #stageToggle { margin-right: -5px; }
 #themeToggle .moon { display: none; }
 :root[data-theme="dark"] #themeToggle .sun { display: none; }
 :root[data-theme="dark"] #themeToggle .moon { display: block; }
@@ -372,7 +396,7 @@ details.group .body { padding: 2px 18px 18px; }
   flex: 1;
   overflow: hidden;
   cursor: grab;
-  background: radial-gradient(130% 130% at 50% 0%, #1c222c 0%, #11151c 72%);
+  background: var(--stage-bg);
 }
 #stage.dragging { cursor: grabbing; }
 #stage.editing { cursor: crosshair; }
@@ -403,7 +427,7 @@ details.group .body { padding: 2px 18px 18px; }
   bottom: 12px;
   left: 14px;
   z-index: 2;
-  color: #9a9284;
+  color: var(--stage-hint);
   font-size: 11px;
   pointer-events: none;
 }
@@ -418,10 +442,10 @@ details.group .body { padding: 2px 18px 18px; }
   gap: 10px;
   width: min(260px, calc(100% - 42px));
   padding: 7px 11px;
-  border: 1px solid rgba(211, 201, 179, 0.24);
+  border: 1px solid var(--chip-edge);
   border-radius: 999px;
-  background: rgba(17, 21, 28, 0.76);
-  color: #e9e1d4;
+  background: var(--chip-bg);
+  color: var(--chip-text);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   pointer-events: auto;
@@ -439,14 +463,14 @@ details.group .body { padding: 2px 18px 18px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(211, 201, 179, 0.28);
+  border: 1px solid var(--chip-btn-edge);
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #c9c0af;
+  background: var(--chip-btn-bg);
+  color: var(--chip-btn-text);
   cursor: pointer;
 }
 #autoRotateBtn svg { width: 13px; height: 13px; }
-#autoRotateBtn:hover { border-color: rgba(211, 201, 179, 0.5); color: #e9e1d4; }
+#autoRotateBtn:hover { border-color: var(--accent); color: var(--chip-text); }
 #autoRotateBtn[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);

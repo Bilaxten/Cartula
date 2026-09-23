@@ -323,7 +323,7 @@
         voxelUnavailable = true;
         return false;
       }
-      voxelRenderer.setClearColor(0.055, 0.075, 0.11, 1);
+      applyStageClear();
       // A renderer rebuilt after pagehide / context loss must pick up the
       // camera the user left, not its own default. `rebuildVoxelMesh` only
       // hands the camera over when it refits, and an unchanged footprint does
@@ -1128,6 +1128,23 @@
     input.style.setProperty('--fill', pct.toFixed(1) + '%');
   }
 
+  // The isometric view clears to an opaque colour (the WebGL canvas has
+  // alpha: false), so it has to match the CSS stage background by hand:
+  // dark = the old night blue, light = the middle of the daylight gradient.
+  var STAGE_CLEAR = { dark: [0.055, 0.075, 0.11], light: [0.87, 0.93, 0.95] };
+
+  function applyStageClear() {
+    if (!voxelRenderer) return;
+    var c = STAGE_CLEAR[document.documentElement.getAttribute('data-stage')] || STAGE_CLEAR.dark;
+    voxelRenderer.setClearColor(c[0], c[1], c[2], 1);
+  }
+
+  function applyStage(mode) {
+    document.documentElement.setAttribute('data-stage', mode === 'light' ? 'light' : 'dark');
+    applyStageClear();
+    if (voxelRenderer) requestVoxelRender();
+  }
+
   // `mscale` (Moisture scale) was removed from the panel 2026-09-23 -- the
   // weakest slider (20-25% of tiles) with a jargon name; old links carrying it
   // are simply ignored and the generator keeps its default.
@@ -1433,6 +1450,21 @@
     var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('sm-theme', next); } catch (e) {}
+    // An unpinned map background follows the theme.
+    var pinned = null;
+    try { pinned = localStorage.getItem('sm-stage'); } catch (e) {}
+    if (pinned !== 'dark' && pinned !== 'light') applyStage(next);
+  });
+  // Map background, independent of the theme. Picking the value the theme
+  // would give anyway unpins it, so it follows the theme again from then on.
+  $('stageToggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var next = root.getAttribute('data-stage') === 'dark' ? 'light' : 'dark';
+    try {
+      if (next === root.getAttribute('data-theme')) localStorage.removeItem('sm-stage');
+      else localStorage.setItem('sm-stage', next);
+    } catch (e) {}
+    applyStage(next);
   });
   // Render debug views live in the voxel shader; top-down has no lighting
   // terms to isolate, so the control only acts in the isometric view.
