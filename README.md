@@ -12,6 +12,11 @@ Vanilla HTML + CSS + JS. Framework yok, build adımı yok. Harita yüzeyi tek
 
 `index.html` dosyasını tarayıcıda aç (çift tıkla). Yerel sunucu gerekmez.
 
+Tek istisna: Claude uygulamasının dahili tarayıcısı `file://` sayfasını statik
+önizleme olarak gösterir — CSS/JS/görsel yüklenmez, sayfa çıplak HTML görünür.
+Orada `python scripts/serve.py 8000` çalıştırıp `http://localhost:8000` aç
+(önbelleksiz sunucu; `python -m http.server` değil).
+
 ## Mimari
 
 Tek doğru kaynak: **grid veri modeli** (`src/grid.js`). Her hücre `elevation`,
