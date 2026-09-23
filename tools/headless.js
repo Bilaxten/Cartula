@@ -10,6 +10,7 @@
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
+ *   node tools/headless.js --worldtypes # world type preset validity + effect
  */
 'use strict';
 const fs = require('fs');
@@ -22,7 +23,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'render/topdown.js', 'render/sky.js',
-                 'render/voxel3d.js', 'time.js', 'export.js']) {
+                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -1223,7 +1224,179 @@ function runExportChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--shaders') {
+// World type presets (moved out of main.js into src/worldtypes.js, 2026-09-23,
+// so they can be verified without a browser). Four claims:
+//   1) every preset's values are actually reachable on its slider -- inside
+//      [min, max] AND landing on a step from min, per index.html;
+//   2) SM.WorldTypes.match() round-trips every preset back to its own name;
+//   3) a value nudged off a preset reads as 'custom', not a false match;
+//   4) every key a preset touches is in main.js's QS_KEYS, so a shared link
+//      actually carries the preset (silent failure mode: add a slider to a
+//      preset, forget the querystring, links quietly drop it).
+// A fifth check measures that presets DO something: on a small shared grid,
+// frozen/arid/tropical shift the expected biome share versus continents. This
+// is what would have caught a preset whose slider values happen to be in
+// range but too weak (or backwards) to change the map.
+function parseRangeInputs(html) {
+  const inputs = {};
+  const tagRe = /<input\b[^>]*type="range"[^>]*>/g;
+  let m;
+  while ((m = tagRe.exec(html))) {
+    const tag = m[0];
+    const idm = /\bid="([^"]+)"/.exec(tag);
+    if (!idm) continue;
+    const attr = (name) => {
+      const am = new RegExp('\\b' + name + '="([^"]+)"').exec(tag);
+      return am ? parseFloat(am[1]) : NaN;
+    };
+    inputs[idm[1]] = { min: attr('min'), max: attr('max'), step: attr('step') };
+  }
+  return inputs;
+}
+
+function parseQsKeys(mainJs) {
+  const m = /var\s+QS_KEYS\s*=\s*\[([\s\S]*?)\];/.exec(mainJs);
+  if (!m) return [];
+  return m[1].split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+}
+
+// Slider id -> SM.generate() config key. Mirrors main.js's `readConfig()`,
+// which is the DOM half of this same mapping.
+const WORLDTYPE_CONFIG_KEY = {
+  sea: 'seaLevel', rugged: 'ruggedness', warp: 'warp', escale: 'elevationScale',
+  octaves: 'octaves', island: 'islandFalloff', tbias: 'temperatureBias',
+  mbias: 'moistureBias', rivers: 'rivers'
+};
+
+function worldTypeGenConfig(type, seed, size) {
+  const values = SM.WorldTypes.values(type);
+  const cfg = { seed, width: size, height: size };
+  for (const key of SM.WorldTypes.KEYS) cfg[WORLDTYPE_CONFIG_KEY[key]] = values[key];
+  return cfg;
+}
+
+function landShare(grid, biomeIdxList) {
+  let land = 0, match = 0;
+  for (let i = 0; i < grid.biome.length; i++) {
+    if (grid.water[i]) continue;
+    land++;
+    if (biomeIdxList.includes(grid.biome[i])) match++;
+  }
+  return land ? match / land : 0;
+}
+
+function runWorldTypesChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const WT = SM.WorldTypes;
+  const types = Object.keys(WT.TYPES);
+
+  // 1) Every preset value is reachable on its slider: inside [min, max] and a
+  //    whole number of steps from min (float32/64 tolerance).
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  const sliders = parseRangeInputs(html);
+  {
+    const bad = [];
+    for (const type of types) {
+      const values = WT.values(type);
+      for (const key of WT.KEYS) {
+        const slider = sliders[key];
+        if (!slider || !Number.isFinite(slider.min) || !Number.isFinite(slider.max) ||
+            !Number.isFinite(slider.step)) {
+          bad.push(`${type}.${key}: no <input type=range id="${key}"> in index.html`);
+          continue;
+        }
+        const v = values[key];
+        const eps = 1e-6;
+        if (v < slider.min - eps || v > slider.max + eps) {
+          bad.push(`${type}.${key}=${v} outside [${slider.min}, ${slider.max}]`);
+          continue;
+        }
+        const steps = (v - slider.min) / slider.step;
+        if (Math.abs(steps - Math.round(steps)) > 1e-6) {
+          bad.push(`${type}.${key}=${v} is not a step of ${slider.step} from min ${slider.min}`);
+        }
+      }
+    }
+    push(`every preset value is within its slider's min/max/step (${types.length} types × ${WT.KEYS.length} keys)`,
+      bad.length === 0, bad.join('; '));
+  }
+
+  // 2) match(values(type)) === type for every preset -- the round trip a
+  //    shared link and the world-type <select> both depend on.
+  {
+    const bad = [];
+    for (const type of types) {
+      const values = WT.values(type);
+      const got = WT.match(id => values[id]);
+      if (got !== type) bad.push(`${type} -> matched '${got}'`);
+    }
+    push('match(values(type)) round-trips every preset to its own name', bad.length === 0, bad.join('; '));
+  }
+
+  // 3) A perturbed value must read as 'custom', not a false-positive match --
+  //    otherwise a user who nudges one slider still sees a preset name that
+  //    no longer describes their map.
+  {
+    const base = WT.values('continents');
+    const perturbed = Object.assign({}, base, { sea: base.sea + 0.05 });
+    const got = WT.match(id => perturbed[id]);
+    push(`a perturbed value ('sea' +0.05) matches 'custom', not a stale preset`,
+      got === 'custom', `got '${got}'`);
+  }
+
+  // 4) Every key a preset can set is in QS_KEYS, so `shareLink()` actually
+  //    carries it -- otherwise opening a shared link silently drops back to
+  //    default terrain shape while claiming to reproduce the map.
+  {
+    const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    const qsKeys = new Set(parseQsKeys(mainJs));
+    const missing = WT.KEYS.filter(k => !qsKeys.has(k));
+    push(`every SM.WorldTypes.KEYS entry is in main.js QS_KEYS (${qsKeys.size} keys parsed)`,
+      qsKeys.size > 0 && missing.length === 0, missing.join(', '));
+  }
+
+  // 5) Measured effect: presets actually move the expected biome share versus
+  //    plain 'continents', on a small shared grid, over more than one seed.
+  //    A preset whose slider values are in-range but too weak (or aimed the
+  //    wrong way) to change the map would pass checks 1-4 and still be dead.
+  {
+    const SEEDS = [1337, 4242];
+    const SIZE = 96;
+    const B = SM.BIOME_IDX;
+    const cold = g => landShare(g, [B.tundra, B.taiga]);
+    const desert = g => landShare(g, [B.desert]);
+    const jungle = g => landShare(g, [B.jungle]);
+    const claims = [
+      ['frozen has more tundra+taiga share of land than continents', 'frozen', cold],
+      ['arid has more desert share of land than continents', 'arid', desert],
+      ['tropical has more jungle share of land than continents', 'tropical', jungle]
+    ];
+    for (const [name, type, metric] of claims) {
+      const bad = [];
+      for (const seed of SEEDS) {
+        const base = SM.generate(worldTypeGenConfig('continents', seed, SIZE));
+        const preset = SM.generate(worldTypeGenConfig(type, seed, SIZE));
+        const baseShare = metric(base), presetShare = metric(preset);
+        if (!(presetShare > baseShare)) {
+          bad.push(`seed ${seed}: continents ${(baseShare * 100).toFixed(1)}% vs ${type} ${(presetShare * 100).toFixed(1)}%`);
+        }
+      }
+      push(`${name} (${SEEDS.length} seeds, ${SIZE}²)`, bad.length === 0, bad.join('; '));
+    }
+  }
+
+  console.log(`world type preset checks (${types.length} types: ${types.join(', ')}):`);
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--worldtypes') {
+  runWorldTypesChecks();
+} else if (process.argv[2] === '--shaders') {
   runShaderChecks();
 } else if (process.argv[2] === '--sky') {
   runSkyChecks();

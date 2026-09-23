@@ -83,7 +83,13 @@ hassasiyet tuzağı yok); debug modunda gökyüzü çizilmez.
 
 **Panel (2026-09-23 gözden geçirme, her slider 3 seed'de ölçülerek):**
 *World type* hazır ayarları (Continents / Single island / Frozen / Arid /
-Tropical — değerler ölçümle seçildi; slider oynatılınca *Custom*). *Sea
+Tropical — değerler ölçümle seçildi; slider oynatılınca *Custom*). Saf
+ayarlar + eşleştirme mantığı `src/worldtypes.js`'te (`SM.WorldTypes`),
+DOM'suz; doğrulaması `node tools/headless.js --worldtypes` (her ayarın
+slider min/max/step aralığında olduğu, eşleştirmenin kendine döndüğü, bir
+slider oynatılınca *Custom* okuduğu, her anahtarın paylaşılan link'e
+girdiği, ve küçük bir haritada ölçülen etki — frozen/arid/tropical'in
+beklenen biyom payını gerçekten değiştirdiği). *Sea
 level* etiketi üretilen haritanın GERÇEK kara payını gösterir (eskiden
 `1 − seaLevel` yazıyordu: "62%" dediği harita %70 karaydı). *Island* artık
 karayı eritmez, merkezde toplar (deniz eşiği falloff'u hesaba katar; `--geo`

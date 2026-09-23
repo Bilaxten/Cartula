@@ -1298,31 +1298,14 @@
       if (input.type === 'range') paintRange(input);
     });
   });
-  // World types: every generation slider at once. Values were chosen by
-  // measurement (3 seeds; panel review 2026-09-23), not by eye:
-  //   island   → one landmass, open sea on every edge at 256²
-  //   frozen   → tundra 22% + taiga 15% of land
-  //   arid     → desert 20% + shrubland 24%
-  //   tropical → jungle 26% + forest 21%
-  // "Archipelago" and "Pangaea" were tried and dropped: island consolidation
-  // (a documented rule: more sea → fewer, merged islands) defeats both.
-  var WORLD_DEFAULTS = { sea: 0.38, rugged: 0.35, warp: 0.18, escale: 2.5, octaves: 5,
-    island: 0, tbias: 0, mbias: 0, rivers: 1 };
-  var WORLD_TYPES = {
-    continents: {},
-    island: { sea: 0.55, island: 1 },
-    frozen: { tbias: -0.26, mbias: 0.06, rivers: 0.75 },
-    arid: { tbias: 0.22, mbias: -0.26, rivers: 0.5 },
-    tropical: { tbias: 0.2, mbias: 0.28, rivers: 1.25 }
-  };
-  var WORLD_KEYS = Object.keys(WORLD_DEFAULTS);
-
-  function worldValues(type) {
-    return Object.assign({}, WORLD_DEFAULTS, WORLD_TYPES[type] || {});
-  }
+  // World types: every generation slider at once. Pure data + matching logic
+  // live in `src/worldtypes.js` (SM.WorldTypes) so they can be verified
+  // headless (`node tools/headless.js --worldtypes`); what stays here is the
+  // DOM half -- writing slider values and reading them back for `match`.
+  var WORLD_KEYS = SM.WorldTypes.KEYS;
 
   function applyWorldType(type) {
-    var values = worldValues(type);
+    var values = SM.WorldTypes.values(type);
     WORLD_KEYS.forEach(function (id) {
       var input = $(id);
       input.value = values[id];
@@ -1335,15 +1318,7 @@
   // Which world type the sliders currently match (a shared link, or a user
   // who moved a slider back) -- 'custom' when none.
   function matchWorldType() {
-    var types = Object.keys(WORLD_TYPES);
-    for (var k = 0; k < types.length; k++) {
-      var values = worldValues(types[k]);
-      var same = WORLD_KEYS.every(function (id) {
-        return Math.abs(parseFloat($(id).value) - values[id]) < 1e-6;
-      });
-      if (same) return types[k];
-    }
-    return 'custom';
+    return SM.WorldTypes.match(function (id) { return parseFloat($(id).value); });
   }
 
   $('worldType').addEventListener('change', function () {
