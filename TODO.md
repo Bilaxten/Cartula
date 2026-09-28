@@ -67,3 +67,18 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       render'ı yakalamıyor. Canvas'ı node-canvas ile PNG'ye basıp referansla
       karşılaştırmak mümkün — ama bu bir **bağımlılık** demek (`AGENTS.md` §2:
       önce sor). Kararı verilmedi, sadece kayıt.
+
+## Unity export doğrulaması — araştırma notu (2026-09-29)
+
+Resmî Unity 6 dokümanı (Terrain > Import Raw) bayt sırasını ve ilk RAW satırının hangi kenara
+düştüğünü açıkça yazmıyor; 33…4097 (2^n+1) çözünürlük `TerrainData.heightmapResolution`
+dokümanında var. Yani `export.js`'teki "row 0 = güney, Flip Vertically yok" iddiası **yalnız
+Unity'de denenerek** doğrulanabilir:
+
+1. Asimetrik bir test haritası üret (ör. yalnız kuzeydoğu köşede yüksek tepe), export et.
+2. Unity 6'da Terrain > Import Raw: Depth 16, Byte Order Windows, Flip Vertically kapalı.
+3. Tepe terrain'in kuzeydoğusunda (+x, +z) mı? Değilse Flip Vertically ya da export yönü düzeltilir.
+4. `albedo.png`'yi tek TerrainLayer olarak (Size = terrain boyutu) ver; kıyı çizgisi yükseklikle çakışıyor mu bak.
+
+Not: README'deki "1 m/hücre", 2^n+1 heightmap çözünürlüğüyle tam tutmuyor (heightmap ızgaradan büyük,
+esniyor) — metni "terrain genişliği = ızgara genişliği" diye düzelt.
