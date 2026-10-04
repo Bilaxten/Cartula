@@ -1000,6 +1000,34 @@ function runGeoProperties() {
     push('Island slider gathers land instead of deleting it', fails.length === 0, fails.join('; '));
   }
 
+  // --- P8: the stored elevation is the elevation the generator classified
+  // with. `generate` works on a private copy and writes it back pass by pass;
+  // a pass that forgets the write leaves `grid.elevation` stale while every
+  // flag and level is right, so nothing looks wrong in the voxel view -- but
+  // the top-down hillshade, the hover altitude, the brushes and the exported
+  // heightmap all read the stale value. Found 2026-10-04: the pool-filling
+  // pass (7c) turned enclosed water into land without the write, leaving up to
+  // 11% of the land with a sea-floor height (as deep as 0.43 below sea level).
+  // The only land the pipeline leaves under the threshold on purpose is the
+  // coast de-speckle (6b), bounded at 0.06.
+  {
+    const fails = [];
+    let worst = 0;
+    for (const seed of SEEDS) {
+      const g = SM.generate({ seed, width: 160, height: 160, seaLevel: 0.38 });
+      let deep = 0;
+      for (let i = 0; i < g.width * g.height; i++) {
+        if (g.water[i]) continue;
+        const under = g.seaThresh - g.elevation[i];
+        if (under > worst) worst = under;
+        if (under > 0.06) deep++;
+      }
+      if (deep) fails.push(`seed ${seed}: ${deep} land tiles deeper than 0.06 under sea level`);
+    }
+    push(`no land tile is stored below the sea floor bound (worst ${worst.toFixed(3)} ≤ 0.06)`,
+      fails.length === 0, fails.join('; '));
+  }
+
   // --- P5: no towers, any seed. The README's "no spikes" claim. --------------
   {
     const bad = SEEDS.filter(s => run(s, 160, 0.38).towers > 0);

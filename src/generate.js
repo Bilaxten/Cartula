@@ -726,9 +726,9 @@
     for (i = 0; i < n; i++) grid.elevation[i] = e[i];
 
     // --- 7c: declutter inland water — land shouldn't be speckled with pools.
-    // Keep the ocean, river-connected water, and genuinely big endorheic basins;
-    // fill everything else back to land. ---
-    var BIG_LAKE = 60;
+    // Keep the ocean and river-connected water; fill everything else back to
+    // land, whatever its size (the size exemption was removed on 2026-09-01:
+    // no unexplained inland seas). ---
     var seen = new Uint8Array(n);
     for (i = 0; i < n; i++) {
       if (seen[i] || !grid.water[i] || ocean[i] || grid.biome[i] === B.river) continue;
@@ -757,6 +757,13 @@
           var fi = body[bk];
           grid.water[fi] = 0;
           e[fi] = Math.max(e[fi], seaThresh + 0.012);
+          // Keep the stored elevation in step with the working copy. This
+          // pass runs after the bulk sync above (7b); without the write the
+          // filled basin stayed land in every flag and level but kept its old
+          // sea-floor height in `grid.elevation` -- phantom relief in the
+          // top-down hillshade, negative metres on hover, and a flooded
+          // basin in the exported heightmap.
+          grid.elevation[fi] = e[fi];
           var lfF = clamp01((e[fi] - seaThresh) / landSpan);
           grid.biome[fi] = e[fi] < beachThresh ? B.beach
             : SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
