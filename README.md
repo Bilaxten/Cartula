@@ -188,6 +188,76 @@ sayılır, İngilizce kalır; `biome.js` ve `PIPELINE_STAGES`'teki `label` /
 --i18n` (iki dilde aynı anahtarlar, `index.html`'de kancasız görünür metin
 yok, main.js'te DOM'a doğrudan yazılan metin yok).
 
+**Performans paneli** (2026-10-05; *P* ya da View → *Performance panel*):
+sahnenin sağ üst köşesinde son 120 çizilen karenin rAF aralığı (ortalama +
+en kötü), FPS, `render()` içindeki CPU süresi, tarayıcı veriyorsa GPU süresi
+(`EXT_disjoint_timer_query_webgl2`), son karenin çizim çağrısı ve üçgen
+sayısı, GPU belleği **tahmini** (renderer'ın ayırdığı buffer/doku/
+renderbuffer baytları + tuvalin çizim tamponu, MSAA sayısıyla). Sayım
+kaynakta: renderer her `drawElements`/`drawArrays`/`bufferData`/doku
+ayırmayı `src/perf.js`'teki sayaçtan geçirir; `--perf` `src/render/`'da
+sayaçsız bir çağrı bulursa kırmızı. Panel kapalıyken kare başına hiçbir
+şey ölçülmez ya da sayılmaz.
+
+**Gece ışıkları + bloom** (2026-10-05): yalnız yerleşim voksellerinde
+(`mesh.town`, `--night` denetler) 17:00-19:00 arası yanan, 5:00-7:00 arası
+sönen sıcak pencereler (`SM.nightAmount`, `time.js`); çatıda 3×3, duvarda
+sıra sıra, bloklu; piksel altına inince ortalamasına söner (pırıldamaz).
+Renk biyom paletinden (çöl kumu, lavla ısıtılmış). Bloom: arazi 1/4
+çözünürlükte "yalnız ışık" shader varyantıyla yeniden çizilir (tam derinlik,
+tepe arkasındaki kasaba gizlenir), iki tur ayrılabilir Gauss, kanvasa
+toplanarak eklenir; kamera durunca bulanık sonuç yeniden kullanılır.
+Gündüz bunların hiçbiri çalışmaz ya da ayrılmaz; framebuffer eksikse bloom
+kendini kapatır, ışıklar kalır. ⚠️ Işıklar yanarken gece renk düzeltmesi
+CSS'ten (`#daynight` + filtre) shader'a geçer (aynı formül, fark ≤4/255):
+CSS örtüsü WebGL'den SONRA uygulandığı için ışıkları gri-kahveye
+boyuyordu; shader'da ışık düzeltmeden sonra eklenir. Gündüz yol CSS'te
+kalır. Arazi shader'ı üç derlenmiş varyant (gündüz / gece / gece+pencere)
+ve yerleşim üçgenleri index buffer'ın sonunda kendi aralığında: SwiftShader
+dallanmanın iki tarafını da çalıştırdığı için ölü gece kodu gündüz ~18 ms
+yiyordu.
+
+**Kıyı köpüğü** (2026-10-05): deniz ve göl tile'larının üst yüzünde, karaya
+değen köşede 1 olan köşe bayrağı (`mesh.foam`); komşu tile'lar köşeyi
+paylaştığı için çizgi kesintisiz. Shader çeyrek adımlara keser (bloklu);
+ne kadar açılacağını tile'ın dalga değeri belirler (tepe gelirken genişler).
+Nehirlerde yok. Renk paletin kar tonu. Değer `vFallCoord` ile taşınır (su
+üstünde kullanılmayan varying), yeni varying yok.
+
+**Dalgalar araziye uyar** (2026-10-05, Uğur: *"terraine uyumlu şekilde
+dalgalanıp sönümlenecek"*): harita başına karaya uzaklık alanı (iki geçişli
+chamfer); faz = k·uzaklık + seed'li biraz gürültü, yani tepeler her kıyıya
+doğru halkalar hâlinde ilerler. Genlik karaya değen yerde 0 (sönümlenir),
+kıyıdan hemen açıkta tam, açık denizde sakin bir tabana iner. Değerler grid
+KÖŞELERİNDE: bir köşedeki her vertex aynı sayıyı okur, ortak kenarlar
+birlikte hareket eder (yarık yok). Tile merkezindeki değer tepe gölgesini ve
+köpüğü sürer. Vertex başına 4 bayt (`mesh.wave`); `--mesh` denetler.
+
+**Rüzgâr çizgileri** (2026-10-05; View → *Wind lines*, varsayılan açık):
+cel-shaded oyunlardaki rüzgâr izleri gibi ince, iki ucu sivri, belirip
+sönen açık çizgiler. Akış alanı harita başına (`src/render/wind.js`):
+iki kez yumuşatılmış arazi, seed başına bir hâkim yön; dik yerde yokuş
+yukarı payı atılır, kalan vadi eksenine (rüzgâra en yakın eşyükselti yönü,
+hizalanmayla ağırlıklı) bükülür, biraz alçağa çekilir, biraz diverjanssız
+curl noise. Simülasyon değil, vadi rüzgârlarının gözlenen davranışına benzeyen
+bir sezgisel. Çizgiler durumsuz (seed, çizgi, zaman → konum), 64 × 24 nokta,
+kare başına ayırma yok, zeminin en az 0.9 kademe üstünde (`--wind`).
+
+**Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
+harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,
+diğerleri ıslak karaya (orman, yağmur ormanı, bataklık). Bölge içinde
+parçacığın altındaki biyom karar verir: tundra/kar/tayga üstünde kar,
+çöl/mesa/lav üstünde hiçbir şey, kalan her yerde yağmur. En çok 900
+parçacık, harita başına tek statik buffer; düşüş vertex shader'da
+zamandan hesaplanır (kare başına CPU işi ve yükleme yok). Kar, rüzgâr
+çizgileriyle aynı hâkim rüzgârla sürüklenir (`--weather`).
+
+**Varsayılan harita 320²** (2026-10-05, önceden 192²). Paylaşım linkindeki
+`size` hâlâ kazanır, *Random* boyuta dokunmaz. Bedeli (seed 1337,
+SwiftShader): üretim 396 ms (192²: 198), 362k üçgen (140k), GPU 184 ms/kare
+(101). Enlem sabiti bilerek 192'den türetilmiş kalır (dünya-uzayı, boyuttan
+bağımsız).
+
 **Canlı demo:** https://bilaxten.art/cartula/ (GitHub Pages, `master`).
 
 ## Milestone'lar
@@ -203,7 +273,8 @@ yok, main.js'te DOM'a doğrudan yazılan metin yok).
   varyasyonu. Su yüzeyi dalgayla yalnız **aşağı** iner (`SM.VOXEL_WAVE_DIP`);
   suya bakan her duvar o çukurun altına kadar uzanır (etek), bu yüzden dalga
   hiçbir yerde arka planı gösteren yarık açmaz (`--mesh` denetler). Su
-  tile'ları tepe/çukura göre tile başına açılıp koyulaşır.
+  tile'ları tepe/çukura göre tile başına açılıp koyulaşır. 2026-10-05'ten
+  beri dalga araziye uyar (aşağıda *Dalgalar*).
   ⚠️ **2026-09-06:** bu iş önce canvas 2D'de (`src/render/iso.js`, dört yönlü
   bake edilmiş görüntü) yapılmıştı; WebGL yolu onu ikame edince eski renderer
   ve tüm yardımcıları SİLİNDİ (~830 satır). **2D olarak yalnızca üstten görünüm

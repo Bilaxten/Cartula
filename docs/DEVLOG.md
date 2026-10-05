@@ -1,5 +1,48 @@
 # DEVLOG
 
+## 2026-10-05 — Ölç, sonra ekle: performans paneli, gece ışıkları, köpük, rüzgâr, hava, araziye uyan dalga
+
+**Ne yapıldı:** Önce ölçüm aracı, sonra yedi görsel/davranış işi, her biri
+tek commit: performans paneli (`e8da874`), yerleşimlerde gece ışıkları +
+bloom (`127a590`), kıyı köpüğü (`7265a2a`), araziyi izleyen rüzgâr
+çizgileri (`a2f542a`), biyoma göre yağmur ve kar (`385e9e3`), varsayılan
+harita 320² (`ae4e264`), bilaxten.art gibi davranan tema ve dil
+(`d64982c`), kıyıya doğru halkalanan dalgalar (`95c08a5`). İlk plandaki
+ağaç sallanması Uğur'un kararıyla rüzgâr çizgilerine döndü.
+
+**Neden bu yaklaşım:** Panel önce geldi, çünkü sonraki her işin bedeli
+onunla söylenecekti. Sayım kaynakta: renderer her çizim ve ayırmayı bir
+sayaçtan geçiriyor, harness sayaçsız çağrıyı kırmızı yapıyor; yani yeni bir
+geçiş sayılardan sessizce düşemiyor. Gece ışıklarında asıl iş görünür
+olmalarıydı: gece rengi CSS ile WebGL'in ÜSTÜNE uygulanıyordu ve her ışığı
+gri-kahveye boyuyordu. Düzeltme, aynı formülü ışıklar yanarken shader'a
+almak ve ışığı düzeltmeden sonra eklemek oldu; formülün CSS'le aynı olduğu
+harness'te, ekranın aynı kaldığı piksel farkıyla (≤4/255) gösterildi.
+Bloom'un parlak geçişi bir eşik değil, yalnız yerleşimi yazan bir shader
+varyantı: kar ya da güneşli kum yanlışlıkla parlamıyor. Dalgalarda tek
+kural ortak kenarları birlikte oynatmaktı; değerler bu yüzden tile'da
+değil grid köşesinde.
+
+**Dikkat çeken:** SwiftShader'da gündüz çerçevesi önce ~20 ms yavaşladı ve
+sebep hiç çalışmayan gece koduydu. Yazılımsal rasterizer dallanmanın iki
+yanını da maskeyle çalıştırıyor; deney kopyalarıyla bölerek bulundu (gece
+bloğu ~18 ms, renk düzeltmesi ~4 ms). Çözüm derlenmiş varyantlar ve
+yerleşim üçgenlerini index buffer'ın sonunda kendi aralığına almak; sonra
+gece de gündüz de eski hızına döndü. Rüzgâr alanında iki hata görüntüyle
+yakalandı: normalleştirilmemiş curl noise hâkim rüzgârı boğuyordu, vadi
+yönü seçimi rüzgâra dik vadilerde işaret değiştirip çizgileri bir noktada
+durduruyordu.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → temiz; yeni
+harness'ler `--perf`, `--night`, `--wind`, `--weather`, `--mesh`'e köpük ve
+dalga kontrolleri; her biri önce bilerek bozulup kırmızı görüldü. Headless
+Edge'de (SwiftShader) önce/sonra ve gece/gündüz ekran görüntüleri, aynı
+sayfada dönüşümlü A/B ile kare süresi.
+
+**Açık:** gerçek GPU, telefon, Firefox/Safari; animasyonlar yalnız sabit
+karelerle görüldü; bloom bulutların önünde de parlıyor (kaynak geçişi
+bulut çizmiyor).
+
 ## 2026-10-05 — Unity kapalı, Boşluk+sürükle, ortala, çeşitli bulutlar
 
 **Ne yapıldı:** Uğur'un dört isteği, dört commit. Unity export düğmesi

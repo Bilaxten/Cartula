@@ -11,7 +11,50 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — Unity kapalı, Boşluk+sürükle, ortala düğmesi, çeşitli bulutlar (2026-10-05, Claude Opus 5.5)
+## Bu oturum — ölçüm paneli + yedi görsel iş (2026-10-05)
+
+Uğur'un onayladığı liste (2026-10-05), her biri tek commit, hepsi
+push'landı. Sıra bilinçli: önce ölçüm aracı, her sonraki işin bedeli onunla.
+
+1. **Performans paneli** (`e8da874`): *P* / View. Kare aralığı (ort. + en
+   kötü, 120 kare), FPS, CPU, GPU zamanlayıcısı varsa GPU süresi, çizim
+   çağrısı, üçgen, GPU belleği tahmini. Sayım kaynakta (`src/perf.js`);
+   `--perf` sayaçsız çizim/ayırmayı kırmızı yapar.
+2. **Gece ışıkları + bloom** (`127a590`): yalnız `town` vokselleri;
+   17-19 yanar, 5-7 söner. Bloom 1/4 çözünürlükte, kamera durunca önbellekte,
+   gündüz hiç çalışmaz, FBO eksikse kendini kapatır. ⚠️ Işıklar yanarken gece
+   renk düzeltmesi shader'da (CSS örtüsü ışıkları griye boyuyordu); gündüz
+   CSS. Arazi shader'ı 3 varyant + yerleşim üçgenleri ayrı aralıkta
+   (SwiftShader ölü dalı da çalıştırıyor).
+3. **Kıyı köpüğü** (`7265a2a`): deniz/göl üstünde karaya değen köşeler,
+   bloklu, dalga değeriyle genişleyip daralır; nehirde yok.
+4. **Rüzgâr çizgileri** (`a2f542a`): ağaç sallanmasının yerine (Uğur iptal
+   etti; ağaç da eklenmedi). Araziyi izleyen akış alanı, 64 durumsuz çizgi.
+5. **Yağmur ve kar** (`385e9e3`): seed'li 2-3 bölge, biyom kuralı, ≤900
+   parçacık, statik buffer, düşüş shader'da.
+6. **Varsayılan 320²** (`ae4e264`): link `size` kazanır, Random dokunmaz.
+7. **Tema ve dil bilaxten.art gibi** (`d64982c`): kayıtsız İngilizce + koyu;
+   `bx-theme` önce, iki anahtar birlikte yazılır; tema 0.6 sn geçiş, sahne
+   katmanları ve WebGL temizleme rengi de; dil değişince metin yeniden yazılır.
+8. **Dalgalar araziye uyar** (`95c08a5`): karaya uzaklık alanı, kıyıya doğru
+   halkalar, kıyıda sönüm, açık deniz sakin; değerler grid köşesinde.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → `SONUÇ: temiz`.
+Yeni harness'ler `--perf`, `--night`, `--wind`, `--weather`; `--mesh`'e köpük
+ve dalga kontrolleri, `--i18n`'e tema/dil varsayılanları, `--shaders` artık
+`post.js`, `wind.js`, `weather.js`'i de okur. Her yeni kontrol önce bilerek
+bozulup kırmızı görüldü. Baseline değişmedi (üçgen tabanı 124228 aynı).
+Headless Edge (SwiftShader, CDP): önce/sonra, gündüz/gece ekran
+görüntüleri; kare süresi aynı sayfada dönüşümlü A/B ile. Ölçümler
+SwiftShader'da (gerçek GPU değil): gündüz ve gece hareketsiz kamerada
+efekt katmanları +2-3 ms (~90-100 ms'lik karede), hareketli kamerada gece
++19 ms (bloom kaynağı her kare yeniden), 320² 192²'nin ~1.8 katı GPU.
+
+**Kapsamadığı:** gerçek GPU, telefon, Firefox/Safari, gerçek klavye/fare
+(CDP girdisi kullanıldı), animasyonun akarken gözle hissi (sabit kareler).
+Yayınlanmadı: `publish-site.sh` koşulmadı.
+
+## Önceki oturum — Unity kapalı, Boşluk+sürükle, ortala düğmesi, çeşitli bulutlar (2026-10-05)
 
 Uğur'un dört isteği (2026-10-05), her biri tek commit:
 
@@ -61,7 +104,7 @@ bulutların akarken gözle hissi (sabit kareler), telefon genişliği,
 Firefox/Safari, Türkçe ipucundaki *boşluk* kelimesi (TODO). Yayınlanmadı:
 `publish-site.sh` koşulmadı.
 
-## Önceki oturum — su dalgasında kara şeritler + daha okunur dalga (2026-10-05, Claude Opus 5.5)
+## Önceki oturum — su dalgasında kara şeritler + daha okunur dalga (2026-10-05)
 
 Uğur'un raporu (ekran görüntüsüyle): iso görünümde su, kara sütununa
 (yalıyar) değdiği yerde dalgayla inip çıkıyor; inince aradaki boşluk siyah.
@@ -98,7 +141,7 @@ değişen piksel ~1.8 kat.
 hissi (yalnız sabit kareler), telefon. Yayınlanmadı: `publish-site.sh`
 koşulmadı (ana ajan yayınlayacak).
 
-## Önceki oturum — arayüz Türkçe + İngilizce (2026-10-05, Claude Opus 5.5)
+## Önceki oturum — arayüz Türkçe + İngilizce (2026-10-05)
 
 Uğur'un kararı (2026-10-05): sitede görünen her şey TR + EN, sağ üstte küçük
 bir *TR / EN* ile değişir. Uygulama arayüzü yalnız İngilizceydi.
@@ -132,7 +175,7 @@ bağlamı kaybı ipucu, panoya kopyalama başarı metni (headless'ta pano
 reddedildi, "Kopyalanamadı" görüldü), Firefox/Safari. Yayınlanmadı:
 `scripts/publish-site.sh` koşulmadı (ana ajan gözden geçirip yayınlayacak).
 
-## Önceki oturum — derin kod incelemesi (2026-10-04/05, Claude Fable 5.1)
+## Önceki oturum — derin kod incelemesi (2026-10-04/05)
 
 Uğur'un istediği: depoyu derinlemesine kontrol et, doğrulanabileni düzelt.
 Yeni özellik yok. Dört düzeltme, hepsi `bash scripts/checks.sh` temizken:
@@ -188,7 +231,7 @@ shadow* debug görünümüyle bakılmalı. Unity içe aktarma hâlâ denenmedi.
 artırma ister), README milestone listesi + DEVLOG'un 09-08…09-23 boşluğu,
 skill'lerdeki başka projeden kalan satırlar, Unity doğrulaması.
 
-## Önceki oturum — 3 madde kod taraması düzeltmesi (2026-09-23, Claude Opus 5.5)
+## Önceki oturum — 3 madde kod taraması düzeltmesi (2026-09-23)
 
 Uğur'un verdiği üç bulgu, hepsi düzeltildi + push'landı:
 
@@ -236,7 +279,7 @@ Hâlâ açık: tarama #3 (iç deniz boyut eşiği, karar Uğur'da), #5.
 
 ## Önceki görev — 2026-09-22 taramasının düzeltmeleri
 
-Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22, Claude Code app):
+Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22):
 
 - ✅ **#1 fırça/tatlı su** (`4d645b2`): `SM.deriveEditedTile` (`grid.js`, saf).
   Tatlı su yükseklik fırçalarında tatlı su kalır; deniz↔kara yalnız fırçanın
@@ -248,7 +291,7 @@ Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22, Claude Code app):
   basamak oyulur (`gradeRiverBeds`), 3+ şelale (`SM.tagWaterfalls`, geometriyle,
   lip=1 / landing=2). P4 yeniden yazıldı (toleranssız). Tek istisna: göl taşma
   eşiği (göl nehrin 2 üstünde; göller sabit çapa) — 5 haritada 3 kenar.
-- ✅ **#2 renderer yarısı** (`dc8db43`): alt-ajan (Sonnet, worktree) yazdı,
+- ✅ **#2 renderer yarısı** (`dc8db43`): ayrı bir worktree'de yazıldı,
   birleştirildi. `aFall` vertex attribute'u; düşen su yüzü suyun rengi +
   shader'da aşağı akan şeritler; iniş tile'ında köpük (`shore` 0.9). Tarayıcıda
   ilk sürüm çapraz zebra gibi okundu → sütun başına hash'li faz + beyaz su
@@ -264,7 +307,7 @@ açık 5-7).
 
 ## Önceki görev (2026-09-08)
 
-**Yok — M1-M4 bitti + Gerçeklik Borcu P3 turu yapıldı (2026-09-08, Claude).**
+**Yok — M1-M4 bitti + Gerçeklik Borcu P3 turu yapıldı (2026-09-08).**
 Kuyruğun başı hâlâ ilk vaka çalışması (`bilaxten.art`), artık ölçüm paketiyle.
 
 **P3 turu:**

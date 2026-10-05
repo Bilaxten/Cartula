@@ -9,6 +9,30 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-05 sekiz isteğe gözle bak** (her biri tek commit, `git revert
+      <hash>` yalnız onu geri alır). Headless Edge'de (SwiftShader) bakıldı;
+      gerçek GPU, telefon, Firefox/Safari denenmedi; animasyon yalnız sabit
+      karelerle. **Bak:** Isometric, seed 1337:
+      - `e8da874` **P** ile performans paneli: sayılar akıyor mu, gerçek
+        GPU'da GPU süresi geliyor mu (SwiftShader'da geldi).
+      - `127a590` *Time of day* 22:00: kasabalarda sıcak pencereler + hafif
+        parıltı; 17:00 → 19:00 arası yavaş yanıyor mu. ⚠️ Karar: ışıklar
+        yanarken gece renk düzeltmesi CSS'ten shader'a geçiyor (aynı formül);
+        ekranda 17:00'de bir sıçrama görürsen söyle. Pencereler çatıda
+        "noktalar": kasabalarda ev geometrisi yok.
+      - `7265a2a` kıyıda beyaz bloklu köpük çizgisi; nehirlerde bilerek yok.
+      - `a2f542a` rüzgâr çizgileri: vadilerden akıyor mu, yoğunluk (64 çizgi)
+        az mı çok mu; gece okunuyor mu.
+      - `385e9e3` yağmur ve kar: varsayılan açık ve hafif (en çok 900).
+        Karar: ilk bölge soğuk karaya gider, yoksa kar nadir kalıyordu.
+      - `ae4e264` varsayılan 320²: ilk açılış ~2 kat yavaş (üretim ~0.4 s,
+        GPU ~1.8 kat). Telefon için ağır mı?
+      - `d64982c` tema/dil: kayıtsız açılış İngilizce + koyu; dil değişince
+        metin yeniden yazılıyor, tema 0.6 sn'de geçiyor. Sitedeki çerçeve
+        çizme Cartula'da yok (köşe çerçevesi stili yok).
+      - `95c08a5` dalgalar kıyıya doğru halkalar, açık deniz sakin.
+      Ağaç sallanması iptal edildi (Uğur), ağaç eklenmedi.
+
 - [ ] **2026-10-05 dört isteğe gözle bak (`b7fd80e`, `8c0c60b`, `527f137`,
       `e456dcf`):** headless'ta CDP girdi olaylarıyla doğrulandı; gerçek
       klavye/fare ve gerçek GPU'da denenmedi. **Bak:** Isometric, seed 1337:
@@ -59,8 +83,9 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
         GIF'i, `site` → `master` kararı — Uğur.
       - Unity export gerçekten içe aktarılıp denenmedi (aşağıdaki not; özellik
         2026-10-05'ten beri şimdilik kapalı).
-      - Shader cilası (su köpük bandı, outline, mesafe sisi) — estetik karar,
-        Uğur'la birlikte (paletten çıkma, ton az).
+      - Shader cilası (outline, mesafe sisi) — estetik karar, Uğur'la
+        birlikte (paletten çıkma, ton az). Kıyı köpüğü 2026-10-05'te geldi
+        (`7265a2a`).
 
 - [ ] **P2 "ada aynı kalır" kısmen tutuyor (eski tarama #3):** 128→256'da
       kara/su %78-96, biyom %41-89 (2026-09-22 ölçümü; `e9cf0dc` biyom

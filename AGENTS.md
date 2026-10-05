@@ -86,7 +86,7 @@ Bu projede test koşucusu yok. Üç katman var ve **üçü aynı şey değil**:
 | Katman | Komut | Ne yakalar |
 |---|---|---|
 | Sözdizimi + hijyen | `scripts/checks.sh` | Kırık JS, `index.html`'de ölü `<script src>`, namespace ihlali, commit'te CRLF — ve aşağıdaki harness'lerin hepsini koşturur |
-| Üretim hattı | `node tools/headless.js --geo` / `--sweep` / `--mesh` / `--edit` / `--river` / `--falls` / `--sky` / `--export` / `--worldtypes` / `--i18n` / `--shaders` | Coğrafi vaatler, determinism, kule, mesh bütünlüğü, fırça türetimi, export (Unity düğmesi 2026-10-05'ten beri **şimdilik kapalı**, kod + test duruyor — README → *Unity export*), arayüz dili (TR/EN anahtar eşliği, kancasız metin). Bayraksız `node tools/headless.js` yalnız bir haritanın özetini JSON basar, hiçbir şeyi sınamaz |
+| Üretim hattı | `node tools/headless.js --geo` / `--sweep` / `--mesh` / `--edit` / `--river` / `--falls` / `--sky` / `--export` / `--worldtypes` / `--i18n` / `--shaders` / `--perf` / `--night` / `--wind` / `--weather` | Coğrafi vaatler, determinism, kule, mesh bütünlüğü, fırça türetimi, export (Unity düğmesi 2026-10-05'ten beri **şimdilik kapalı**, kod + test duruyor — README → *Unity export*), arayüz dili (TR/EN anahtar eşliği, kancasız metin). Bayraksız `node tools/headless.js` yalnız bir haritanın özetini JSON basar, hiçbir şeyi sınamaz |
 | Görsel | **tarayıcıda gözle** | Render, iso projeksiyon, animasyon, gölge, palet |
 
 **Üçüncü katman otomatikleştirilemez.** Canvas çıktısını hiçbir ajan headless
