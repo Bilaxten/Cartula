@@ -619,6 +619,8 @@
       indices: new Uint32Array(indices),
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
+      // The map's seed: the sky (SM.Sky.cloudInstances) is derived from it.
+      seed: grid.config && grid.config.seed != null ? grid.config.seed | 0 : null,
       vertexCount: pos.length / 3,
       triangleCount: indices.length / 3,
       bounds: {
@@ -878,11 +880,14 @@
       'uniform highp float uTime;',
       'uniform sampler2D uShadowMap;',
       // Cloud shadow rides in cell-UV space because this shader has no world
-      // position. Fixed-size array: GLSL uniform arrays cannot be dynamic, and
-      // `SM.Sky.MAX_CLOUDS` is the JS half of the same contract.
-      'uniform vec3 uClouds[6];',
-      'uniform float uCloudFade[6];',  // the shadow fades with its cloud
-      'uniform int uCloudCount;',
+      // position. One soft ellipse per cloud LOBE (u, v, radiusU, radiusV), the
+      // same lobes the cloud voxels fill, so the shadow has the cloud's shape.
+      // Fixed-size array: GLSL uniform arrays cannot be dynamic, and
+      // `SM.Sky.MAX_SHADOW_LOBES` (6 clouds x 3 lobes) is the JS half of the
+      // same contract.
+      'uniform vec4 uCloudLobes[18];',
+      'uniform float uCloudLobeFade[18];',  // the shadow fades with its cloud
+      'uniform int uCloudLobeCount;',
       'uniform float uCloudShadow;',
       // Render debug view (0 = lit). Fragment-only on purpose: a uniform
       // declared in both stages must match precision exactly or the program
@@ -939,16 +944,17 @@
       '  vec3 fallColor = mix(vColor, vec3(0.80, 0.90, 0.94),',
       '    0.30 + 0.45 * fallStreak);',
       '  vec3 baseColor = mix(vColor, fallColor, vFall);',
-      '  // Cloud shadow: soft-edged discs sliding over the map. Side faces take',
-      '  // less of it, the same split the sun shadow uses -- a wall in shade',
-      '  // from a passing cloud should not read darker than the ground.',
+      '  // Cloud shadow: soft-edged ellipses (one per cloud lobe) sliding over',
+      '  // the map; overlapping lobes of one cloud merge with max(). Side faces',
+      '  // take less of it, the same split the sun shadow uses -- a wall in',
+      '  // shade from a passing cloud should not read darker than the ground.',
       '  float cloudCover = 0.0;',
-      '  for (int c = 0; c < 6; c++) {',
-      '    if (c >= uCloudCount) break;',
-      '    vec2 delta = vCellUV - uClouds[c].xy;',
-      '    float radius = max(1e-4, uClouds[c].z);',
-      '    cloudCover = max(cloudCover, uCloudFade[c] *',
-      '      (1.0 - smoothstep(radius * 0.45, radius, length(delta))));',
+      '  for (int c = 0; c < 18; c++) {',
+      '    if (c >= uCloudLobeCount) break;',
+      '    vec2 delta = (vCellUV - uCloudLobes[c].xy) /',
+      '      max(vec2(1e-4), uCloudLobes[c].zw);',
+      '    cloudCover = max(cloudCover, uCloudLobeFade[c] *',
+      '      (1.0 - smoothstep(0.45, 1.0, length(delta))));',
       '  }',
       '  // `daylight`, not raw uSunStrength: the raw value is ~0.34 at noon and',
       '  // multiplying by it left the shadow at ~12% -- present in the numbers,',
@@ -1192,9 +1198,9 @@
     var color = gl.getAttribLocation(program, 'aColor');
     var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
     var cellUV = gl.getAttribLocation(program, 'aCellUV');
-    var cloudsUniform = gl.getUniformLocation(program, 'uClouds');
-    var cloudFadeUniform = gl.getUniformLocation(program, 'uCloudFade');
-    var cloudCountUniform = gl.getUniformLocation(program, 'uCloudCount');
+    var cloudLobesUniform = gl.getUniformLocation(program, 'uCloudLobes');
+    var cloudLobeFadeUniform = gl.getUniformLocation(program, 'uCloudLobeFade');
+    var cloudLobeCountUniform = gl.getUniformLocation(program, 'uCloudLobeCount');
     var cloudShadowUniform = gl.getUniformLocation(program, 'uCloudShadow');
     var debugViewUniform = gl.getUniformLocation(program, 'uDebugView');
     var emission = gl.getAttribLocation(program, 'aEmissive');
@@ -1229,7 +1235,11 @@
     // can never drift away from the cloud that casts it.
     var cloudInstances = [];
     var cloudNow = [];
-    var cloudShadowData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+    var skySeed = 1337;               // map seed, from mesh.seed
+    // Shadow lobes for the terrain shader (vec4 each) and their opacity.
+    var cloudShadowData = new Float32Array(SM.Sky.MAX_SHADOW_LOBES * 4);
+    var cloudLobeFadeData = new Float32Array(SM.Sky.MAX_SHADOW_LOBES);
+    var cloudLobeCount = 0;
     // Reused every frame. These two used to be allocated inside the render loop
     // and that is exactly the kind of quiet GC pressure this project bans in a
     // per-frame path -- three small arrays a frame is 180 allocations a second
@@ -1356,7 +1366,10 @@
         };
       }
 
-      cloudInstances = SM.Sky.cloudInstances(bounds, 5, 1337);
+      // The sky follows the map's seed (setMesh hands it over), so a map
+      // always gets the same clouds and another map gets other ones.
+      cloudInstances = SM.Sky.cloudInstances(bounds, SM.Sky.cloudCount(skySeed), skySeed);
+      cloudLobeCount = SM.Sky.shadowLobeCount(cloudInstances);
       clouds = SM.Sky.buildCloudMesh(cloudInstances);
       birds = SM.Sky.buildBirdMesh(16, 4242);
 
@@ -1398,7 +1411,7 @@
       // Both calls write into buffers this renderer owns, so a frame costs no
       // allocation at all.
       SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
-      SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData);
+      SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
       cloudFadeData.fill(0);
       for (var f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
         cloudFadeData[f] = cloudNow[f].fade;
@@ -1523,6 +1536,7 @@
       // Sky geometry scales with the map footprint, so it is rebuilt whenever a
       // new mesh arrives (new map, or a brush edit that changed the extent).
       meshBounds = mesh && mesh.bounds ? mesh.bounds : meshBounds;
+      if (mesh && mesh.seed != null) skySeed = mesh.seed | 0;
       buildSky(meshBounds);
       if (!mesh) return;
       // Static buffers are replaced only when generation produces a new grid.
@@ -1687,9 +1701,10 @@
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
-      gl.uniform3fv(cloudsUniform, cloudShadowData);
-      gl.uniform1fv(cloudFadeUniform, cloudFadeData);
-      gl.uniform1i(cloudCountUniform, showSky && !debugView ? cloudNow.length : 0);
+      gl.uniform4fv(cloudLobesUniform, cloudShadowData);
+      gl.uniform1fv(cloudLobeFadeUniform, cloudLobeFadeData);
+      gl.uniform1i(cloudLobeCountUniform,
+        showSky && !debugView && cloudNow.length ? cloudLobeCount : 0);
       gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
       gl.bindVertexArray(vao);
       gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);

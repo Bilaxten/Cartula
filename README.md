@@ -134,9 +134,29 @@ yakınlaşmayı sıfırlar: harita yeni üretilmiş gibi bütünüyle kadraja gi
 (`fitCamera`, gökyüzü dahil), açı (yaw ve eğim) korunur (2026-10-05).
 
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
-(`SM.Sky.cloudFade`); başa dönme noktasında opaklık tam 0, gölge de bulutla
-birlikte solar. Saydam voxel bulut iki geçişle çizilir (önce yalnız derinlik,
-sonra en öndeki yüzey karıştırılarak) — iç kutu yüzleri görünmez. `--sky`.
+(`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
+çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,
+uzun bulutlar haritanın yanında gri bir hayalet bırakıyordu). Başa dönme
+noktasında opaklık tam 0, gölge de bulutla birlikte solar. Saydam voxel bulut
+iki geçişle çizilir (önce yalnız derinlik, sonra en öndeki yüzey
+karıştırılarak). `--sky`.
+
+**Bulut çeşitliliği** (2026-10-05, Uğur: bulutlar birbirine benziyordu): her
+harita kendi gökyüzünü haritanın **seed**'inden alır (`mesh.seed` →
+`SM.Sky.cloudInstances`; eskiden her haritada sabit 1337). 4-6 bulut; her biri
+1-3 elipsoit **lob**un birleşimi (ana gövde + yan kabarıklar), rüzgâr yönünde
+(çoğu) ya da ona dik 1-2.1 kat uzun, 1-3 voxel katman kalın (büyük bulut daha
+kalın, yan loblar daha alçak — kubbe tepe), farklı yükseklikte; yüksek bulut
+biraz daha hızlı sürüklenir, yön ortak. Boyut ve yükseklik **tabakalı**
+dağıtılır: her gökyüzü küçük kabarıklarla büyük kümeleri karıştırır.
+**Gölge şekli bulutla aynı:** arazi shader'ı lob başına bir yumuşak elips çizer
+(`uCloudLobes[18]` = 6 bulut × 3 lob, `SM.Sky.MAX_SHADOW_LOBES`). Mesh yalnız
+dış kabuğu üretir (iki dolu voxel arasındaki yüz atlanır): 192²'de bulut
+üçgeni 16 668 → ~5 500, 448²'de 96 660 → ~27 000. `--sky` denetler: 8 seed'de
+hacim oranı ≥ 2.5, iki bulut aynı voxel şeklinde değil, kalınlık ve yükseklik
+karışık, her seed farklı gökyüzü, her bulut sütunu gölge düşürür ve her gölge
+çekirdeğinin üstünde bulut var, gövde arazinin üstünde ve `SM.Sky.ceiling`
+altında, iç yüz çifti yok, üçgen sayısı eski bütçenin altında.
 
 **Arayüz dili: Türkçe + İngilizce** (2026-10-05). Panelin başlığındaki
 *TR / EN* düğmeleri arayüzü yeniden yüklemeden, haritayı yeniden üretmeden

@@ -719,16 +719,21 @@ function runSkyChecks() {
 
   // The shadow follows the cloud. With the sun overhead it sits under it; as the
   // sun drops the shadow slides AWAY, and it must never stop tracking.
+  // One shadow ellipse per cloud lobe (2026-10-05), packed cloud by cloud.
   const noon = SM.Sky.driftClouds(instances, 3, bounds, 1.6);
   const overhead = SM.Sky.cloudShadowUniforms(noon, bounds, [0, 1, 0]);
-  let underCloud = true;
+  let underCloud = true, k = 0;
   for (let i = 0; i < noon.length; i++) {
-    const u = (noon[i].x - bounds.minX) / spanX;
-    const v = (noon[i].z - bounds.minZ) / (bounds.maxZ - bounds.minZ);
-    if (Math.abs(overhead[i * 3] - u) > 1e-5) underCloud = false;
-    if (Math.abs(overhead[i * 3 + 1] - v) > 1e-5) underCloud = false;
+    for (const lobe of instances[i].lobes) {
+      const u = (noon[i].x + lobe.x - bounds.minX) / spanX;
+      const v = (noon[i].z + lobe.z - bounds.minZ) / (bounds.maxZ - bounds.minZ);
+      if (Math.abs(overhead[k * 4] - u) > 1e-5) underCloud = false;
+      if (Math.abs(overhead[k * 4 + 1] - v) > 1e-5) underCloud = false;
+      k++;
+    }
   }
-  results.push(['overhead sun puts the shadow directly under the cloud', underCloud]);
+  results.push(["overhead sun puts every lobe's shadow directly under that lobe",
+    underCloud && k === SM.Sky.shadowLobeCount(instances)]);
 
   const low = SM.Sky.cloudShadowUniforms(noon, bounds, [0.9, 0.28, 0.0]);
   results.push(['a low sun slides the shadow away from the cloud',
@@ -738,8 +743,9 @@ function runSkyChecks() {
   const horizon = SM.Sky.cloudShadowUniforms(noon, bounds, [1, 0, 0]);
   results.push(['horizon sun stays finite',
     Array.from(horizon).every(v => Number.isFinite(v))]);
-  results.push(['shadow array is padded to MAX_CLOUDS',
-    horizon.length === SM.Sky.MAX_CLOUDS * 3]);
+  results.push(['shadow array is padded to MAX_SHADOW_LOBES (vec4 each)',
+    horizon.length === SM.Sky.MAX_SHADOW_LOBES * 4 &&
+    SM.Sky.MAX_SHADOW_LOBES === SM.Sky.MAX_CLOUDS * SM.Sky.MAX_LOBES]);
 
   // Geometry sanity: finite, indexed inside the buffer, deterministic.
   const cloudMesh = SM.Sky.buildCloudMesh(instances);
@@ -766,14 +772,18 @@ function runSkyChecks() {
   results.push(['driftClouds writes into the caller buffer',
     first === reuseTarget && second === reuseTarget &&
     reuseTarget.length === instances.length]);
-  const shadowTarget = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
+  const shadowTarget = new Float32Array(SM.Sky.MAX_SHADOW_LOBES * 4);
   results.push(['cloudShadowUniforms writes into the caller buffer',
     SM.Sky.cloudShadowUniforms(first, bounds, [0, 1, 0], shadowTarget) === shadowTarget]);
   // A shorter cloud list must not leave a previous cloud's shadow behind.
   SM.Sky.cloudShadowUniforms(first, bounds, [0, 1, 0], shadowTarget);
   SM.Sky.cloudShadowUniforms(first.slice(0, 1), bounds, [0, 1, 0], shadowTarget);
+  const fadeTarget = new Float32Array(SM.Sky.MAX_SHADOW_LOBES).fill(1);
+  SM.Sky.cloudShadowUniforms(first.slice(0, 1), bounds, [0, 1, 0], shadowTarget, fadeTarget);
+  const used = instances[0].lobes.length;
   results.push(['reused shadow buffer is cleared, not left stale',
-    shadowTarget.slice(3).every(v => v === 0)]);
+    shadowTarget.slice(used * 4).every(v => v === 0) && fadeTarget.slice(used).every(v => v === 0) &&
+    fadeTarget.slice(0, used).every(v => v === first[0].fade)]);
   // Clouds fade in/out instead of popping at the wrap point (Uğur,
   // 2026-09-23). Opacity is exactly 0 where the jump happens, 1 over the
   // middle of the map, and never jumps between consecutive small steps.
@@ -798,8 +808,153 @@ function runSkyChecks() {
     JSON.stringify([...cloudMesh.positions]) ===
       JSON.stringify([...SM.Sky.buildCloudMesh(instances).positions])]);
 
-  console.log('sky checks (96 unit span, 5 clouds, 16 birds):');
-  for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+  // ---- Varied clouds (Uğur 2026-10-05: clouds looked alike) ----
+  // Real map footprints (192² and 448²), five seeds. Every sky must mix
+  // sizes, shapes, thicknesses and heights; another seed gives another sky.
+  {
+    const SEEDS = [1337, 4242, 90210, 7, 2026, 1, 99, 31337];
+    const real = { minX: -97, maxX: 97, minY: 0, maxY: 11, minZ: -97, maxZ: 97 };
+    const big = { minX: -225, maxX: 225, minY: 0, maxY: 11, minZ: -225, maxZ: 225 };
+    const sig = c => {
+      const v = SM.Sky.cloudVoxels(c);
+      return v.nx + 'x' + v.nz + ':' + Array.from(v.cells).join('');
+    };
+    const layersOf = c => {
+      const v = SM.Sky.cloudVoxels(c);
+      let top = 0;
+      for (let y = 0; y < SM.Sky.MAX_LAYERS; y++) {
+        if (v.cells.subarray(y * v.nx * v.nz, (y + 1) * v.nx * v.nz).some(x => x)) top = y + 1;
+      }
+      return top;
+    };
+    const footprint = c => {
+      const v = SM.Sky.cloudVoxels(c);
+      let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+      for (let z = 0; z < v.nz; z++) for (let x = 0; x < v.nx; x++) {
+        if (v.cells[z * v.nx + x]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+      }
+      return [x1 - x0 + 1, z1 - z0 + 1];
+    };
+    const bad = [];
+    let maxTris = 0, maxTrisBig = 0;
+    const skies = [];
+    for (const seed of SEEDS) {
+      const n = SM.Sky.cloudCount(seed);
+      const list = SM.Sky.cloudInstances(real, n, seed);
+      skies.push(JSON.stringify(list));
+      // Size = how much cloud there is (voxel count), not the bounding
+      // radius: a small cloud with one far side puff has a big radius.
+      const vols = list.map(c => SM.Sky.cloudVoxels(c).cells.reduce((a, b) => a + b, 0));
+      const ratio = Math.max(...vols) / Math.min(...vols);
+      const sigs = new Set(list.map(sig));
+      const layers = new Set(list.map(layersOf));
+      const lobeCounts = new Set(list.map(c => c.lobes.length));
+      const aspects = list.map(c => { const f = footprint(c); return Math.max(f[0], f[1]) / Math.min(f[0], f[1]); });
+      const lifts = list.map(c => c.lift);
+      const speeds = list.map(c => c.speed);
+      if (n < 4 || n > SM.Sky.MAX_CLOUDS) bad.push(`${seed}: ${n} clouds`);
+      if (ratio < 2.5) bad.push(`${seed}: volume ratio ${ratio.toFixed(2)}`);
+      if (sigs.size !== list.length) bad.push(`${seed}: two clouds share a voxel shape`);
+      if (layers.size < 2) bad.push(`${seed}: one thickness only (${[...layers]})`);
+      if (lobeCounts.size < 2 && Math.max(...aspects) - Math.min(...aspects) < 0.5) bad.push(`${seed}: one shape family`);
+      if (Math.max(...lifts) - Math.min(...lifts) < 0.8) bad.push(`${seed}: heights within ${(Math.max(...lifts) - Math.min(...lifts)).toFixed(2)}`);
+      if (Math.max(...speeds) / Math.min(...speeds) > 2.2) bad.push(`${seed}: drift speeds too far apart`);
+      maxTris = Math.max(maxTris, SM.Sky.buildCloudMesh(list).triangleCount);
+      maxTrisBig = Math.max(maxTrisBig, SM.Sky.buildCloudMesh(SM.Sky.cloudInstances(big, n, seed)).triangleCount);
+    }
+    results.push([`each of ${SEEDS.length} skies mixes sizes (voxel volume max/min >= 2.5), shapes, thickness and height`,
+      bad.length === 0, bad.join('; ')]);
+    results.push(['the sky follows the seed: every seed gets its own sky',
+      new Set(skies).size === SEEDS.length]);
+    // Frame cost: the old renderer drew 16668 cloud triangles on a 192² map
+    // and 96660 on 448² (interior faces included). Only the shell is emitted
+    // now; the budget keeps the new, bigger clouds below the old count.
+    results.push([`cloud triangles stay under the old budget (192²: ${maxTris} <= 16668, 448²: ${maxTrisBig} <= 96660)`,
+      maxTris <= 16668 && maxTrisBig <= 96660]);
+
+    // Shadow and body share one shape. Overhead sun: every voxel column the
+    // cloud has casts shadow (inside some lobe ellipse), and every lobe's
+    // full-strength core (the inner 45%) has cloud above it.
+    const shapeBad = [];
+    for (const seed of SEEDS) {
+      const list = SM.Sky.cloudInstances(real, SM.Sky.cloudCount(seed), seed);
+      const now = SM.Sky.driftClouds(list, 40, real, 1.6);
+      const data = SM.Sky.cloudShadowUniforms(now, real, [0, 1, 0]);
+      const sx = real.maxX - real.minX, sz = real.maxZ - real.minZ;
+      let k = 0, covered = 0, columns = 0, coreHits = 0, coreSamples = 0;
+      for (let i = 0; i < list.length; i++) {
+        const v = SM.Sky.cloudVoxels(list[i]);
+        const mine = [];
+        for (let j = 0; j < list[i].lobes.length; j++) mine.push(k++);
+        const cover = (wx, wz) => mine.reduce((best, q) => {
+          const du = ((wx - real.minX) / sx - data[q * 4]) / data[q * 4 + 2];
+          const dv = ((wz - real.minZ) / sz - data[q * 4 + 1]) / data[q * 4 + 3];
+          return Math.min(best, Math.hypot(du, dv));
+        }, Infinity);
+        for (let z = 0; z < v.nz; z++) for (let x = 0; x < v.nx; x++) {
+          let any = false;
+          for (let y = 0; y < SM.Sky.MAX_LAYERS; y++) if (v.cells[(y * v.nz + z) * v.nx + x]) any = true;
+          if (!any) continue;
+          columns++;
+          const wx = now[i].x + (x - v.reachX) * SM.Sky.CLOUD_VOXEL;
+          const wz = now[i].z + (z - v.reachZ) * SM.Sky.CLOUD_VOXEL;
+          if (cover(wx, wz) < 1) covered++;
+        }
+        for (const lobe of list[i].lobes) {
+          for (let a = 0; a < 16; a++) for (const t of [0, 0.2, 0.45]) {
+            const lx = lobe.x + Math.cos(a * Math.PI / 8) * t * lobe.rx * 1.15;
+            const lz = lobe.z + Math.sin(a * Math.PI / 8) * t * lobe.rz * 1.15;
+            const gx = Math.round(lx / SM.Sky.CLOUD_VOXEL) + v.reachX;
+            const gz = Math.round(lz / SM.Sky.CLOUD_VOXEL) + v.reachZ;
+            coreSamples++;
+            if (gx >= 0 && gz >= 0 && gx < v.nx && gz < v.nz && v.cells[gz * v.nx + gx]) coreHits++;
+          }
+        }
+      }
+      if (covered !== columns) shapeBad.push(`${seed}: ${columns - covered}/${columns} cloud columns cast no shadow`);
+      if (coreHits < coreSamples * 0.97) shapeBad.push(`${seed}: shadow core under open sky ${coreSamples - coreHits}/${coreSamples}`);
+    }
+    results.push(["the shadow has the cloud's shape: every cloud column shades, every shadow core is under cloud",
+      shapeBad.length === 0, shapeBad.join('; ')]);
+
+    // Height: the whole cloud body stays above the terrain and below the
+    // ceiling the camera fit uses, at every exaggeration.
+    const hBad = [];
+    for (const seed of SEEDS) {
+      const list = SM.Sky.cloudInstances(real, SM.Sky.cloudCount(seed), seed);
+      const mesh = SM.Sky.buildCloudMesh(list);
+      for (const vs of [0.6, 1.6, 3.0]) {
+        const now = SM.Sky.driftClouds(list, 0, real, vs);
+        const ceil = SM.Sky.ceiling(real, vs, (real.maxX - real.minX) * 0.09);
+        for (let q = 0; q < mesh.vertexCount; q++) {
+          const y = mesh.positions[q * 3 + 1] + now[mesh.cloudIndex[q]].y;
+          if (y > ceil + 1e-6) { hBad.push(`${seed}@${vs}: top ${y.toFixed(2)} > ceiling ${ceil.toFixed(2)}`); break; }
+          if (y <= real.maxY * vs) { hBad.push(`${seed}@${vs}: cloud at ${y.toFixed(2)} inside terrain`); break; }
+        }
+      }
+    }
+    results.push(['every cloud vertex is above the terrain and under SM.Sky.ceiling (vScale 0.6 / 1.6 / 3)',
+      hBad.length === 0, hBad.slice(0, 4).join('; ')]);
+
+    // Only the shell: no two faces sit in the same place (a hidden interior
+    // pair would be two quads with the same centre).
+    const centres = new Set();
+    let dup = 0;
+    const m = SM.Sky.buildCloudMesh(SM.Sky.cloudInstances(real, 6, 4242));
+    for (let q = 0; q < m.vertexCount; q += 4) {
+      let cx = 0, cy = 0, cz = 0;
+      for (let c = 0; c < 4; c++) { cx += m.positions[(q + c) * 3]; cy += m.positions[(q + c) * 3 + 1]; cz += m.positions[(q + c) * 3 + 2]; }
+      const key = m.cloudIndex[q] + ':' + [cx, cy, cz].map(x => (x / 4).toFixed(3)).join(',');
+      if (centres.has(key)) dup++; else centres.add(key);
+    }
+    results.push(['cloud mesh is a shell: no interior face pairs', dup === 0, dup ? `${dup} duplicated faces` : '']);
+  }
+
+  console.log('sky checks (96 unit span, 5 clouds, 16 birds; variety on real map spans):');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
   console.log(`  cloud mesh: ${cloudMesh.vertexCount} vertices, ` +
     `${cloudMesh.triangleCount} triangles`);
   console.log(`  bird mesh:  ${birdMesh.vertexCount} vertices, ` +

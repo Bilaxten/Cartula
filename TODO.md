@@ -102,10 +102,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       sorgu dizgisini ayıklamalı). Sürümü her yayında elle artırmak gerekir;
       trafik düşükken acil değil.
 
-- [ ] **Bulut mesh'i iç yüzleri:** `buildCloudMesh` komşu kutuların arasında
-      kalan yüzleri de üretiyor. Görsel hata DEĞİL (iki geçişli çizim gizliyor),
-      yalnız fazladan üçgen. Yerleşim sayısı tavanı (`min(12, …)`) da tasarım
-      tercihi; ikisi de hata listesinden düştü.
+- [ ] **Yerleşim sayısı tavanı** (`min(12, …)`) tasarım tercihi; hata
+      listesinden düştü. (Bulut mesh'inin iç yüzleri 2026-10-05'te kalktı.)
 
 - [ ] **Görsel regresyon fikri:** `tools/headless.js` determinism'i yakalıyor ama
       render'ı yakalamıyor. node-canvas ile PNG karşılaştırma mümkün ama bir
