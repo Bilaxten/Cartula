@@ -334,12 +334,26 @@ kalmaz). Üstten görünümde ayak izi çatı renginde. Mesh'e kabuk olarak ekle
 
 **Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
 harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,
-diğerleri ıslak karaya (orman, yağmur ormanı, bataklık). Bölge içinde
-parçacığın altındaki biyom karar verir: tundra/kar/tayga üstünde kar,
-çöl/mesa/lav üstünde hiçbir şey, kalan her yerde yağmur. En çok 900
-parçacık, harita başına tek statik buffer; düşüş vertex shader'da
-zamandan hesaplanır (kare başına CPU işi ve yükleme yok). Kar, rüzgâr
-çizgileriyle aynı hâkim rüzgârla sürüklenir (`--weather`).
+diğerleri ıslak karaya (orman, yağmur ormanı, bataklık). İkinci tur (aynı gün,
+Uğur: *"yağmur ve kar yarı saydam bulutlardan yağsın"*): **her bölgenin kendi
+bulutu var** ve bölge = bulutun ayak izi. Bulut, açık hava bulutlarıyla aynı
+voxel lob yapısında (`SM.Sky.buildCloudMesh`) ama **yarı saydam** (yağmur 0.58,
+kar 0.48: altındaki harita okunur), daha alçakta (ayak izindeki en yüksek
+zeminin 4 kademe üstü) ve daha gri: paletin kar beyazı kaya grisine karıştırılır
+(yağmur bulutu daha ağır, kar bulutu daha açık; yeni renk yok). Her parçacık bir
+buluta ait, bulutun altından başlar, lobları içinde düşer, değdiği zeminde söner.
+Hava bulutları açık hava bulutları gibi haritayı geçmez (kar bulutu çöle
+giderdi): x ekseninde yarıçapının %25'i kadar, 2-3 dakikalık periyotla yavaşça
+salınır; parçacıklar ve gölge onunla gider (bulut, gölge ve yağmur aynı
+`SM.Weather.cloudsAt` sayısını okur). Bulut hareket ettiği için altındaki
+zemin değişir: vertex shader tile başına 2 baytlık küçük bir dokudan (seviye +
+ne yağar) okur: tundra/kar/tayga üstünde kar, çöl/mesa/lav üstünde hiçbir şey,
+kalan her yerde yağmur. Gölge: hava bulutu açık hava bulutunun 0.6'sı kadar
+**daha açık** gölge düşürür (aynı lob dizileri; dizi 18'den 27'ye çıktı).
+*Rain & snow* kapalıyken bulut, gölgesi ve parçacıklar birlikte kalkar. En çok
+900 parçacık, harita başına tek statik buffer; düşüş vertex shader'da
+zamandan hesaplanır. Kar, rüzgâr çizgileriyle aynı hâkim rüzgârla biraz
+sürüklenir (`--weather`).
 
 **Varsayılan harita 320²** (2026-10-05, önceden 192²). Paylaşım linkindeki
 `size` hâlâ kazanır, *Random* boyuta dokunmaz. Bedeli (seed 1337,

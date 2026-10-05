@@ -27,9 +27,13 @@
   // A cloud is a union of up to MAX_LOBES ellipsoids ("lobes"): one main body
   // plus side puffs. The terrain shader draws the shadow as the same union of
   // ellipses, one uniform per lobe, so its array is MAX_SHADOW_LOBES long
-  // (`uCloudLobes[18]` in voxel3d.js -- the GLSL half of this contract).
+  // (`uCloudLobes[...]` in voxel3d.js is built from this number -- the GLSL
+  // half of this contract). The weather clouds (src/render/weather.js, up to
+  // MAX_WEATHER_CLOUDS, also MAX_LOBES each) cast their shadow through the
+  // same arrays.
   var MAX_LOBES = 3;
-  var MAX_SHADOW_LOBES = MAX_CLOUDS * MAX_LOBES;
+  var MAX_WEATHER_CLOUDS = 3;
+  var MAX_SHADOW_LOBES = (MAX_CLOUDS + MAX_WEATHER_CLOUDS) * MAX_LOBES;
 
   // Cube edge of one cloud voxel, in grid cells. Big enough that a cloud reads
   // as a handful of chunky blocks rather than a smooth blob — same visual
@@ -246,7 +250,9 @@
    * Returns a flat Float32Array of vec4 (u, v, radiusU, radiusV) per lobe,
    * padded to MAX_SHADOW_LOBES so the uniform upload has a constant shape.
    * `fadeOut` (optional, MAX_SHADOW_LOBES floats) receives each lobe's cloud
-   * opacity: the shadow fades with its cloud.
+   * opacity: the shadow fades with its cloud. A cloud's optional `shadow`
+   * (0..1) scales it further: the semi-transparent weather clouds cast a
+   * lighter shadow.
    */
   function cloudShadowUniforms(clouds, bounds, sun, out, fadeOut) {
     var spanX = Math.max(1e-6, bounds.maxX - bounds.minX);
@@ -266,7 +272,7 @@
     // shadow would snap across the map in a single frame.
     var lift = Math.max(0.18, Math.abs(sy));
 
-    for (i = 0; i < clouds.length && i < MAX_CLOUDS; i++) {
+    for (i = 0; i < clouds.length && k < MAX_SHADOW_LOBES; i++) {
       var cloud = clouds[i];
       var slide = cloud.y / lift;
       var shadowX = cloud.x - sx * slide;
@@ -283,7 +289,10 @@
         // The umbra is a little wider than the lobe and softens at its rim.
         data[k * 4 + 2] = (rx * 1.15) / spanX;
         data[k * 4 + 3] = (rz * 1.15) / spanZ;
-        if (fadeOut) fadeOut[k] = cloud.fade == null ? 1 : cloud.fade;
+        if (fadeOut) {
+          fadeOut[k] = (cloud.fade == null ? 1 : cloud.fade) *
+            (cloud.shadow == null ? 1 : cloud.shadow);
+        }
       }
     }
     return data;
@@ -292,7 +301,7 @@
   /* Number of shadow lobes a cloud list uses (what `uCloudLobeCount` gets). */
   function shadowLobeCount(clouds) {
     var k = 0;
-    for (var i = 0; i < clouds.length && i < MAX_CLOUDS; i++) {
+    for (var i = 0; i < clouds.length; i++) {
       k += clouds[i].lobes ? clouds[i].lobes.length : 1;
     }
     return Math.min(MAX_SHADOW_LOBES, k);
@@ -350,6 +359,9 @@
     var normals = [];
     var indices = [];
     var cloudIndex = [];
+    // Index range of each instance (first index, count): the weather
+    // clouds are drawn one by one, each in its own colour.
+    var ranges = [];
     var hx = CLOUD_VOXEL * 0.5;
     var hy = CLOUD_LAYER * 0.5;
     var FACES = [
@@ -388,6 +400,7 @@
     }
 
     for (i = 0; i < instances.length; i++) {
+      var first = indices.length;
       var vox = cloudVoxels(instances[i]);
       var nxs = vox.nx, nzs = vox.nz;
       var filled = function (x, y, z) {
@@ -407,6 +420,7 @@
           }
         }
       }
+      ranges.push([first, indices.length - first]);
     }
 
     return {
@@ -414,6 +428,7 @@
       normals: new Float32Array(normals),
       cloudIndex: new Float32Array(cloudIndex),
       indices: new Uint32Array(indices),
+      ranges: ranges,
       vertexCount: positions.length / 3,
       triangleCount: indices.length / 3
     };
@@ -499,6 +514,7 @@
     MAX_CLOUDS: MAX_CLOUDS,
     MAX_LOBES: MAX_LOBES,
     MAX_SHADOW_LOBES: MAX_SHADOW_LOBES,
+    MAX_WEATHER_CLOUDS: MAX_WEATHER_CLOUDS,
     MAX_LAYERS: MAX_LAYERS,
     CLOUD_VOXEL: CLOUD_VOXEL,
     CLOUD_LAYER: CLOUD_LAYER,

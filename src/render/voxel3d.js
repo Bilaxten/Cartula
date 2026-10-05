@@ -1276,10 +1276,10 @@
       // position. One soft ellipse per cloud LOBE (u, v, radiusU, radiusV), the
       // same lobes the cloud voxels fill, so the shadow has the cloud's shape.
       // Fixed-size array: GLSL uniform arrays cannot be dynamic, and
-      // `SM.Sky.MAX_SHADOW_LOBES` (6 clouds x 3 lobes) is the JS half of the
-      // same contract.
-      'uniform vec4 uCloudLobes[18];',
-      'uniform float uCloudLobeFade[18];',  // the shadow fades with its cloud
+      // `SM.Sky.MAX_SHADOW_LOBES` ((6 clouds + 3 weather clouds) x 3 lobes)
+      // is the JS half of the same contract.
+      'uniform vec4 uCloudLobes[' + SM.Sky.MAX_SHADOW_LOBES + '];',
+      'uniform float uCloudLobeFade[' + SM.Sky.MAX_SHADOW_LOBES + '];',  // the shadow fades with its cloud
       'uniform int uCloudLobeCount;',
       'uniform float uCloudShadow;',
       // Render debug view (0 = lit). Fragment-only on purpose: a uniform
@@ -1380,7 +1380,7 @@
       '  // take less of it, the same split the sun shadow uses -- a wall in',
       '  // shade from a passing cloud should not read darker than the ground.',
       '  float cloudCover = 0.0;',
-      '  for (int c = 0; c < 18; c++) {',
+      '  for (int c = 0; c < ' + SM.Sky.MAX_SHADOW_LOBES + '; c++) {',
       '    if (c >= uCloudLobeCount) break;',
       '    vec2 delta = (vCellUV - uCloudLobes[c].xy) /',
       '      max(vec2(1e-4), uCloudLobes[c].zw);',
@@ -1737,7 +1737,18 @@
     // vertex shader; optional like the wind.
     var weather = SM.Weather ? SM.Weather.createLayer(gl, acct, GRADE_GLSL) : null;
     var showWeather = true;
-    var weatherDraw = { combined: null, view: null, vScale: 1, time: 0, pixelWorld: 1, setGrade: null };
+    var weatherDraw = {
+      combined: null, view: null, vScale: 1, time: 0, pixelWorld: 1, setGrade: null, centres: null
+    };
+    // This map's weather (SM.Weather.build), its clouds' centres this frame
+    // (grid tiles, SM.Weather.cloudsAt: the one source for the cloud, its
+    // shadow and its rain) and the sky-pass mesh of those clouds.
+    var weatherBuilt = null;
+    var weatherCentres = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS * 2);
+    weatherDraw.centres = weatherCentres;
+    var weatherNow = [];
+    // Fair clouds + weather clouds, for the shadow uniforms (reused).
+    var shadowCasters = [];
     // Light enough to read over grass by day and over the graded map at
     // night: the snow entry of the biome palette.
     var windColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
@@ -1878,12 +1889,21 @@
      * and flock radius are derived from the map footprint -- a 64² sky on a 192²
      * map would read as a handful of specks. */
     function buildSky(bounds) {
-      var clouds;
-      var birds;
-
       if (!skyProgram || !bounds) return;
+      ensureSky();
+      buildFairSky(bounds);
+    }
+
+    function ensureSky() {
       if (!sky) {
         sky = {
+          weatherVao: gl.createVertexArray(),
+          weatherPos: gl.createBuffer(),
+          weatherNormal: gl.createBuffer(),
+          weatherIdx: gl.createBuffer(),
+          weatherIndex: gl.createBuffer(),
+          weatherCount: 0,
+          weatherRanges: [],
           cloudVao: gl.createVertexArray(),
           cloudPos: gl.createBuffer(),
           cloudNormal: gl.createBuffer(),
@@ -1911,6 +1931,11 @@
           gradeOn: gl.getUniformLocation(skyProgram, 'uGradeOn')
         };
       }
+    }
+
+    function buildFairSky(bounds) {
+      var clouds;
+      var birds;
 
       // The sky follows the map's seed (setMesh hands it over), so a map
       // always gets the same clouds and another map gets other ones.
@@ -1950,17 +1975,53 @@
 
     /* Resolve this frame's cloud positions once, for both programs. */
     function updateClouds() {
-      if (!meshBounds || !cloudInstances.length) {
+      var f;
+
+      if (!meshBounds) {
         cloudNow = [];
+        weatherNow.length = 0;
+        cloudLobeCount = 0;
         return;
       }
-      // Both calls write into buffers this renderer owns, so a frame costs no
-      // allocation at all.
-      SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
-      SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
+      // Every call writes into buffers this renderer owns, so a frame costs
+      // no allocation at all.
+      if (cloudInstances.length) {
+        SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
+      } else {
+        cloudNow = [];
+      }
+      updateWeatherClouds();
+      shadowCasters.length = 0;
+      if (showSky) for (f = 0; f < cloudNow.length; f++) shadowCasters.push(cloudNow[f]);
+      for (f = 0; f < weatherNow.length; f++) shadowCasters.push(weatherNow[f]);
+      SM.Sky.cloudShadowUniforms(shadowCasters, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
+      cloudLobeCount = SM.Sky.shadowLobeCount(shadowCasters);
       cloudFadeData.fill(0);
-      for (var f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
+      for (f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
         cloudFadeData[f] = cloudNow[f].fade;
+      }
+    }
+
+    /* Weather clouds this frame, in the sky's world space: x/z from the
+     * centres SM.Weather.cloudsAt gives (grid tiles), y from the cloud's
+     * underside in levels (so the rain starts exactly under it at any
+     * height scale). Empty while Rain & snow is off. */
+    function updateWeatherClouds() {
+      var list = weatherBuilt && showWeather && sky && sky.weatherCount ? weatherBuilt.clouds : [];
+      var n;
+
+      weatherNow.length = list.length;
+      if (!list.length) return;
+      SM.Weather.cloudsAt(weatherBuilt, elapsedTime, weatherCentres);
+      for (n = 0; n < list.length; n++) {
+        var e = weatherNow[n] || (weatherNow[n] = { x: 0, y: 0, z: 0, radius: 0, fade: 1, shadow: 1, lobes: null });
+        e.x = weatherCentres[n * 2] - gridSize[0] / 2;
+        e.z = weatherCentres[n * 2 + 1] - gridSize[1] / 2;
+        e.y = list[n].bottom * vScale + SM.Sky.CLOUD_LAYER * 0.5;
+        e.radius = list[n].radius;
+        e.fade = list[n].alpha;
+        e.shadow = SM.Weather.SHADOW;
+        e.lobes = list[n].lobes;
       }
     }
 
@@ -1970,7 +2031,8 @@
       var spanX;
 
       // Debug views show the terrain terms alone: clouds would only hide them.
-      if (!skyProgram || !sky || !showSky || debugView || !meshBounds) return;
+      if (!skyProgram || !sky || debugView || !meshBounds) return;
+      if (!showSky && !weatherNow.length) return;
       spanX = meshBounds.maxX - meshBounds.minX;
       gl.useProgram(skyProgram);
       gl.uniformMatrix4fv(sky.viewProjection, false, combined);
@@ -1979,7 +2041,7 @@
       gl.uniform1f(sky.sunStrength, strength);
       setGradeUniforms(sky.gradeTint, sky.gradeBS, sky.gradeOn);
 
-      if (sky.cloudCount && cloudNow.length) {
+      if (showSky && sky.cloudCount && cloudNow.length) {
         flat = cloudWorldData;
         for (i = 0; i < cloudNow.length && i < SM.Sky.MAX_CLOUDS; i++) {
           flat[i * 3] = cloudNow[i].x;
@@ -2008,7 +2070,9 @@
         gl.disable(gl.BLEND);
       }
 
-      if (sky.birdCount) {
+      if (weatherNow.length && sky.weatherCount) drawWeatherClouds();
+
+      if (showSky && sky.birdCount) {
         gl.uniform1i(sky.mode, 1);
         gl.uniform3f(sky.color, 0.10, 0.12, 0.16);
         gl.uniform3f(
@@ -2028,6 +2092,48 @@
         gl.enable(gl.CULL_FACE);
       }
       gl.bindVertexArray(null);
+    }
+
+    /* The weather clouds: semi-transparent (their own alpha through
+     * uCloudFade), one draw pair per cloud for its colour, with the same
+     * depth-prepass trick as the fair clouds so each pixel blends once. */
+    function drawWeatherClouds() {
+      var flat = cloudWorldData;
+      var n;
+
+      flat.fill(0);
+      cloudFadeData.fill(0);
+      for (n = 0; n < weatherNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
+        flat[n * 3] = weatherNow[n].x;
+        flat[n * 3 + 1] = weatherNow[n].y;
+        flat[n * 3 + 2] = weatherNow[n].z;
+        cloudFadeData[n] = weatherNow[n].fade;
+      }
+      gl.uniform3fv(sky.cloudPosUniform, flat);
+      gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
+      gl.uniform1i(sky.mode, 0);
+      gl.bindVertexArray(sky.weatherVao);
+      for (n = 0; n < weatherNow.length && n < sky.weatherRanges.length; n++) {
+        var range = sky.weatherRanges[n];
+        var color = weatherBuilt.clouds[n].color;
+        if (!range[1]) continue;
+        gl.uniform3f(sky.color, color[0], color[1], color[2]);
+        gl.colorMask(false, false, false, false);
+        acct.drawElements(gl.TRIANGLES, range[1], gl.UNSIGNED_INT, range[0] * 4);
+        gl.colorMask(true, true, true, true);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        gl.depthFunc(gl.LEQUAL);
+        gl.depthMask(false);
+        acct.drawElements(gl.TRIANGLES, range[1], gl.UNSIGNED_INT, range[0] * 4);
+        gl.depthMask(true);
+        gl.depthFunc(gl.LESS);
+        gl.disable(gl.BLEND);
+      }
+      // The fair clouds' fades again (they are read next frame anyway; keep
+      // the shared buffer honest).
+      cloudFadeData.fill(0);
+      for (n = 0; n < cloudNow.length && n < SM.Sky.MAX_CLOUDS; n++) cloudFadeData[n] = cloudNow[n].fade;
     }
 
     function setSky(enabled) {
@@ -2308,7 +2414,7 @@
         windDraw.setGrade = setGradeUniforms;
         wind.draw(windDraw);
       }
-      if (weather && showWeather && !debugView) {
+      if (weather && showWeather && !debugView && weatherNow.length) {
         weatherDraw.combined = combined;
         weatherDraw.view = view;
         weatherDraw.vScale = vScale;
@@ -2340,8 +2446,9 @@
       gl.uniform1i(U.shadowMap, 0);
       gl.uniform4fv(U.cloudLobes, cloudShadowData);
       gl.uniform1fv(U.cloudLobeFade, cloudLobeFadeData);
-      gl.uniform1i(U.cloudLobeCount,
-        showSky && !debugView && cloudNow.length ? cloudLobeCount : 0);
+      // Fair clouds only while the sky is on, weather clouds only while
+      // Rain & snow is on (updateClouds builds the list accordingly).
+      gl.uniform1i(U.cloudLobeCount, debugView ? 0 : cloudLobeCount);
       gl.uniform1f(U.cloudShadow, cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
       gl.uniform3fv(U.lightColor, lightColor);
@@ -2375,7 +2482,30 @@
     }
 
     function setWeatherData(built, prevailing) {
-      if (weather && !disposed) weather.setData(built, prevailing);
+      if (disposed) return;
+      weatherBuilt = built || null;
+      if (weather) weather.setData(built, prevailing);
+      buildWeatherSky();
+    }
+
+    /* The weather clouds' voxel mesh (SM.Sky.buildCloudMesh, the same
+     * builder as the fair clouds), drawn by the sky program one cloud at a
+     * time in its own colour. */
+    function buildWeatherSky() {
+      var mesh;
+
+      if (!skyProgram) return;
+      ensureSky();
+      mesh = SM.Sky.buildCloudMesh(weatherBuilt ? weatherBuilt.clouds : []);
+      gl.bindVertexArray(sky.weatherVao);
+      uploadSkyAttrib(sky.weatherPos, 'aPosition', mesh.positions, 3);
+      uploadSkyAttrib(sky.weatherNormal, 'aNormal', mesh.normals, 3);
+      uploadSkyAttrib(sky.weatherIdx, 'aCloudIndex', mesh.cloudIndex, 1);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.weatherIndex);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, sky.weatherIndex, mesh.indices, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      sky.weatherCount = mesh.indices.length;
+      sky.weatherRanges = mesh.ranges;
     }
 
     function setWeather(on) {
@@ -2533,8 +2663,13 @@
         gl.deleteBuffer(sky.birdIdx);
         gl.deleteBuffer(sky.birdWing);
         gl.deleteBuffer(sky.birdIndex);
+        gl.deleteBuffer(sky.weatherPos);
+        gl.deleteBuffer(sky.weatherNormal);
+        gl.deleteBuffer(sky.weatherIdx);
+        gl.deleteBuffer(sky.weatherIndex);
         gl.deleteVertexArray(sky.cloudVao);
         gl.deleteVertexArray(sky.birdVao);
+        gl.deleteVertexArray(sky.weatherVao);
         sky = null;
       }
       if (skyProgram) gl.deleteProgram(skyProgram);

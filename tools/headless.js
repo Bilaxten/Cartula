@@ -852,7 +852,8 @@ function runSkyChecks() {
     Array.from(horizon).every(v => Number.isFinite(v))]);
   results.push(['shadow array is padded to MAX_SHADOW_LOBES (vec4 each)',
     horizon.length === SM.Sky.MAX_SHADOW_LOBES * 4 &&
-    SM.Sky.MAX_SHADOW_LOBES === SM.Sky.MAX_CLOUDS * SM.Sky.MAX_LOBES]);
+    SM.Sky.MAX_SHADOW_LOBES === (SM.Sky.MAX_CLOUDS + SM.Sky.MAX_WEATHER_CLOUDS) * SM.Sky.MAX_LOBES &&
+    SM.Sky.MAX_WEATHER_CLOUDS === SM.Weather.MAX_CLOUDS]);
 
   // Geometry sanity: finite, indexed inside the buffer, deterministic.
   const cloudMesh = SM.Sky.buildCloudMesh(instances);
@@ -2680,48 +2681,120 @@ function runLayoutChecks() {
 function runWeatherChecks() {
   const results = [];
   const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const Wx = SM.Weather;
   const idx = list => list.map(id => SM.BIOME_LIST.findIndex(b => b.id === id));
-  const cold = idx(SM.Weather.COLD), dry = idx(SM.Weather.DRY);
+  const cold = idx(Wx.COLD), dry = idx(Wx.DRY);
   const wet = idx(['forest', 'jungle', 'marsh']);
   const sigs = [];
-  let anySnow = 0, anyRain = 0;
+  const kinds = new Set();
+  let snowDrops = 0, rainDrops = 0;
 
   for (const seed of [1337, 4242, 90210, 7, 2024]) {
     const g = run(seed, 128, 0.38).grid;
-    const a = SM.Weather.build(g, seed);
-    const b = SM.Weather.build(g, seed);
-    let rules = 0, rain = 0, snow = 0;
-    for (let p = 0; p < a.count; p++) {
-      const bi = g.biome[a.tiles[p]], k = a.kinds[p];
-      if (dry.includes(bi)) rules++;
-      else if (cold.includes(bi) && k !== 1) rules++;
-      else if (!cold.includes(bi) && k !== 0) rules++;
-      if (k) snow++; else rain++;
-    }
-    anySnow += snow; anyRain += rain;
+    const a = Wx.build(g, seed);
+    const b = Wx.build(g, seed);
+    const W = g.width, H = g.height;
     sigs.push(a.zones.map(z => `${z.x},${z.y}`).join(';'));
-    push(`seed ${seed}: ${a.zones.length} zones, ${a.count} particles (${rain} rain, ${snow} snow) <= ` +
-      `${SM.Weather.MAX_PARTICLES}; snow only on cold biomes, none on desert/mesa/lava; deterministic`,
-      a.zones.length >= 1 && a.zones.length <= 3 && a.count <= SM.Weather.MAX_PARTICLES &&
-      a.data.length === a.count * 4 * 8 && rules === 0 &&
-      typedEqual(a.data, b.data) && Array.prototype.every.call(a.data, Number.isFinite),
-      `rule breaks ${rules}`);
-    // Zones are centred on wet or cold land.
+    // Ground texture: level and kind per tile follow the biome rule.
+    let texBad = 0;
+    for (let i = 0; i < W * H; i++) {
+      const want = dry.includes(g.biome[i]) ? Wx.KIND.none : cold.includes(g.biome[i]) ? Wx.KIND.snow : Wx.KIND.rain;
+      if (a.ground[i * 2 + 1] !== want || a.ground[i * 2] !== Math.max(0, Math.min(255, g.level[i]))) texBad++;
+    }
+    push(`seed ${seed}: ${a.zones.length} zones, one cloud each; ground texture: snow only over cold biomes, nothing over desert/mesa/lava, rain elsewhere; deterministic`,
+      a.zones.length >= 1 && a.zones.length <= 3 && a.clouds.length === a.zones.length && texBad === 0 &&
+      typedEqual(a.data, b.data) && JSON.stringify(a.clouds) === JSON.stringify(b.clouds) &&
+      Array.prototype.every.call(a.data, Number.isFinite), `texture mismatches ${texBad}`);
+    // Every particle belongs to a cloud and falls inside its footprint.
+    let outside = 0;
+    for (let p = 0; p < a.count; p++) {
+      const cl = a.clouds[a.cloudOf[p]];
+      if (!cl || !Wx.insideLobes(cl.lobes, a.local[p * 2], a.local[p * 2 + 1], 1)) outside++;
+    }
+    push(`seed ${seed}: ${a.count} particles <= ${Wx.MAX_PARTICLES}, every one inside its cloud's lobes (${outside} outside)`,
+      a.count > 0 && a.count <= Wx.MAX_PARTICLES && outside === 0 && a.data.length === a.count * 4 * 6, '');
+    // Clouds: semi-transparent, greyer than snow-white from the palette,
+    // rain heavier than snow; underside above all ground it can sway over.
+    const snowC = SM.BIOME_LIST.find(x => x.id === 'snow').color;
+    const white = [1, 3, 5].map(k => parseInt(snowC.slice(k, k + 2), 16) / 255);
+    const bad = [];
+    for (const cl of a.clouds) {
+      kinds.add(cl.kind);
+      if (!(cl.alpha >= 0.45 && cl.alpha <= 0.6)) bad.push('alpha ' + cl.alpha);
+      const sum = cl.color.reduce((x, y) => x + y, 0);
+      if (!(sum < white.reduce((x, y) => x + y, 0))) bad.push('not greyer');
+      let hi = 0;
+      const reach = cl.radius + cl.sway.amp;
+      for (let y = Math.floor(cl.y - reach); y <= cl.y + reach; y++) {
+        for (let x = Math.floor(cl.x - reach); x <= cl.x + reach; x++) {
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          hi = Math.max(hi, g.level[y * W + x]);
+        }
+      }
+      if (cl.bottom < hi + 2) bad.push(`underside ${cl.bottom} vs ground ${hi}`);
+      if (!(cl.column > 0 && cl.column <= cl.bottom)) bad.push('column');
+      if (!(cl.sway.amp <= 0.3 * cl.r && cl.sway.period >= 60)) bad.push('sway');
+    }
+    const rainC = Wx.cloudColor('rain'), snowCl = Wx.cloudColor('snow');
+    push(`seed ${seed}: clouds semi-transparent (alpha 0.45-0.6), greyer than snow-white, underside above the highest ground under them; snow clouds lighter than rain clouds`,
+      bad.length === 0 && snowCl.reduce((x, y) => x + y) > rainC.reduce((x, y) => x + y), bad.join(', '));
+    // Sway: bounded, slow, only along x; the particles' cloud centre is the
+    // cloud's own (cloudsAt is the single source).
+    const c0 = new Float32Array(6), c1 = new Float32Array(6);
+    let worstDx = 0, worstSpeed = 0, yMoves = false;
+    for (let t = 0; t < 400; t += 0.5) {
+      Wx.cloudsAt(a, t, c0);
+      Wx.cloudsAt(a, t + 0.5, c1);
+      a.clouds.forEach((cl, n) => {
+        worstDx = Math.max(worstDx, Math.abs(c0[n * 2] - cl.x) / cl.r);
+        worstSpeed = Math.max(worstSpeed, Math.abs(c1[n * 2] - c0[n * 2]) / 0.5);
+        if (c0[n * 2 + 1] !== cl.y) yMoves = true;
+      });
+    }
+    push(`seed ${seed}: clouds sway at most ${(worstDx * 100).toFixed(0)}% of their radius, at most ${worstSpeed.toFixed(2)} tiles/s, along x only`,
+      worstDx <= Wx.SWAY + 1e-6 && worstSpeed < 1 && !yMoves, '');
+    // What falls where, at a few times: a drop over a cold tile is snow, over
+    // a dry tile nothing (the shader reads the same texture).
+    for (const t of [0, 37, 211]) {
+      Wx.cloudsAt(a, t, c0);
+      for (let p = 0; p < a.count; p++) {
+        const n = a.cloudOf[p];
+        const x = Math.floor(c0[n * 2] + a.local[p * 2]), y = Math.floor(c0[n * 2 + 1] + a.local[p * 2 + 1]);
+        if (x < 0 || y < 0 || x >= W || y >= H) continue;
+        const k = a.ground[(y * W + x) * 2 + 1];
+        if (k === Wx.KIND.snow) snowDrops++;
+        if (k === Wx.KIND.rain) rainDrops++;
+      }
+    }
     const centresOk = a.zones.every(z => {
       const i = Math.floor(z.y) * g.width + Math.floor(z.x);
-      return !g.water[i] && (wet.includes(g.biome[i]) || cold.includes(g.biome[i]) ||
-        SM.BIOME_LIST[g.biome[i]].id === 'jungle');
+      return !g.water[i] && (wet.includes(g.biome[i]) || cold.includes(g.biome[i]));
     });
-    const coldTiles = g.biome.filter((bi, i) => !g.water[i] && cold.includes(bi)).length;
-    push(`seed ${seed}: every zone is centred on wet or cold land; a map with cold land ` +
-      `(${coldTiles} tiles) gets snow (${snow})`,
-      centresOk && (coldTiles < 30 * (g.width / 192) ** 2 || snow > 0), '');
+    push(`seed ${seed}: every zone is centred on wet or cold land`, centresOk, '');
   }
-  push('zones differ between seeds; across the seeds both rain and snow occur',
-    new Set(sigs).size === sigs.length && anySnow > 0 && anyRain > 0, `rain ${anyRain}, snow ${anySnow}`);
+  push('zones differ between seeds; across the seeds both rain and snow fall, from rain and snow clouds',
+    new Set(sigs).size === sigs.length && snowDrops > 0 && rainDrops > 0 && kinds.has('rain'),
+    `rain ${rainDrops}, snow ${snowDrops}, cloud kinds ${[...kinds].join('/')}`);
   {
     const g = run(1337, 128, 0.38).grid;
-    push('the cap holds when asked for fewer', SM.Weather.build(g, 1337, 50).count <= 50, '');
+    push('the cap holds when asked for fewer', Wx.build(g, 1337, 50).count <= 50, '');
+  }
+  {
+    // Wiring: rain starts at the cloud underside; the cloud, its shadow and
+    // its rain all come from one cloudsAt call; Rain & snow off hides the
+    // clouds, their shadow and the particles.
+    const wsrc = fs.readFileSync(path.join(root, 'render', 'weather.js'), 'utf8');
+    const vsrc = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    push('drops start at the cloud underside (level = underside - fallen, fallen from 0) and fade where they reach the ground',
+      /float fallen = cl\.w \* cyc;/.test(wsrc) && /float level = cl\.z - fallen;/.test(wsrc) &&
+      /smoothstep\(g\.x, g\.x \+ 0\.7, level\)/.test(wsrc) && /cloudData\[n \* 4 \+ 2\] = built\.clouds\[n\]\.bottom;/.test(wsrc), '');
+    push('one cloudsAt per frame feeds the weather cloud, its shadow and its rain; Rain & snow off removes all three',
+      (vsrc.match(/SM\.Weather\.cloudsAt\(/g) || []).length === 1 &&
+      /var list = weatherBuilt && showWeather && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
+      /for \(f = 0; f < weatherNow\.length; f\+\+\) shadowCasters\.push\(weatherNow\[f\]\);/.test(vsrc) &&
+      /if \(weather && showWeather && !debugView && weatherNow\.length\) \{/.test(vsrc) &&
+      /if \(weatherNow\.length && sky\.weatherCount\) drawWeatherClouds\(\);/.test(vsrc) &&
+      /weatherDraw\.centres = weatherCentres;/.test(vsrc) && /e\.shadow = SM\.Weather\.SHADOW;/.test(vsrc), '');
   }
 
   console.log('rain and snow checks:');
