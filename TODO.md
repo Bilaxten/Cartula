@@ -14,13 +14,23 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       - `1cd3abb` düşen gölge artık aydınlık yüzün TERS tarafına düşüyor
         (gölge yürüyüşü çevrildi; duvar ışığı ve bulut gölgesi aynı). Diğer
         seçenek: Lambert + bulut gölgesini çevirmek (gölgeler eski yerinde
-        kalır, varsayılan kameraya bakan duvarlar kararır). *Render debug
-        view → Sun shadow* ile *Lit*'i yan yana kontrol et.
+        kalır, varsayılan kameraya bakan duvarlar kararır).
+        **Bak:** Isometric, seed 1337, *Time of day* 08:00 ve 17:00. *Render
+        debug view → Sun shadow*: koyu lekeler dağların hangi tarafında?
+        Sonra *Lit*: parlak duvarlar o lekelerin TERS tarafında olmalı ve
+        bulut gölgesi lekelerle aynı yöne kaymalı. Gölgeler varsayılan açıdan
+        fazla gizli kalıyorsa geri al.
       - `8dcc9c6` Shift+sürükle dikey pan artık imleci birebir izliyor
         (varsayılan pitch'te ~2.2 kat hızlı). Diğer seçenek: eski yavaş his.
+        **Bak:** Isometric'te bir kıyı noktasını Shift+sürükle ile yukarı-
+        aşağı çek; nokta imlecin altında kalmalı. Kamerayı çok yatırınca
+        (pitch 10°'ye yakın) pan fazla hızlı geliyorsa geri al.
       - `e9cf0dc` doldurulan iç denizler artık `beach` değil, iklimine göre
         biyom (1337/192²: beach 4329 → 1400). Diğer seçenek: büyük havzayı
         göl bırakmak (2026-09-01'de bilerek kaldırılmıştı).
+        **Bak:** Top-down, seed 1337 / 4242 / 90210 (448²): kum rengi yalnız
+        kıyı şeridinde mi; iç kısımdaki dümdüz yeşil ovalar (1. kademe) göze
+        batıyor mu? Batıyorsa geri al — eski hâli aynı ovaları kum boyuyordu.
       - `9d69dce` Unity `albedo.png` hillshade'siz ve yerleşim işaretsiz.
         Diğer seçenek: ekrandaki render'ın aynısı.
       - `6ee275d` fırça boyaması ile tam render tek boyayıcı kullanıyor.
