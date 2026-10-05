@@ -11,16 +11,19 @@
  * the cloud's footprint: every particle belongs to a cloud, starts at its
  * underside and falls inside its lobes.
  *
- * Weather clouds do not cross the map like the fair-weather ones (a snow
- * cloud would end up over the desert). They sway slowly to and fro along
- * the fair clouds' drift axis (x), SWAY of their radius, over a period of
- * minutes; the particles ride with them, so cloud, rain and shadow always
- * agree. Because the ground under a moving cloud changes, the vertex
+ * Weather clouds cross the map like the fair-weather ones, along x and
+ * wrapping the same way (fading out past one edge, back in at the other),
+ * only slower: DRIFT of a fair cloud's typical speed (owner, 2026-10-05:
+ * "yağış yapan bulutlar da daha yavaş şekilde hareket edebilir diğer
+ * bulutlar gibi"). The particles ride with their cloud. What falls is
+ * decided under each drop, so a cloud may drift anywhere: the vertex
  * shader looks up the ground level and the weather kind of the tile under
  * each particle in a small per-map texture (`ground`, two bytes a tile):
  * snow over cold biomes, nothing over desert, mesa or lava, rain everywhere
  * else (a cloud over a mountain snows on the peak and rains in the valley).
- * A drop disappears where it reaches the ground.
+ * A drop disappears where it reaches the ground, and off the map. The
+ * cloud starts (t = 0) over its zone. Its shape is the heavy `nimbus`
+ * archetype of src/render/sky.js (a wide base with puffy towers).
  *
  * Shadow: none. The cloud is see-through and already tints the ground it
  * hangs over; a lighter shadow (0.6 of a fair cloud's, through the
@@ -51,10 +54,11 @@
   // How far below snow-white the cloud is mixed toward the palette's rock
   // grey: rain clouds are heavier.
   var GREY = { rain: 0.42, snow: 0.16 };
-  // Sway: amplitude as a share of the cloud radius, period range (s).
-  var SWAY = 0.25;
-  var SWAY_PERIOD = [120, 170];
-  // Underside of the cloud above the highest ground it can sway over.
+  // Drift speed as a share of a fair cloud's typical speed (sky.js
+  // cloudInstances: spanX x 0.011 per second), seeded per cloud.
+  var DRIFT = [0.4, 0.6];
+  var FAIR_SPEED = 0.011;
+  // Underside of the cloud above the highest ground it can drift over.
   var CLOUD_LIFT = 4;
   // Weather kind codes in the ground texture (green byte).
   var KIND = { none: 0, rain: 1, snow: 2 };
@@ -147,33 +151,17 @@
       return ground[(y * W + x) * 2];
     }
 
-    // One cloud per zone: a main lobe over the zone plus one or two side
-    // lobes along x, so it reads as a cloud bank rather than a disc.
+    // One cloud per zone, a nimbus (sky.js cloudShape).
     var clouds = zones.map(function (z, n) {
       var r = z.r;
-      var lobes = [{ x: 0, z: 0, rx: r * 0.8, rz: r * 0.62, h: 1.6 + rnd() * 0.8 }];
-      var extra = 1 + Math.floor(rnd() * 2);
-      var side = rnd() < 0.5 ? -1 : 1;
-      for (var j = 0; j < extra; j++) {
-        lobes.push({
-          x: side * r * (0.45 + rnd() * 0.2),
-          z: (rnd() - 0.5) * r * 0.5,
-          rx: r * (0.42 + rnd() * 0.15),
-          rz: r * (0.36 + rnd() * 0.15),
-          h: 0.9 + rnd() * 0.8
-        });
-        side = -side;
-      }
-      var reach = 0;
-      lobes.forEach(function (L) {
-        reach = Math.max(reach, Math.abs(L.x) + L.rx * 1.1, Math.abs(L.z) + L.rz * 1.1);
-      });
-      var amp = SWAY * r;
-      // Highest and lowest ground the cloud can ever stand over.
+      var lobes = SM.Sky.cloudShape('nimbus', r * 0.75, function () { return rnd(); }, true);
+      var reach = SM.Sky.lobeReach(lobes);
+      // Highest and lowest ground the cloud can ever stand over: it drifts
+      // along x across the whole map, in the band of rows it covers.
       var hi = 0;
       var lo = 255;
       for (var yy = Math.floor(z.y - reach); yy <= z.y + reach; yy++) {
-        for (var xx = Math.floor(z.x - reach - amp); xx <= z.x + reach + amp; xx++) {
+        for (var xx = 0; xx < W; xx++) {
           var L0 = levelAt(xx, yy);
           if (L0 > hi) hi = L0;
           if (L0 < lo) lo = L0;
@@ -206,8 +194,8 @@
         color: cloudColor(kind),
         bottom: bottom,             // underside, in levels
         column: bottom - lo,        // longest possible fall, in levels
-        sway: { amp: amp, period: SWAY_PERIOD[0] + rnd() * (SWAY_PERIOD[1] - SWAY_PERIOD[0]),
-          phase: rnd() * Math.PI * 2 }
+        // Tiles per second along +x.
+        speed: W * FAIR_SPEED * (DRIFT[0] + rnd() * (DRIFT[1] - DRIFT[0]))
       };
     });
 
@@ -256,14 +244,23 @@
   }
 
   /* Cloud centres at time t, in GRID coordinates (tiles): [x0, y0, x1, ...]
-   * into `out`. The single source of where a weather cloud is: the sky
-   * draw, its shadow and its particles all read these numbers. */
-  function cloudsAt(built, t, out) {
+   * into `out`, and each cloud's opacity factor (0..1, SM.Sky.cloudFade)
+   * into `fade` if given. The single source of where a weather cloud is:
+   * the sky draw and its particles read these numbers. Drift and wrap work
+   * like the fair clouds' (sky.js driftClouds): the span is padded by two
+   * radii, so a cloud has faded out completely before it jumps. */
+  function cloudsAt(built, t, out, fade) {
     var list = built ? built.clouds : [];
+    var span = { minX: 0, maxX: built ? built.width : 0 };
     for (var n = 0; n < list.length; n++) {
       var cl = list[n];
-      out[n * 2] = cl.x + cl.sway.amp * Math.sin(t * 2 * Math.PI / cl.sway.period + cl.sway.phase);
+      var pad = cl.radius * 2;
+      var range = span.maxX + pad * 2;
+      var travelled = cl.x + pad + cl.speed * t;
+      var x = travelled - Math.floor(travelled / range) * range - pad;
+      out[n * 2] = x;
       out[n * 2 + 1] = cl.y;
+      if (fade) fade[n] = SM.Sky.cloudFade(x, cl.radius, span);
     }
     return out;
   }
@@ -306,7 +303,10 @@
       '  ivec2 cell = clamp(ivec2(floor(grid)), ivec2(0), size - 1);',
       '  vec2 g = texelFetch(uGround, cell, 0).rg * 255.0;',
       '  float snow = step(1.5, g.y);',
-      '  float falls = step(0.5, g.y);',
+      '  // Nothing falls past the map edge (the cloud drifts over it).',
+      '  float onMap = step(0.0, grid.x) * step(0.0, grid.y) *',
+      '    step(grid.x, float(size.x)) * step(grid.y, float(size.y));',
+      '  float falls = step(0.5, g.y) * onMap;',
       '  // Levels per second; every drop starts at the cloud underside and',
       '  // loops over the longest fall of its cloud, vanishing where it',
       '  // reaches the ground under it.',
@@ -416,7 +416,7 @@
     }
 
     /* `o`: { combined, view (4x4), vScale, time, pixelWorld, setGrade,
-     *       centres (cloudsAt output for this frame) } */
+     *       centres, fades (cloudsAt output for this frame) } */
     function draw(o) {
       var n;
 
@@ -429,7 +429,7 @@
         cloudData[n * 4 + 2] = built.clouds[n].bottom;
         cloudData[n * 4 + 3] = built.clouds[n].column;
         // Drops are as see-through as their cloud is, a little more solid.
-        alphaData[n] = Math.min(1, built.clouds[n].alpha + 0.35);
+        alphaData[n] = Math.min(1, built.clouds[n].alpha + 0.35) * o.fades[n];
       }
       gl.useProgram(program);
       gl.uniformMatrix4fv(loc.uViewProjection, false, o.combined);
@@ -483,7 +483,7 @@
     MAX_PARTICLES: MAX_PARTICLES,
     MAX_CLOUDS: MAX_CLOUDS,
     CLOUD_ALPHA: CLOUD_ALPHA,
-    SWAY: SWAY,
+    DRIFT: DRIFT,
     KIND: KIND,
     COLD: COLD,
     DRY: DRY

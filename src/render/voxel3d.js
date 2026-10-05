@@ -1613,7 +1613,9 @@
     // shadow and its rain) and the sky-pass mesh of those clouds.
     var weatherBuilt = null;
     var weatherCentres = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS * 2);
+    var weatherFades = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS);
     weatherDraw.centres = weatherCentres;
+    weatherDraw.fades = weatherFades;
     var weatherNow = [];
     // Light enough to read over grass by day and over the graded map at
     // night: the snow entry of the biome palette.
@@ -1921,14 +1923,14 @@
 
       weatherNow.length = list.length;
       if (!list.length) return;
-      SM.Weather.cloudsAt(weatherBuilt, elapsedTime, weatherCentres);
+      SM.Weather.cloudsAt(weatherBuilt, elapsedTime, weatherCentres, weatherFades);
       for (n = 0; n < list.length; n++) {
         var e = weatherNow[n] || (weatherNow[n] = { x: 0, y: 0, z: 0, radius: 0, fade: 1, lobes: null });
         e.x = weatherCentres[n * 2] - gridSize[0] / 2;
         e.z = weatherCentres[n * 2 + 1] - gridSize[1] / 2;
         e.y = list[n].bottom * vScale + SM.Sky.CLOUD_LAYER * 0.5;
         e.radius = list[n].radius;
-        e.fade = list[n].alpha;
+        e.fade = list[n].alpha * weatherFades[n];
         e.lobes = list[n].lobes;
       }
     }

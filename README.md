@@ -355,14 +355,17 @@ diğerleri ıslak karaya (orman, yağmur ormanı, bataklık). İkinci tur (aynı
 Uğur: *"yağmur ve kar yarı saydam bulutlardan yağsın"*): **her bölgenin kendi
 bulutu var** ve bölge = bulutun ayak izi. Bulut, açık hava bulutlarıyla aynı
 voxel lob yapısında (`SM.Sky.buildCloudMesh`) ama **yarı saydam** (yağmur 0.58,
-kar 0.48: altındaki harita okunur), daha alçakta (ayak izindeki en yüksek
+kar 0.48: altındaki harita okunur), daha alçakta (geçtiği satır bandındaki en yüksek
 zeminin 4 kademe üstü) ve daha gri: paletin kar beyazı kaya grisine karıştırılır
 (yağmur bulutu daha ağır, kar bulutu daha açık; yeni renk yok). Her parçacık bir
 buluta ait, bulutun altından başlar, lobları içinde düşer, değdiği zeminde söner.
-Hava bulutları açık hava bulutları gibi haritayı geçmez (kar bulutu çöle
-giderdi): x ekseninde yarıçapının %25'i kadar, 2-3 dakikalık periyotla yavaşça
-salınır; parçacıklar ve gölge onunla gider (bulut, gölge ve yağmur aynı
-`SM.Weather.cloudsAt` sayısını okur). Bulut hareket ettiği için altındaki
+Hava bulutları (üçüncü tur, Uğur: *"yağış yapan bulutlar da daha yavaş şekilde
+hareket edebilir diğer bulutlar gibi"*) açık hava bulutları gibi haritayı x
+boyunca geçer ve aynı şekilde döner (bir kenarda söner, ötekinde belirir),
+yalnız daha yavaş: açık hava bulutunun tipik hızının %40-60'ı (320²'de
+~1.4-2.1 tile/s). t = 0'da bölgesinin üstündedir. Parçacıklar buluta bağlı;
+bulut ve yağmuru aynı `SM.Weather.cloudsAt` sayısını okur, harita dışına
+yağış düşmez, yağış bulutla birlikte söner. Şekli ağır **nimbus** tipi. Bulut hareket ettiği için altındaki
 zemin değişir: vertex shader tile başına 2 baytlık küçük bir dokudan (seviye +
 ne yağar) okur: tundra/kar/tayga üstünde kar, çöl/mesa/lav üstünde hiçbir şey,
 kalan her yerde yağmur. **Gölge yok** (karar): bulut saydam ve altındaki

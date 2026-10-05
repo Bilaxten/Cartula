@@ -2807,36 +2807,44 @@ function runWeatherChecks() {
       if (!(cl.alpha >= 0.45 && cl.alpha <= 0.6)) bad.push('alpha ' + cl.alpha);
       const sum = cl.color.reduce((x, y) => x + y, 0);
       if (!(sum < white.reduce((x, y) => x + y, 0))) bad.push('not greyer');
+      // It drifts across the whole map: every row it covers, every column.
       let hi = 0;
-      const reach = cl.radius + cl.sway.amp;
-      for (let y = Math.floor(cl.y - reach); y <= cl.y + reach; y++) {
-        for (let x = Math.floor(cl.x - reach); x <= cl.x + reach; x++) {
-          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      for (let y = Math.floor(cl.y - cl.radius); y <= cl.y + cl.radius; y++) {
+        for (let x = 0; x < W; x++) {
+          if (y < 0 || y >= H) continue;
           hi = Math.max(hi, g.level[y * W + x]);
         }
       }
       if (cl.bottom < hi + 2) bad.push(`underside ${cl.bottom} vs ground ${hi}`);
       if (!(cl.column > 0 && cl.column <= cl.bottom)) bad.push('column');
-      if (!(cl.sway.amp <= 0.3 * cl.r && cl.sway.period >= 60)) bad.push('sway');
+      const fair = W * 0.011;
+      if (!(cl.speed >= fair * Wx.DRIFT[0] - 1e-9 && cl.speed <= fair * Wx.DRIFT[1] + 1e-9)) bad.push('speed ' + cl.speed);
+      if (cl.lobes.length < 4 || !cl.lobes.some(L => L.h >= 4)) bad.push('not a nimbus');
     }
     const rainC = Wx.cloudColor('rain'), snowCl = Wx.cloudColor('snow');
-    push(`seed ${seed}: clouds semi-transparent (alpha 0.45-0.6), greyer than snow-white, underside above the highest ground under them; snow clouds lighter than rain clouds`,
+    push(`seed ${seed}: clouds semi-transparent (alpha 0.45-0.6), greyer than snow-white, puffy (nimbus: base + towers, >= 4 layers), 40-60% of a fair cloud's speed, underside above the highest ground they drift over; snow clouds lighter than rain clouds`,
       bad.length === 0 && snowCl.reduce((x, y) => x + y) > rainC.reduce((x, y) => x + y), bad.join(', '));
-    // Sway: bounded, slow, only along x; the particles' cloud centre is the
-    // cloud's own (cloudsAt is the single source).
+    // Drift: along +x only, wraps like the fair clouds (fade 0 at the jump,
+    // 1 over the middle of the map), never a sudden opacity step, and starts
+    // over the zone.
     const c0 = new Float32Array(6), c1 = new Float32Array(6);
-    let worstDx = 0, worstSpeed = 0, yMoves = false;
-    for (let t = 0; t < 400; t += 0.5) {
-      Wx.cloudsAt(a, t, c0);
-      Wx.cloudsAt(a, t + 0.5, c1);
+    const f0 = new Float32Array(3), f1 = new Float32Array(3);
+    let back = 0, yMoves = false, jumpFade = 0, maxStep = 0, wraps = 0;
+    Wx.cloudsAt(a, 0, c0, f0);
+    const startOk = a.clouds.every((cl, n) => Math.abs(c0[n * 2] - cl.x) < 1e-6);
+    for (let t = 0; t < 1200; t += 0.25) {
+      Wx.cloudsAt(a, t, c0, f0);
+      Wx.cloudsAt(a, t + 0.25, c1, f1);
       a.clouds.forEach((cl, n) => {
-        worstDx = Math.max(worstDx, Math.abs(c0[n * 2] - cl.x) / cl.r);
-        worstSpeed = Math.max(worstSpeed, Math.abs(c1[n * 2] - c0[n * 2]) / 0.5);
+        const dx = c1[n * 2] - c0[n * 2];
+        if (dx < -1e-6) { wraps++; jumpFade = Math.max(jumpFade, f0[n], f1[n]); }
+        else if (Math.abs(dx - cl.speed * 0.25) > 1e-3) back++;
+        maxStep = Math.max(maxStep, Math.abs(f1[n] - f0[n]));
         if (c0[n * 2 + 1] !== cl.y) yMoves = true;
       });
     }
-    push(`seed ${seed}: clouds sway at most ${(worstDx * 100).toFixed(0)}% of their radius, at most ${worstSpeed.toFixed(2)} tiles/s, along x only`,
-      worstDx <= Wx.SWAY + 1e-6 && worstSpeed < 1 && !yMoves, '');
+    push(`seed ${seed}: weather clouds drift across the map along +x and wrap (${wraps} wraps in 20 min), opacity 0 at the jump, no opacity step above ${maxStep.toFixed(3)}; they start over their zone`,
+      back === 0 && !yMoves && wraps > 0 && jumpFade < 1e-6 && maxStep < 0.1 && startOk, `back ${back}, jumpFade ${jumpFade}`);
     // What falls where, at a few times: a drop over a cold tile is snow, over
     // a dry tile nothing (the shader reads the same texture).
     for (const t of [0, 37, 211]) {
@@ -2869,9 +2877,10 @@ function runWeatherChecks() {
     // clouds, their shadow and the particles.
     const wsrc = fs.readFileSync(path.join(root, 'render', 'weather.js'), 'utf8');
     const vsrc = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
-    push('drops start at the cloud underside (level = underside - fallen, fallen from 0) and fade where they reach the ground',
+    push('drops start at the cloud underside (level = underside - fallen, fallen from 0), fade where they reach the ground, fall nowhere off the map, fade with their cloud',
       /float fallen = cl\.w \* cyc;/.test(wsrc) && /float level = cl\.z - fallen;/.test(wsrc) &&
-      /smoothstep\(g\.x, g\.x \+ 0\.7, level\)/.test(wsrc) && /cloudData\[n \* 4 \+ 2\] = built\.clouds\[n\]\.bottom;/.test(wsrc), '');
+      /smoothstep\(g\.x, g\.x \+ 0\.7, level\)/.test(wsrc) && /cloudData\[n \* 4 \+ 2\] = built\.clouds\[n\]\.bottom;/.test(wsrc) &&
+      /float falls = step\(0\.5, g\.y\) \* onMap;/.test(wsrc) && /\* o\.fades\[n\];/.test(wsrc), '');
     push('one cloudsAt per frame feeds the weather cloud and its rain; weather clouds cast no shadow (cost); Rain & snow off removes both',
       (vsrc.match(/SM\.Weather\.cloudsAt\(/g) || []).length === 1 &&
       /var list = weatherBuilt && showWeather && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
