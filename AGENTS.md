@@ -86,8 +86,8 @@ Bu projede test koşucusu yok. Üç katman var ve **üçü aynı şey değil**:
 
 | Katman | Komut | Ne yakalar |
 |---|---|---|
-| Sözdizimi + hijyen | `scripts/checks.sh` | Kırık JS, `index.html`'de ölü `<script src>`, namespace ihlali, CRLF |
-| Üretim hattı | `node tools/headless.js` | Determinism (aynı seed → aynı harita), kule/artefakt, biyom dağılımı, sea-level isabeti |
+| Sözdizimi + hijyen | `scripts/checks.sh` | Kırık JS, `index.html`'de ölü `<script src>`, namespace ihlali, commit'te CRLF — ve aşağıdaki harness'lerin hepsini koşturur |
+| Üretim hattı | `node tools/headless.js --geo` / `--sweep` / `--mesh` / `--edit` / `--river` / `--falls` / `--sky` / `--export` / `--worldtypes` / `--shaders` | Coğrafi vaatler, determinism, kule, mesh bütünlüğü, fırça türetimi, export. Bayraksız `node tools/headless.js` yalnız bir haritanın özetini JSON basar, hiçbir şeyi sınamaz |
 | Görsel | **tarayıcıda gözle** | Render, iso projeksiyon, animasyon, gölge, palet |
 
 **Üçüncü katman otomatikleştirilemez.** Canvas çıktısını hiçbir ajan headless

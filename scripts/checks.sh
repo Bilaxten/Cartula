@@ -120,13 +120,19 @@ for f in $(printf '%s\n' "$js_files" | grep -E '^src/' || true); do
 done
 
 # ---------- 4. Hijyen ----------
-for f in $files; do
-    [ -f "$f" ] || continue
-    case "$f" in *.png|*.jpg|*.gif|*.ico|*.woff*) continue ;; esac
-    if grep -qP '\r$' "$f" 2>/dev/null; then
-        warn "$f — CRLF satır sonu (Windows'tan geldi)"
+# CRLF INDEX'ten okunur (commit'lenen ve Pages'e giden şey), çalışma ağacından
+# değil: Git Bash'in grep'i metin modunda CR'yi atıyor, o yüzden eski
+# `grep -qP '\r$'` Windows'ta HİÇ tetiklenmiyordu; üstelik core.autocrlf=true
+# ile çalışma ağacı zaten CRLF, commit LF. `git ls-files --eol` her platformda
+# aynı cevabı verir (bilaxten.art'taki ikiz betikle aynı düzeltme, 2026-10-05).
+while IFS=$'\t' read -r info f; do
+    [ -z "$f" ] && continue
+    if printf '%s\n' "$files" | grep -qxF -- "$f"; then
+        case "$info" in
+            i/crlf*|i/mixed*) warn "$f — commit'te CRLF satır sonu (Windows'tan geldi)" ;;
+        esac
     fi
-done
+done < <(git ls-files --eol 2>/dev/null)
 
 # ---------- Özet ----------
 printf '\n'

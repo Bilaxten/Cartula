@@ -5,11 +5,45 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-09-23
+**Güncellendi:** 2026-10-05
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
-## Bu oturum — 3 madde kod taraması düzeltmesi (2026-09-23, Claude Opus 5.5)
+## Bu oturum — derin kod incelemesi (2026-10-04/05, Claude Fable 5.1)
+
+Uğur'un istediği: depoyu derinlemesine kontrol et, doğrulanabileni düzelt.
+Yeni özellik yok. Dört düzeltme, hepsi `bash scripts/checks.sh` temizken:
+
+1. **`grid.elevation` bayat kalıyordu** (`5383f75`): 7c (iç su temizliği)
+   doldurduğu havzayı çalışma kopyasında kaldırıyor ama `grid.elevation`'a
+   yazmıyordu. Voxel doğruydu (kademe çalışma kopyasından); üstten hillshade,
+   hover rakımı, fırçalar ve Unity yükseklik haritası deniz tabanını
+   görüyordu. Varsayılan haritada 2929 hücre (karanın %11'i), 0.43'e kadar.
+   Yeni `--geo` P8 (düzeltmeden önce 5 seed'de kırmızı).
+2. **Unity yükseklik haritası dokulara göre yarım hücre kaymıştı**
+   (`4c2830b`): örnekleme köşeden köşeye hücre merkezlerine gidiyordu;
+   artık hücre alanına (`u·W − 0.5`). `--export`'ta yeni hiza kontrolü.
+3. **Q/E 315°'den sonra dengesizdi; gökyüzü link hatası sessizdi**
+   (`f195513`): `snapYaw` son yarım dilimi 270'e kırpıyordu (testte de öyle
+   kilitliydi). Link hatası logu yanlış programdaydı.
+4. **`checks.sh` CRLF kontrolü Windows'ta hiç çalışmıyordu**: artık index'ten
+   (`git ls-files --eol`) okuyor; bilaxten.art'taki ikiz betikle aynı
+   düzeltme. Sahte CRLF blob'uyla tetiklendiği görüldü.
+
+**Bulunan ama DOKUNULMAYAN, karar Uğur'da (ayrıntı + yama `TODO.md`):**
+- ⚠️ **Lambert ışığı ile düşen gölge ters yönde** (`setSun` yatay bileşeni
+  çeviriyor, `buildShadowMap` çevirmiyor). İki çözüm de görünümü değiştirir.
+- Shift+sürükle pan dikeyde `sin²(pitch)` kadar yavaş.
+- Doldurulan iç denizler büyük düz `beach` ovası oluyor (beach hücrelerinin
+  ~%68'i varsayılan haritada).
+
+**Doğrulamanın kapsamadığı:** hiçbir şey tarayıcıda gözle kontrol edilmedi.
+(1) üstten görünümde doldurulmuş havzaların hillshade'ini düzleştirir ve bu
+hücrelerin tonunu çok az değiştirir (`biomeShade` rakım terimi) — beklenen
+ama görülmedi. (3)'ün log yarısı yalnız okunarak doğrulandı. Unity içe
+aktarma hâlâ denenmedi.
+
+## Önceki oturum — 3 madde kod taraması düzeltmesi (2026-09-23, Claude Opus 5.5)
 
 Uğur'un verdiği üç bulgu, hepsi düzeltildi + push'landı:
 
@@ -220,8 +254,8 @@ doğru mu" sorusu için.
 
 ## Sonraki adım
 
-Kod tarafında bekleyen bir iş YOK. **M1-M4'ün tamamı bitti.** Kuyruğun başı
-`bilaxten.art` için ilk vaka çalışması (`TODO.md` NOW) — kod değil anlatı işi.
+**M1-M4 bitti, vaka çalışması `bilaxten.art` `site` dalında** (2026-09-22).
+Kuyruğun başı artık `TODO.md` NOW'daki ışık/gölge yönü kararı (2026-10-05).
 
 Küçük ve bağımsız bir cila maddesi de kuyrukta: fırçalar yalnız üstten
 görünümde çalışıyor ama varsayılan açılış voxel — araç seçilince sekmeye

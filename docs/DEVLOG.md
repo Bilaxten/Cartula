@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-10-05 — Derin kod incelemesi: bayat yükseklik, export hizası, ters gölge bulgusu
+
+**Ne yapıldı:** Yeni özellik yok; terrain, mesh, export ve gökyüzü kodu
+eleştirel okundu. Dört düzeltme (`5383f75`, `4c2830b`, `f195513` + checks.sh),
+üç bulgu karar için `TODO.md`'ye yazıldı.
+
+**En öğretici bulgu — iki doğru:** `generate` yüksekliği özel bir kopyada
+(`e`) işliyor ve pass pass `grid.elevation`'a geri yazıyor. 7c (iç su
+temizliği) toplu geri yazmadan SONRA çalışıyor ve kendi yazmasını unutmuş.
+Kademe `e`'den hesaplandığı için voxel görünüm kusursuzdu; bayat değeri
+yalnız `grid.elevation` okuyanlar gördü (üstten hillshade, hover rakımı,
+fırçalar, Unity yükseklik haritası). Varsayılan haritada karanın %11'i.
+Bunu mevcut hiçbir test yakalayamazdı çünkü hepsi `level`/`biome`/`water`
+üzerinden bakıyordu. Yakalayan şey, export için "su düzleminin altında kaç
+kara hücresi var" diye saymak oldu — bir tüketicinin gözünden bakınca çıktı.
+
+**Neden bu yaklaşım:** Her düzeltme önce kırmızı görülen bir kontrolle
+geldi (P8 beş seed'de kırmızı; hiza kontrolü eski eşlemede 61503@23,23;
+CRLF kontrolü sahte blob'la). `snapYaw`'da test hatayı KİLİTLEMİŞTİ
+(`snapYaw(316) === 270`) — yeşil test doğru davranışın kanıtı değil.
+Işık/gölge yönü uyuşmazlığı düzeltilmedi: iki tutarlı çözüm var ve ikisi de
+sahnenin görünüşünü değiştiriyor; bu gözle verilecek bir karar.
+
+**Değişen dosyalar:** `src/generate.js`, `src/export.js`,
+`src/render/voxel3d.js`, `tools/headless.js`, `scripts/checks.sh`,
+`README.md`, `AGENTS.md`, `CURRENT.md`, `TODO.md`.
+
+**Doğrulama:** `bash scripts/checks.sh` temiz. Tarayıcıda bakılmadı.
+
+**Sonraki adım:** `TODO.md` NOW — ışık yönü için A/B kararı.
+
 ## 2026-09-06 — Eski 2D izometrik yol tamamen kaldırıldı (+ PNG export düzeldi)
 
 **Ne yapıldı:** Uğur "önerdiğin çözümleri yapalım... 4 yönlü 2D image'ı tamamen

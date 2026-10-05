@@ -63,7 +63,8 @@ koşturur): `node tools/headless.js --geo` (5 seed — deniz seviyesi monotonlu�
 kıtasal büyüme örtüşmesi ≥%92, her nehir bir çıkışa ulaşır, her nehir
 kenarı ≤1 kademe ya da etiketli bir şelale — tek istisna, sayısı basılan göl
 taşma eşiği (göl nehrin 2 üstünde; göller sabit çapa) —, nehir akış yönünde
->1 tırmanmaz, kule = 0) ve `--sweep` (7 deniz seviyesi — kara
+>1 tırmanmaz, kule = 0, hiçbir kara hücresinin saklanan yüksekliği deniz
+eşiğinin 0.06'dan fazla altında değil) ve `--sweep` (7 deniz seviyesi — kara
 monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
 **Pipeline adım adım modu** (panel → *Pipeline* → *Step through generation*):
@@ -78,7 +79,13 @@ STORE zip): `heightmap.r16` (16-bit LE RAW, 2ⁿ+1 — Unity *Import Raw*, satı
 güney, flip yok), `albedo.png` (hücre başına 1 px), `biome.png` (R biyom, G
 kademe, B su), `map.json` (deniz seviyesi, lejant, nehir/göl/yerleşim/şelale),
 `README.txt` (içe aktarma adımları). Düzenlenmiş haritayı dışa aktarır.
-Doğrulama: `node tools/headless.js --export` (köşe/yön, CRC, zip dizini).
+Yükseklik örnekleri hücre MERKEZİNE oturur (`u·W − 0.5`), yani yükseklik
+haritası hücre başına 1 px'lik dokularla aynı alanı kaplar: Terrain genişliği
+= ızgara genişliği (m) verilirse tam 1 m/hücre.
+Doğrulama: `node tools/headless.js --export` (köşe/yön, hücre-merkezi
+hizası, CRC, zip dizini). ⚠️ Unity'de gerçekten içe aktarılmadı: satır yönü
+("flip yok") ve bayt sırası yalnız kod tarafında tutarlı, motor içinde
+denenmedi (`TODO.md`).
 
 **Render debug görünümleri** (View → *Render debug view*, yalnız izometrik):
 aydınlatmanın tek bir terimini izole eder — ambient occlusion, normaller,
