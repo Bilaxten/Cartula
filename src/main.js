@@ -101,7 +101,8 @@
       dy: -0.35 - 0.45 * elev,                    // always travelling north (lit from the south)
       rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
       strength: up ? (0.16 + 0.26 * elev) : 0.05,
-      night: SM.nightAmount(hour)                 // settlement window lights
+      night: SM.nightAmount(hour),                // lava light, night grade
+      fog: SM.Fog ? SM.Fog.amount(hour) : 0       // valley fog (fog.js)
     };
     // The colour grade as numbers: a multiply wash (rgb 0..255, alpha) and a
     // brightness + saturate filter. Rounded exactly as the CSS strings are,

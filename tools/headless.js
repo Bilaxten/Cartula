@@ -18,6 +18,7 @@
  *   node tools/headless.js --weather    # rain/snow: biome rules, bounded, deterministic per seed
  *   node tools/headless.js --flow       # flowing rivers: fresh water only, downhill, falls, still lake middles
  *   node tools/headless.js --smoke      # volcano smoke: vents on craters, wind field, rise/bend/shrink, under the sky
+ *   node tools/headless.js --fog        # valley fog: clock curve, valleys not ridges or sea, free while off
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -30,7 +31,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -2640,6 +2641,98 @@ function runSmokeChecks() {
 }
 
 // ---------------------------------------------------------------------------
+// --fog : valley fog (src/render/fog.js). The clock alone drives it (thick at
+// dawn, gone all afternoon, faint at dusk, continuous); it lies in valleys and
+// low ground, never on the sea, ridges or flat high ground; it costs nothing
+// while off (the FOG shader variant is only used, and only compiled, then).
+// ---------------------------------------------------------------------------
+function runFogChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, !!ok, detail || '']);
+  const F = SM.Fog;
+  {
+    let jump = 0, afternoon = 0;
+    for (let h = 0; h < 24; h += 0.01) {
+      jump = Math.max(jump, Math.abs(F.amount(h + 0.01) - F.amount(h)));
+      if (h >= 12 && h <= 16.5) afternoon = Math.max(afternoon, F.amount(h));
+    }
+    push(`fog by the clock: full at dawn (6:00-8:00), thinning to none by 12:00, none all afternoon, ` +
+      `faint (${F.DUSK}) from dusk, continuous (largest step per 0.6 min ${jump.toFixed(4)}), wraps at midnight`,
+      F.amount(6) === 1 && F.amount(7.5) === 1 && F.amount(9.5) > 0.2 && F.amount(9.5) < 0.8 && afternoon === 0 &&
+      Math.abs(F.amount(19.5) - F.DUSK) < 1e-9 && F.amount(22) <= F.DUSK + 1e-9 && jump < 0.01 &&
+      Math.abs(F.amount(24) - F.amount(0)) < 1e-9 && Math.abs(F.amount(29.5) - F.amount(5.5)) < 1e-9);
+  }
+  let seaBad = 0, ridgeBad = 0, valleyN = 0, valleyFog = 0, ridgeN = 0, foggy = 0, land = 0;
+  for (const seed of [1337, 4242, 90210]) {
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const W = g.width, H = g.height, n = W * H;
+    const f = F.field(g);
+    const f2 = F.field(g);
+    if (Buffer.compare(Buffer.from(f), Buffer.from(f2)) !== 0) seaBad++;
+    // The surroundings the fog surface is drawn from, recomputed here
+    // independently (same wide blur).
+    const ground = Float32Array.from(g.level, v => Math.max(0, v));
+    const blur = (src, r) => {
+      const tmp = new Float32Array(n), out = new Float32Array(n);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let s = 0, c = 0;
+        for (let k = -r; k <= r; k++) if (x + k >= 0 && x + k < W) { s += src[y * W + x + k]; c++; }
+        tmp[y * W + x] = s / c;
+      }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        let s = 0, c = 0;
+        for (let k = -r; k <= r; k++) if (y + k >= 0 && y + k < H) { s += tmp[(y + k) * W + x]; c++; }
+        out[y * W + x] = s / c;
+      }
+      return out;
+    };
+    const wide = blur(blur(ground, F.RADIUS), F.RADIUS);
+    for (let i = 0; i < n; i++) {
+      if (SM.isSea(g, i)) { if (f[i]) seaBad++; continue; }
+      land++;
+      if (f[i]) foggy++;
+      const depth = wide[i] - g.level[i];
+      if (depth <= F.LIFT) { ridgeN++; if (f[i]) ridgeBad++; }
+      if (depth >= F.LIFT + F.THICKNESS) { valleyN++; if (f[i] >= Math.round(255 * F.DENSITY) - 1) valleyFog++; }
+    }
+  }
+  push(`the sea never fogs, and the field is deterministic (${seaBad} wrong)`, seaBad === 0);
+  push(`nothing at or above its surroundings fogs: ridges, peaks, flat high ground (${ridgeBad} of ${ridgeN} tiles)`,
+    ridgeN > 1000 && ridgeBad === 0);
+  push(`a tile a full fog thickness below its surroundings is thick with it (${valleyFog} of ${valleyN})`,
+    valleyN > 200 && valleyFog === valleyN);
+  push(`fog lies on part of the land, not all of it (${(100 * foggy / land).toFixed(0)}% of land tiles)`,
+    foggy / land > 0.1 && foggy / land < 0.7);
+  {
+    const src = v => SM.voxelTerrainShaderSources(v);
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    push('FOG variants read the tile fog in the vertex stage and mix it in before the grade (day and night)',
+      ['FOG', 'NIGHT FOG', 'RIVER FOG', 'NIGHT RIVER FOG'].every(v =>
+        /texelFetch\(uFogMap, fogCell, 0\)\.r/.test(src(v).vertex) && /GRADE\(FOGGED\(/.test(src(v).fragment)));
+    push('the plain variants keep the fog behind #ifdef FOG (FOGGED is the identity there)',
+      ['', 'NIGHT', 'RIVER'].every(v => !/#define FOG /.test(src(v).fragment) &&
+        /#else\n#define FOGGED\(c\) \(c\)\n#endif/.test(src(v).fragment)));
+    push('the renderer swaps in a FOG variant only while the clock has fog (and never in debug views), compiling it then',
+      /if \(!U \|\| fogAmount < FOG_MIN \|\| debugView\) return U;/.test(voxel) &&
+      /if \(!\(key in fogVariants\)\) fogVariants\[key\] = terrainUniforms\(makeProgram\(gl, key\)\);/.test(voxel));
+    push('the clock hands the fog over (sunModel), and its colour is the palette snow dimmed with the daylight',
+      /fog: SM\.Fog \? SM\.Fog\.amount\(hour\) : 0/.test(main) &&
+      /fogColor\[fk\] = foamColor\[fk\] \* fogLight;/.test(voxel));
+    const g = SM.generate({ seed: 7, width: 128, height: 128 });
+    const m = SM.buildVoxelMesh(g);
+    push('the mesh carries the fog image (W x H), nothing else changes', m.fogMap && m.fogMap.length === 128 * 128);
+  }
+
+  console.log('valley fog checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
 // --flow : flowing rivers (src/render/flow.js). Only fresh water flows (never
 // the sea), never toward higher water; a lip runs over its drop and a landing
 // churns; a big lake keeps a still middle; the corner image stops against
@@ -3205,6 +3298,8 @@ function runWeatherChecks() {
 
 if (process.argv[2] === '--layout') {
   runLayoutChecks();
+} else if (process.argv[2] === '--fog') {
+  runFogChecks();
 } else if (process.argv[2] === '--smoke') {
   runSmokeChecks();
 } else if (process.argv[2] === '--flow') {

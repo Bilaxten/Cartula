@@ -819,6 +819,8 @@
       riverIndexStart: riverIndexStart,
       // Per-corner flow image, (W+1) x (H+1) RGBA8 (flow.js).
       flowMap: flow ? flow.corner : null,
+      // Valley fog surface per tile, W x H R8 (fog.js).
+      fogMap: SM.Fog ? SM.Fog.field(grid) : null,
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
       // The map's seed: the sky (SM.Sky.cloudInstances) is derived from it.
@@ -1124,11 +1126,26 @@
       // 448-tile map needs more than mediump's 10-bit mantissa).
       'out highp vec2 vRiverPos;',
       '#endif',
+      '#ifdef FOG',
+      // Valley fog (src/render/fog.js): each tile's fog at full amount (R8,
+      // the whole column alike) and the clock's amount. Vertex-only uniforms.
+      'uniform highp sampler2D uFogMap;',
+      'uniform float uFogAmount;',
+      'out float vFog;',
+      '#endif',
       '',
       'void main() {',
       '  vNormal = aNormal;',
       '#ifdef RIVER',
       '  vRiverPos = aPosition.xz;',
+      '#endif',
+      '#ifdef FOG',
+      '  ivec2 fogSize = textureSize(uFogMap, 0);',
+      '  ivec2 fogCell = clamp(ivec2(aCellUV * vec2(fogSize)), ivec2(0), fogSize - 1);',
+      '  // The display plinth (its own colour, its cells clamped onto the edge',
+      '  // tiles) never fogs.',
+      '  float plinth = step(length(aColor - vec3(' + BORD.map(function (v) { return glslFloat(v / 255); }).join(', ') + ')), 0.004);',
+      '  vFog = (1.0 - plinth) * uFogAmount * texelFetch(uFogMap, fogCell, 0).r;',
       '#endif',
       '  vColor = aColor;',
       '  vSideDepth = aSideDepth;',
@@ -1207,6 +1224,13 @@
       // Shore foam colour (snow, from the biome palette).
       'uniform vec3 uFoamColor;',
       // Flowing water (src/render/flow.js): only the river draw compiles it.
+      '#ifdef FOG',
+      'in float vFog;',
+      'uniform vec3 uFogColor;',
+      '#define FOGGED(c) mix(c, uFogColor, vFog)',
+      '#else',
+      '#define FOGGED(c) (c)',
+      '#endif',
       '#ifdef RIVER',
       'in highp vec2 vRiverPos;',
       'uniform sampler2D uFlowMap;',
@@ -1329,16 +1353,16 @@
       '  // Graded like the rest of the world; at night the lava light is added',
       '  // after the grade so the night wash cannot grey it out.',
       '#ifdef NIGHT',
-      '  vec3 color = GRADE(',
+      '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
-      '      emission * (1.0 - uNightLight) + foamColor) +',
+      '      emission * (1.0 - uNightLight) + foamColor)) +',
       '    emission * (uNightLight * ' + glslFloat(LAVA_NIGHT) + ');',
       '#else',
-      '  vec3 color = GRADE(',
+      '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
-      '      emission + foamColor);',
+      '      emission + foamColor));',
       '#endif',
       '  outColor = vec4(color, 1.0);',
       '}'
@@ -1547,6 +1571,10 @@
     // are drawn by the plain programs, still.
     var riverProgram = makeProgram(gl, 'RIVER');
     var nightRiverProgram = nightProgram ? makeProgram(gl, 'NIGHT RIVER') : null;
+    // Valley fog (fog.js): FOG variants of the four above, compiled the
+    // first time the clock brings fog (a session at noon never builds them).
+    // key -> uniforms, or null when it failed (then the plain one draws).
+    var fogVariants = {};
 
     // Every draw call and buffer/texture allocation below goes through this
     // counter (src/perf.js), so the performance panel reports what the
@@ -1624,7 +1652,10 @@
         time: 'uTime',
         shadowMap: 'uShadowMap',
         flowMap: 'uFlowMap',
-        flowMapSize: 'uFlowMapSize'
+        flowMapSize: 'uFlowMapSize',
+        fogMap: 'uFogMap',
+        fogAmount: 'uFogAmount',
+        fogColor: 'uFogColor'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1638,6 +1669,19 @@
     var glowU = terrainUniforms(glowProgram);
     var riverU = terrainUniforms(riverProgram);
     var nightRiverU = terrainUniforms(nightRiverProgram);
+    // Valley fog: the per-map surface texture and this hour's amount/colour.
+    var fogTexture = gl.createTexture();
+    var fogAmount = 0;
+    var fogColor = [1, 1, 1];
+    var FOG_MIN = 0.003;
+
+    // The fog twin of a plain variant (U), or U itself when there is no
+    // fog or its program failed.
+    function fogged(U, key) {
+      if (!U || fogAmount < FOG_MIN || debugView) return U;
+      if (!(key in fogVariants)) fogVariants[key] = terrainUniforms(makeProgram(gl, key));
+      return fogVariants[key] || U;
+    }
     // The flow image (flow.js corners, RGBA8, linear) and where the flowing
     // tops start in the index buffer.
     var flowTexture = gl.createTexture();
@@ -1790,6 +1834,13 @@
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
       new Uint8Array([128, 128, 0, 0]));
     acct.texture(flowTexture, 4);
+    gl.bindTexture(gl.TEXTURE_2D, fogTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+    acct.texture(fogTexture, 1);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2131,6 +2182,11 @@
       strength = Math.max(0, Math.min(1, +s.strength || 0));
       // 0 by day .. 1 at full night (SM.nightAmount in time.js).
       nightLight = Math.max(0, Math.min(1, +s.night || 0));
+      // Valley fog by the clock (SM.Fog.amount), lit like the ground: the
+      // palette's snow, dimmed with the daylight (the grade does the rest).
+      fogAmount = Math.max(0, Math.min(1, +s.fog || 0));
+      var fogLight = 0.5 + 0.45 * Math.max(0, Math.min(1, strength / 0.42));
+      for (var fk = 0; fk < 3; fk++) fogColor[fk] = foamColor[fk] * fogLight;
     }
 
     function setGradeUniforms(tintLoc, bsLoc, onLoc) {
@@ -2240,6 +2296,15 @@
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
         gl.bindTexture(gl.TEXTURE_2D, null);
         acct.texture(flowTexture, flowMapSize[0] * flowMapSize[1] * 4);
+      }
+      if (mesh.fogMap && mesh.gridSize) {
+        gl.bindTexture(gl.TEXTURE_2D, fogTexture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, mesh.gridSize[0], mesh.gridSize[1], 0,
+          gl.RED, gl.UNSIGNED_BYTE, mesh.fogMap);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        acct.texture(fogTexture, mesh.gridSize[0] * mesh.gridSize[1]);
       }
       gridSize = mesh.gridSize || gridSize;
       meshVersion++;
@@ -2372,10 +2437,11 @@
       var night = nightLight > 0.001 && nightU;
       // Flowing water's tops (the end of the index buffer) are drawn by the
       // RIVER variant; without it they stay in the main draw.
-      var flowU = night ? nightRiverU : riverU;
+      // Fog hours swap each for its FOG twin (fogged).
+      var flowU = fogged(night ? nightRiverU : riverU, night ? 'NIGHT RIVER FOG' : 'RIVER FOG');
       var mainCount = flowU ? riverIndexStart : indexCount;
       // Night: the colour grade in the shader, lava shining past it.
-      setTerrainUniforms(night ? nightU : dayU);
+      setTerrainUniforms(fogged(night ? nightU : dayU, night ? 'NIGHT FOG' : 'FOG'));
       acct.drawElements(gl.TRIANGLES, mainCount, gl.UNSIGNED_INT, 0);
       if (mainCount < indexCount) {
         setTerrainUniforms(flowU);
@@ -2444,6 +2510,14 @@
       gl.uniform1f(U.cloudShadow, debugView || !cloudLobeCount ? 0 : cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
       gl.uniform3fv(U.foamColor, foamColor);
+      if (U.fogMap) {
+        gl.activeTexture(gl.TEXTURE3);
+        gl.bindTexture(gl.TEXTURE_2D, fogTexture);
+        gl.uniform1i(U.fogMap, 3);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.uniform1f(U.fogAmount, fogAmount);
+        gl.uniform3fv(U.fogColor, fogColor);
+      }
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
     }
 
@@ -2653,6 +2727,11 @@
       if (glowProgram) gl.deleteProgram(glowProgram);
       if (riverProgram) gl.deleteProgram(riverProgram);
       if (nightRiverProgram) gl.deleteProgram(nightRiverProgram);
+      Object.keys(fogVariants).forEach(function (k) {
+        if (fogVariants[k]) gl.deleteProgram(fogVariants[k].program);
+      });
+      gl.deleteTexture(fogTexture);
+      acct.forget(fogTexture);
       gl.deleteTexture(flowTexture);
       acct.forget(flowTexture);
       if (sky) {
