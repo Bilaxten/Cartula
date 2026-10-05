@@ -19,6 +19,7 @@
  *   node tools/headless.js --flow       # flowing rivers: fresh water only, downhill, falls, still lake middles
  *   node tools/headless.js --smoke      # volcano smoke: vents on craters, wind field, rise/bend/shrink, under the sky
  *   node tools/headless.js --fog        # valley fog: clock curve, valleys not ridges or sea, free while off
+ *   node tools/headless.js --lightning  # lightning: rain clouds only, rare, calm pulses, axis-aligned bolt
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -31,7 +32,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -1157,7 +1158,7 @@ function runShaderChecks() {
   // fragmentSource array of quoted GLSL lines. Every GL file in src/render
   // is read (post.js has its own programs since 2026-10-05).
   const pairs = [];
-  for (const f of ['voxel3d.js', 'post.js', 'wind.js', 'weather.js', 'smoke.js']) {
+  for (const f of ['voxel3d.js', 'post.js', 'wind.js', 'weather.js', 'smoke.js', 'lightning.js']) {
     const file = fs.readFileSync(path.join(root, 'render', f), 'utf8');
     // `makeProgram` only compiles; the terrain GLSL lives in
     // `terrainShaderSources(variant)`, so that body is read under its name.
@@ -2733,6 +2734,114 @@ function runFogChecks() {
 }
 
 // ---------------------------------------------------------------------------
+// --lightning : lightning (src/render/lightning.js). Only rain clouds strike,
+// rarely (a few a minute at most, never two pulses closer than PULSE_GAP,
+// never more than two flashes in any second), the bolt runs from the cloud's
+// underside to the ground under it along the grid axes, a strike is a pure
+// function of time, and the flash is off between strikes and without weather.
+// ---------------------------------------------------------------------------
+function runLightningChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, !!ok, detail || '']);
+  const L = SM.Lightning;
+  let events = 0, maxPerMin = 0, minGap = Infinity, snowBad = 0, footBad = 0, pathBad = 0, flashSec = 0;
+  let detBad = 0, minutes = 0, lightBad = 0;
+  for (const seed of [1337, 4242, 90210, 7]) {
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const b = SM.Weather.build(g, seed);
+    const st = {}, st2 = {};
+    const list = [];
+    let last = null;
+    const peaks = [];
+    let prev = 0, rising = false;
+    for (let t = 0; t < 1800; t += 0.01) {
+      L.strikeAt(b, seed, t, st);
+      if (st.active && st.id !== last) {
+        last = st.id;
+        list.push(t);
+        const cl = b.clouds[st.cloud];
+        if (cl.kind !== 'rain') snowBad++;
+        // The foot is a map tile under the cloud's footprint, at its ground.
+        const c = new Float32Array(b.clouds.length * 2);
+        SM.Weather.cloudsAt(b, t, c);
+        const lx = st.x - c[st.cloud * 2], lz = st.y - c[st.cloud * 2 + 1];
+        if (Math.hypot(lx, lz) > cl.radius + 1 || st.ground !== b.ground[(Math.floor(st.y) * b.width + Math.floor(st.x)) * 2] ||
+          st.top !== cl.bottom) footBad++;
+        const segs = L.boltPath(st);
+        // Axis-aligned segments; starts on the ground at the foot; tops
+        // out at the cloud's underside; within MAX_SEGMENTS.
+        let axis = true, top = -Infinity;
+        for (let k = 0; k < segs.length; k += 6) {
+          const moved = [segs[k + 3] - segs[k], segs[k + 4] - segs[k + 1], segs[k + 5] - segs[k + 2]].filter(v => Math.abs(v) > 1e-9).length;
+          if (moved !== 1) axis = false;
+          top = Math.max(top, segs[k + 1], segs[k + 4]);
+        }
+        if (!axis || segs[0] !== st.x || segs[2] !== st.y || segs[1] !== st.ground ||
+          Math.abs(top - (st.top - 0.3)) > 1e-9 || segs.length / 6 > L.MAX_SEGMENTS) pathBad++;
+        // Pure function of time: a second evaluation agrees.
+        L.strikeAt(b, seed, t, st2);
+        if (st2.id !== st.id || st2.flash !== st.flash || st2.x !== st.x) detBad++;
+      }
+      // Flash peaks (local maxima above half strength).
+      if (st.flash > prev) rising = true;
+      else if (rising && prev > 0.5) { peaks.push(t); rising = false; }
+      else if (st.flash < prev) rising = false;
+      prev = st.flash;
+      if (st.flash > 1 + 1e-9 || st.flash < 0) lightBad++;
+    }
+    for (let k = 1; k < list.length; k++) minGap = Math.min(minGap, list[k] - list[k - 1]);
+    for (let m = 0; m < 30; m++) {
+      maxPerMin = Math.max(maxPerMin, list.filter(t => t >= m * 60 && t < m * 60 + 60).length);
+      minutes++;
+    }
+    for (let k = 0; k < peaks.length; k++) {
+      flashSec = Math.max(flashSec, peaks.filter(t => t >= peaks[k] && t < peaks[k] + 1).length);
+    }
+    events += list.length;
+  }
+  push(`only rain clouds strike (${snowBad} from snow clouds; ${events} strikes in ${minutes} minutes over 4 maps)`,
+    events > 50 && snowBad === 0);
+  push(`rare: at most ${maxPerMin} a minute (${(events / minutes).toFixed(1)} on average), at least ${minGap.toFixed(1)} s apart`,
+    maxPerMin <= 60 / L.SLOT && minGap >= L.MIN_GAP && events / minutes < 3);
+  push(`never more than two flashes in any one second (worst ${flashSec}); flash within 0..1 (${lightBad} outside)`,
+    flashSec <= 2 && lightBad === 0);
+  push(`the bolt's foot is a tile under the striking cloud, at its ground; it starts at the cloud's underside (${footBad} wrong)`, footBad === 0);
+  push(`the bolt is a staircase along the grid axes from the ground to the cloud (${pathBad} wrong)`, pathBad === 0);
+  push(`a strike is a pure function of time (${detBad} disagreements)`, detBad === 0);
+  {
+    // No weather or no rain cloud: nothing.
+    const st = {};
+    L.strikeAt(null, 1, 10, st);
+    const g = SM.generate({ seed: 4242, width: 192, height: 192 });
+    const b = SM.Weather.build(g, 4242);
+    b.clouds.forEach(c => { c.kind = 'snow'; });
+    let any = false;
+    for (let t = 0; t < 600; t += 0.05) if (L.strikeAt(b, 4242, t, st).active) any = true;
+    push('no weather, or only snow clouds: no strike ever', !L.strikeAt(null, 1, 10, st).active && !any);
+    push('the pulses: a stroke, a weaker re-strike PULSE_GAP later, dark again within WINDOW',
+      L.pulse(0) === 1 && L.pulse(L.PULSE_GAP) > 0.6 && L.pulse(L.PULSE_GAP) < 1 && L.pulse(L.WINDOW) < 0.02 && L.pulse(-0.1) === 0);
+  }
+  {
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    push('the flash reaches the terrain only during a strike, with Rain & snow on, outside debug views, and not for reduced motion',
+      /if \(SM\.Lightning && weatherNow\.length && !debugView\)/.test(voxel) &&
+      /strike\.active && flashLight && !debugView \? strike\.flash \* SM\.Lightning\.FLASH_LIGHT : 0/.test(voxel) &&
+      /prefers-reduced-motion: reduce/.test(main) && /setFlashLight\(/.test(main));
+    push('every lit terrain variant takes the flash light (uFlash) into its lambert term',
+      ['', 'NIGHT', 'RIVER', 'FOG', 'NIGHT RIVER FOG'].every(v =>
+        /lambert \+= uFlash\.w \*/.test(SM.voxelTerrainShaderSources(v).fragment)));
+  }
+
+  console.log('lightning checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
 // --flow : flowing rivers (src/render/flow.js). Only fresh water flows (never
 // the sea), never toward higher water; a lip runs over its drop and a landing
 // churns; a big lake keeps a still middle; the corner image stops against
@@ -3298,6 +3407,8 @@ function runWeatherChecks() {
 
 if (process.argv[2] === '--layout') {
   runLayoutChecks();
+} else if (process.argv[2] === '--lightning') {
+  runLightningChecks();
 } else if (process.argv[2] === '--fog') {
   runFogChecks();
 } else if (process.argv[2] === '--smoke') {

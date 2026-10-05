@@ -483,6 +483,11 @@
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     if (voxelRenderer.setWind) voxelRenderer.setWind($('showWind').checked);
     if (voxelRenderer.setWeather) voxelRenderer.setWeather($('showWeather').checked);
+    // Lightning keeps its bolt but not its light flash for reduced motion.
+    if (voxelRenderer.setFlashLight) {
+      voxelRenderer.setFlashLight(!(window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+    }
     glCanvas.hidden = false;
     setIsoHint('hint.iso');
     applyDayNight();

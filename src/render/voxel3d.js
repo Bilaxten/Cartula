@@ -1223,6 +1223,8 @@
       'uniform float uDebugView;',
       // Shore foam colour (snow, from the biome palette).
       'uniform vec3 uFoamColor;',
+      // Lightning flash (fragment-only).
+      'uniform vec4 uFlash;',
       // Flowing water (src/render/flow.js): only the river draw compiles it.
       '#ifdef FOG',
       'in float vFog;',
@@ -1270,6 +1272,12 @@
       '  float ambient = mix(0.38, 0.47, daylight);',
       '  float lambert = ambient + 0.61 * daylight * ndl;',
       '  float topFace = step(0.5, vNormal.y);',
+      '  // Lightning (src/render/lightning.js): light from above around the',
+      '  // strike, fainter over the whole map. uFlash: strike (cell UV),',
+      '  // reach (cell UV), strength; strength 0 between strikes.',
+      '  vec2 flashD = (vCellUV - uFlash.xy) / uFlash.z;',
+      '  float flashNear = max(0.0, 1.0 - dot(flashD, flashD));',
+      '  lambert += uFlash.w * (0.25 + 0.75 * flashNear * flashNear) * mix(0.45, 1.0, topFace);',
       '  float shadow = texture(uShadowMap, vCellUV).r;',
       '  // AO reaches 0.60 at a buried corner: distinct form without black pits.',
       '  const float AO_STRENGTH = 0.40;',
@@ -1655,7 +1663,8 @@
         flowMapSize: 'uFlowMapSize',
         fogMap: 'uFogMap',
         fogAmount: 'uFogAmount',
-        fogColor: 'uFogColor'
+        fogColor: 'uFogColor',
+        flash: 'uFlash'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1709,6 +1718,14 @@
     // Volcano smoke (src/render/smoke.js): static per map, the puffs' paths
     // in the vertex shader; a map without lava draws nothing.
     var smoke = SM.Smoke ? SM.Smoke.createLayer(gl, acct, GRADE_GLSL) : null;
+    // Lightning (src/render/lightning.js): this frame's strike from the rain
+    // clouds, its light in the terrain shader, the bolt as its own layer.
+    var lightning = SM.Lightning ? SM.Lightning.createLayer(gl, acct) : null;
+    var strike = { active: false, flash: 0, bolt: false };
+    var flashLight = true;            // off with prefers-reduced-motion
+    var boltDraw = {
+      combined: null, vScale: 1, eye: null, pixelWorld: 1, strike: strike, width: 1, height: 1
+    };
     var smokeDraw = {
       combined: null, vScale: 1, time: 0, sun: null, strength: 0, night: 0, setGrade: null
     };
@@ -2142,7 +2159,9 @@
         var range = sky.weatherRanges[n];
         var color = weatherBuilt.clouds[n].color;
         if (!range[1]) continue;
-        gl.uniform3f(sky.color, color[0], color[1], color[2]);
+        // The cloud a strike comes from lights up with it.
+        var lit = strike.active && flashLight && strike.cloud === n ? 1 + 1.4 * strike.flash : 1;
+        gl.uniform3f(sky.color, color[0] * lit, color[1] * lit, color[2] * lit);
         gl.colorMask(false, false, false, false);
         acct.drawElements(gl.TRIANGLES, range[1], gl.UNSIGNED_INT, range[0] * 4);
         gl.colorMask(true, true, true, true);
@@ -2433,6 +2452,11 @@
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
+      if (SM.Lightning && weatherNow.length && !debugView) {
+        SM.Lightning.strikeAt(weatherBuilt, skySeed, elapsedTime, strike);
+      } else {
+        strike.active = false;
+      }
       gl.bindVertexArray(vao);
       var night = nightLight > 0.001 && nightU;
       // Flowing water's tops (the end of the index buffer) are drawn by the
@@ -2472,6 +2496,15 @@
         weatherDraw.setGrade = setGradeUniforms;
         weather.draw(weatherDraw);
       }
+      if (lightning && strike.active) {
+        boltDraw.combined = combined;
+        boltDraw.vScale = vScale;
+        boltDraw.eye = viewDir;
+        boltDraw.pixelWorld = 2 * camera.zoom / width;
+        boltDraw.width = gridSize[0];
+        boltDraw.height = gridSize[1];
+        lightning.draw(boltDraw);
+      }
       if (smoke && !debugView) {
         smokeDraw.combined = combined;
         smokeDraw.vScale = vScale;
@@ -2510,6 +2543,9 @@
       gl.uniform1f(U.cloudShadow, debugView || !cloudLobeCount ? 0 : cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
       gl.uniform3fv(U.foamColor, foamColor);
+      gl.uniform4f(U.flash, strike.active ? strike.x / gridSize[0] : 0, strike.active ? strike.y / gridSize[1] : 0,
+        SM.Lightning ? SM.Lightning.REACH / gridSize[0] : 1,
+        strike.active && flashLight && !debugView ? strike.flash * SM.Lightning.FLASH_LIGHT : 0);
       if (U.fogMap) {
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, fogTexture);
@@ -2571,6 +2607,11 @@
       gl.bindVertexArray(null);
       sky.weatherCount = mesh.indices.length;
       sky.weatherRanges = mesh.ranges;
+    }
+
+    // prefers-reduced-motion: strikes keep their bolt, lose the light flash.
+    function setFlashLight(on) {
+      flashLight = on !== false;
     }
 
     function setSmokeData(built) {
@@ -2714,6 +2755,7 @@
       if (wind) wind.dispose();
       if (weather) weather.dispose();
       if (smoke) smoke.dispose();
+      if (lightning) lightning.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
@@ -2776,6 +2818,7 @@
       setWeatherData: setWeatherData,
       setWeather: setWeather,
       setSmokeData: setSmokeData,
+      setFlashLight: setFlashLight,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,
