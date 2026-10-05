@@ -164,6 +164,25 @@ telefonda çekmecenin tamamı tek parça kayar. Masaüstü görünümü aynı ka
 başlık dışında piksel piksel aynı (başlık yüksekliği 88.75 px korundu).
 `--layout` bu düzeni de denetler (kompakt blok silinince kırmızı).
 
+**Dokunmatik gezinme** (Uğur 2026-10-05: *"zoom kötü çalışıyor"*). Önceden
+haritada yalnız fare dinleyicileri vardı: telefonda tek parmak sürüklemek hiçbir
+şey yapmıyor, iki parmak bütün SAYFAYI (paneliyle) büyütüyordu, kamera hiç
+değişmiyordu. Şimdi `#stage`'de pointer olayları ve `touch-action: none`
+(haritadaki hareketler uygulamanın; panelde sayfa yakınlaştırması erişilebilirlik
+için açık): **tek parmak** = o görünümün fare sürüklemesi (izometrikte döndür,
+üstten görünümde kaydır ya da seçili fırça), **iki parmak** = kaydır +
+parmakların ortasına doğru yakınlaş (`SM.Touch`, `src/touch.js`, DOM'suz:
+parmakların altındaki harita noktası parmakların altında kalır; izometrikte
+`panVector` ile, yaw/eğim değişmez). İkinci parmak tek parmak hareketini olduğu
+yerde bitirir (300 ms'den genç fırça darbesi geri alınır: kıstırmanın başıydı);
+kıstırmadan bir parmak kalkınca kalan parmak kaldığı yerden **kaydırır**, asla
+döndürmez ya da boyamaz. Parmak kümesi her değiştiğinde hareket yeniden
+tabanlanır, sıçrama yok. Üstten görünümde Pan aracıyla kısa dokunuş tile
+kartını gösterir. iOS'un kendi `gesturestart`'ı engellenir. Dokunmatik
+cihazda ipucu da dokunmatik (`hint.*.touch`). `--layout` matematiği koşar:
+200 rastgele hareket, izometrikte panVector'dan bağımsız bir ortografik
+izdüşümle.
+
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
 çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,

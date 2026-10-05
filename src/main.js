@@ -237,9 +237,15 @@
     requestVoxelRender();
   }
 
+  // A phone gets its own hint (pinch, two fingers) instead of the mouse and
+  // keyboard one; the key stays the base one so a language switch re-reads it.
+  var coarseMq = window.matchMedia ? window.matchMedia('(hover: none) and (pointer: coarse)') : null;
+  function hintKeyFor(key) {
+    return coarseMq && coarseMq.matches && (key === 'hint.top' || key === 'hint.iso') ? key + '.touch' : key;
+  }
   function setIsoHint(key) {
     isoHintKey = key;
-    $('isohint').textContent = T(key);
+    $('isohint').textContent = T(hintKeyFor(key));
   }
 
   function stopVoxel() {
@@ -1917,6 +1923,142 @@
   window.addEventListener('blur', function () { setSpaceHeld(false); });
   stage.addEventListener('wheel', onWheel, { passive: false });
 
+  // --- touch (Uğur 2026-10-05: "mobilde zoom kötü çalışıyor") ---
+  // Until then the map had mouse handlers only: on a phone a one-finger drag
+  // did nothing and a pinch zoomed the whole page, panel included. Now, with
+  // pointer events on the stage (#stage has touch-action: none in style.css,
+  // so the browser leaves gestures on the map to the app; the panel keeps
+  // page zoom, for accessibility):
+  //   one finger  = the mouse drag of that view (orbit in isometric; pan, or
+  //                 the selected brush, in top-down)
+  //   two fingers = pan + pinch zoom about the fingers (SM.Touch, src/touch.js)
+  // A second finger ends the one-finger drag where it is (a brush stroke
+  // younger than 300 ms is taken back: it was the start of a pinch). When one
+  // finger of a pinch lifts, the other keeps panning from where it is; it
+  // never starts an orbit or a stroke. Every change in the set of fingers
+  // re-bases the gesture, so nothing jumps. A short tap in top-down view with
+  // the Pan tool shows the tile card, as hovering does with a mouse.
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0 };
+  var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
+
+  function stageXY(ev) {
+    var r = stage.getBoundingClientRect();
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+  }
+  function mouseLike(ev) {
+    return { clientX: ev.clientX, clientY: ev.clientY, button: 0, shiftKey: false, preventDefault: function () {} };
+  }
+  function touchFrame() {
+    return SM.Touch.frame(touch.pts[touch.order[0]], touch.pts[touch.order[1]]);
+  }
+  function touchNavigate(prev, next) {
+    if (isVoxelMode()) {
+      if (!voxelCamera) return;
+      voxelSnap = null;
+      setVoxelCamera(SM.Touch.pinchVoxel(voxelCamera, prev, next,
+        stage.clientWidth, stage.clientHeight, 1, 1000));
+    } else if (content) {
+      var c = SM.Touch.pinchTop(cam, prev, next, 0.1, 6); // same limits as the wheel
+      cam.scale = c.scale;
+      cam.x = c.x;
+      cam.y = c.y;
+      applyCam();
+    }
+  }
+  function endOneFinger() {
+    if (editStroke && performance.now() - touch.strokeAt < TOUCH_STROKE_UNDO_MS) {
+      var record = editStroke.record;
+      editStroke = null;
+      restoreRecord(record);
+      SM.tagWaterfalls(grid);
+      if (record.indices.length) {
+        paintEditedTiles(record.indices);
+        updateEditedStats();
+        scheduleEditedTopRender();
+      }
+    }
+    onUp();
+    hideBrushCursor();
+  }
+  stage.addEventListener('pointerdown', function (ev) {
+    if (ev.pointerType !== 'touch') return;
+    // The angle chip's own controls handle their touches.
+    if (ev.target !== stage && ev.target !== map && ev.target !== glCanvas) return;
+    ev.preventDefault(); // no compatibility mouse events after this
+    try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
+    touch.pts[ev.pointerId] = stageXY(ev);
+    touch.order.push(ev.pointerId);
+    hoverEl.hidden = true;
+    if (touch.order.length === 1) {
+      touch.mode = 'one';
+      touch.start = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: false };
+      touch.strokeAt = performance.now();
+      onDown(mouseLike(ev));
+      return;
+    }
+    if (touch.mode === 'one') endOneFinger();
+    touch.mode = 'two';
+    touch.start = null;
+    touch.frame = touchFrame();
+  });
+  stage.addEventListener('pointermove', function (ev) {
+    if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
+    var prev = touch.pts[ev.pointerId];
+    var p = stageXY(ev);
+    touch.pts[ev.pointerId] = p;
+    if (touch.mode === 'one') {
+      if (touch.start && Math.abs(ev.clientX - touch.start.x) + Math.abs(ev.clientY - touch.start.y) > TOUCH_TAP_PX) {
+        touch.start.moved = true;
+      }
+      onMove(mouseLike(ev));
+    } else if (touch.mode === 'two') {
+      if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
+      var f = touchFrame();
+      touchNavigate(touch.frame, f);
+      touch.frame = f;
+    } else if (touch.mode === 'rest') {
+      touchNavigate({ x: prev.x, y: prev.y, d: 1 }, { x: p.x, y: p.y, d: 1 });
+    }
+  });
+  function touchEnd(ev, cancelled) {
+    if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
+    delete touch.pts[ev.pointerId];
+    touch.order.splice(touch.order.indexOf(ev.pointerId), 1);
+    if (touch.mode === 'one') {
+      var s = touch.start;
+      touch.mode = null;
+      touch.strokeAt = -Infinity; // a lifted finger's stroke is kept
+      endOneFinger();
+      if (!cancelled && s && !s.moved && performance.now() - s.t < TOUCH_TAP_MS &&
+          view === 'top' && $('editTool').value === 'pan') onHover(mouseLike(ev));
+    } else if (touch.order.length >= 2) {
+      touch.frame = touchFrame();
+    } else {
+      touch.mode = touch.order.length === 1 ? 'rest' : null;
+    }
+  }
+  stage.addEventListener('pointerup', function (ev) { touchEnd(ev, false); });
+  stage.addEventListener('pointercancel', function (ev) { touchEnd(ev, true); });
+  // iOS Safari's own pinch events: the map handles its pinches itself.
+  stage.addEventListener('gesturestart', function (ev) { ev.preventDefault(); });
+
+  // Read-only views of the camera for the headless browser checks (CDP);
+  // nothing in the app reads them.
+  SM.cameraState = function () {
+    if (isVoxelMode() && voxelCamera) {
+      return { view: 'iso', yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
+        tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
+    }
+    return { view: 'top', scale: cam.scale, x: cam.x, y: cam.y };
+  };
+  SM.screenToWorld = function (clientX, clientY) {
+    var r = stage.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
+    if (isVoxelMode() && voxelCamera) {
+      return SM.Touch.voxelGroundAt(voxelCamera, x, y, stage.clientWidth, stage.clientHeight);
+    }
+    return { x: (x - cam.x) / cam.scale, y: (y - cam.y) / cam.scale };
+  };
+
   // Language switch (TR / EN, src/i18n.js): `SM.I18N.apply` has already
   // rewritten every hooked element; this rewrites what main.js writes itself.
   // Nothing is regenerated or re-rendered -- only text changes.
@@ -1925,7 +2067,7 @@
       if (id !== 'sea') $(SLIDERS[id].label).textContent = SLIDERS[id].fmt($(id).value);
     });
     renderStats();
-    $('isohint').textContent = T(isoHintKey);
+    $('isohint').textContent = T(hintKeyFor(isoHintKey));
     $('pipelineToggle').textContent = T(pipeline ? 'pipeline.exit' : 'pipeline.enter');
     updateStageText();
     if ($('viewIso').disabled) $('viewIso').title = T('view.noWebgl');

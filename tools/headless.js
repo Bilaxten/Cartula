@@ -29,7 +29,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js',
-                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
+                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -2508,6 +2508,76 @@ function runLayoutChecks() {
       /id="panelScrim"/.test(html) &&
       /\$\('panelScrim'\)\.addEventListener\('click', function \(\) \{ setPanel\(false, true\); \}\)/.test(main) &&
       /ev\.key !== 'Escape' \|\| !isCompact\(\) \|\| !panelOpen\(\)/.test(main), '');
+  }
+
+  // 7) Touch navigation. Until 2026-10-05 the map had mouse handlers only:
+  //    a one-finger drag did nothing and a pinch zoomed the whole page.
+  {
+    const html2 = html;
+    push('the map owns its gestures: #stage touch-action: none (page pinch stays possible on the panel)',
+      cssRules(css, /^#stage$/).some(r => /touch-action:\s*none/.test(r.body)) &&
+      !cssRules(css, /^#panel$/).some(r => /touch-action/.test(r.body)), '');
+    push('pointer events: touch pointers handled on the stage, compatibility mouse events cancelled, chip controls left alone',
+      /stage\.addEventListener\('pointerdown', function \(ev\) \{\s*if \(ev\.pointerType !== 'touch'\) return;/.test(main) &&
+      /ev\.target !== stage && ev\.target !== map && ev\.target !== glCanvas/.test(main) &&
+      /ev\.preventDefault\(\); \/\/ no compatibility mouse events/.test(main) &&
+      /stage\.addEventListener\('pointercancel'/.test(main) && /'gesturestart'/.test(main), '');
+    push('a second finger re-bases the gesture and ends the one-finger drag; a lifted finger leaves the other panning',
+      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);/.test(main) &&
+      /touch\.mode = touch\.order\.length === 1 \? 'rest' : null;/.test(main), '');
+    push('src/touch.js loads before main.js; touch hints exist in both languages',
+      /<script src="src\/touch\.js"><\/script>[\s\S]*<script src="src\/main\.js"><\/script>/.test(html2) &&
+      !!(en['hint.top.touch'] && tr['hint.top.touch'] && en['hint.iso.touch'] && tr['hint.iso.touch']), '');
+
+    // The math, run. Seeded so a failure is reproducible.
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const Tch = SM.Touch;
+    // Top-down: content point under the fingers stays under them.
+    let worstTop = 0, panTop = 0;
+    for (let i = 0; i < 200; i++) {
+      const cam = { scale: 0.1 + rnd() * 2, x: rnd() * 400 - 200, y: rnd() * 400 - 200 };
+      const prev = { x: rnd() * 390, y: rnd() * 844, d: 40 + rnd() * 200 };
+      const next = { x: rnd() * 390, y: rnd() * 844, d: 40 + rnd() * 200 };
+      const c = Tch.pinchTop(cam, prev, next, 0.1, 6);
+      const u = (prev.x - cam.x) / cam.scale, v = (prev.y - cam.y) / cam.scale;
+      worstTop = Math.max(worstTop, Math.hypot(c.x + u * c.scale - next.x, c.y + v * c.scale - next.y));
+      const p2 = Tch.pinchTop(cam, prev, { x: prev.x + 37, y: prev.y - 11, d: prev.d }, 0.1, 6);
+      panTop = Math.max(panTop, Math.abs(p2.x - cam.x - 37) + Math.abs(p2.y - cam.y + 11) + Math.abs(p2.scale - cam.scale));
+    }
+    push('top-down pinch: the map point under the fingers stays under them (200 random gestures, clamped scale too); same spread = pure pan',
+      worstTop < 1e-6 && panTop < 1e-9, `worst ${worstTop.toExponential(2)} px, pan error ${panTop}`);
+    // Isometric: project with an orthographic camera built independently of
+    // panVector (lookAt basis of renderScene: eye on the yaw/pitch sphere,
+    // world up), so a sign error in either shows up here.
+    const project = (cam, P, w, h) => {
+      const y = cam.yaw * Math.PI / 180, p = cam.pitch * Math.PI / 180;
+      const right = [Math.sin(y), 0, -Math.cos(y)];
+      const up = [-Math.cos(y) * Math.sin(p), Math.cos(p), -Math.sin(y) * Math.sin(p)];
+      const d = [P.x - cam.tx, cam.ty - cam.ty, P.z - cam.tz];
+      const wpp = 2 * cam.zoom / w;
+      return { x: w / 2 + (d[0] * right[0] + d[1] * right[1] + d[2] * right[2]) / wpp,
+               y: h / 2 - (d[0] * up[0] + d[1] * up[1] + d[2] * up[2]) / wpp };
+    };
+    let worstIso = 0, worstBack = 0, keptAngles = true, ratioErr = 0;
+    for (let i = 0; i < 200; i++) {
+      const w = 300 + rnd() * 1100, h = 300 + rnd() * 600;
+      const cam = { yaw: rnd() * 360, pitch: 10 + rnd() * 79, zoom: 5 + rnd() * 400, tx: rnd() * 200 - 100, ty: rnd() * 30, tz: rnd() * 200 - 100 };
+      const prev = { x: rnd() * w, y: rnd() * h, d: 40 + rnd() * 200 };
+      const next = { x: rnd() * w, y: rnd() * h, d: 40 + rnd() * 200 };
+      const P = Tch.voxelGroundAt(cam, prev.x, prev.y, w, h);
+      const back = project(cam, P, w, h);
+      worstBack = Math.max(worstBack, Math.hypot(back.x - prev.x, back.y - prev.y));
+      const c = Tch.pinchVoxel(cam, prev, next, w, h, 1, 1000);
+      const q = project(c, P, w, h);
+      worstIso = Math.max(worstIso, Math.hypot(q.x - next.x, q.y - next.y));
+      if (c.yaw !== cam.yaw || c.pitch !== cam.pitch || c.ty !== cam.ty) keptAngles = false;
+      const want = Math.min(1000, Math.max(1, cam.zoom * prev.d / next.d));
+      ratioErr = Math.max(ratioErr, Math.abs(c.zoom - want));
+    }
+    push('isometric pinch: the ground point under the fingers stays under them in an independent ortho projection (200 random cameras); yaw/pitch untouched; zoom = old × spread ratio',
+      worstBack < 1e-6 && worstIso < 1e-6 && keptAngles && ratioErr < 1e-9,
+      `ground-at round trip ${worstBack.toExponential(2)} px, after pinch ${worstIso.toExponential(2)} px, angles kept ${keptAngles}, zoom err ${ratioErr}`);
   }
 
   console.log('layout checks (panel, phone, touch):');

@@ -529,6 +529,12 @@ details.group .body { padding: 2px 18px 18px; }
    * (a gradient cannot transition). isolation keeps the z-index -1 layers
    * inside the stage, under the canvases. */
   isolation: isolate;
+  /* Gestures on the map belong to the app (src/main.js, touch): no page
+   * pan or pinch-zoom here, no text selection or long-press callout. */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 #stage::before,
 #stage::after {

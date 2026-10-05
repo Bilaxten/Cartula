@@ -179,6 +179,8 @@
       // at a '·' before it reaches the yaw chip (style.css body.iso #isohint).
       'hint.iso': 'drag\u00a0to\u00a0orbit · space/shift+drag\u00a0to\u00a0pan · scroll\u00a0to\u00a0zoom · Q/E\u00a0snap',
       'hint.contextLost': 'GPU context lost · waiting for the browser to restore it',
+      'hint.top.touch': 'drag\u00a0to\u00a0pan · pinch\u00a0to\u00a0zoom',
+      'hint.iso.touch': 'drag\u00a0to\u00a0orbit · two\u00a0fingers\u00a0to\u00a0pan · pinch\u00a0to\u00a0zoom',
       'yaw.slider': 'Camera yaw',
       'yaw.auto': 'Auto-rotate',
       'yaw.center.title': 'Center view: frame the whole map again (angle kept)',
@@ -379,6 +381,8 @@
       'hint.top': 'sürükle / boşluk+sürükle: kaydır · tekerlek: yakınlaş',
       'hint.iso': 'sürükle:\u00a0döndür · boşluk/shift+sürükle:\u00a0kaydır · tekerlek:\u00a0yakınlaş · Q/E:\u00a090°',
       'hint.contextLost': 'GPU bağlamı kayboldu · tarayıcının geri getirmesi bekleniyor',
+      'hint.top.touch': 'sürükle:\u00a0kaydır · iki\u00a0parmak:\u00a0yakınlaş',
+      'hint.iso.touch': 'sürükle:\u00a0döndür · iki\u00a0parmak:\u00a0kaydır\u00a0/\u00a0yakınlaş',
       'yaw.slider': 'Kamera dönüş açısı',
       'yaw.auto': 'Kendiliğinden döndür',
       'yaw.center.title': 'Görünümü ortala: haritanın tamamı yeniden kadraja girer (açı korunur)',
