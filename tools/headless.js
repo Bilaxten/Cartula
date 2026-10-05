@@ -274,7 +274,10 @@ function runMeshChecks() {
     SM.VoxelCamera.clampPitch(95) === 89 &&
     SM.VoxelCamera.snapYaw(47) === 90 &&
     SM.VoxelCamera.snapYaw(44) === 0 &&
-    SM.VoxelCamera.snapYaw(316) === 270;
+    SM.VoxelCamera.snapYaw(314) === 270 &&
+    // 315..360 is the last half sector of 0, not of 270 (the old clamp).
+    SM.VoxelCamera.snapYaw(316) === 0 &&
+    SM.VoxelCamera.snapYaw(359.9) === 0;
   const clockWrap = SM.formatClock(6) === '06:00' &&
     SM.formatClock(26) === '02:00' &&
     SM.formatClock(29.5) === '05:30';

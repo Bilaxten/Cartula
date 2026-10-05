@@ -19,9 +19,11 @@
   function snapYaw(yaw) {
     var angle = wrapYaw(yaw);
 
-    /* 360 degrees is the same pose as zero. Keeping the final sector at 270
-     * avoids a duplicate cardinal stop while Q/E supplies the travel direction. */
-    return Math.min(270, Math.round(angle / 90) * 90);
+    /* Nearest cardinal stop. 360 is the same pose as zero, so the last half
+     * sector (315..360) wraps to 0. It used to be clamped to 270 instead,
+     * which made Q/E lopsided there: from 316 degrees E turned 44 and Q turned
+     * 136, while the mirror pose at 44 degrees turned 136 and 44. */
+    return wrapYaw(Math.round(angle / 90) * 90);
   }
 
   function panVector(yaw, pitch, zoom, screenWidth, deltaX, deltaY) {
@@ -933,7 +935,7 @@
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       window.__glShaderErrors = window.__glShaderErrors || [];
       window.__glShaderErrors.push('link: ' + gl.getProgramInfoLog(program));
-      console.warn('voxel3d: sky program link failed\n' +
+      console.warn('voxel3d: terrain program link failed\n' +
         gl.getProgramInfoLog(program));
       gl.deleteProgram(program);
       return null;
@@ -1069,6 +1071,13 @@
     gl.deleteShader(vertex);
     gl.deleteShader(fragment);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      // The sky is optional, so a failed link only removes clouds and birds.
+      // That is exactly the failure that reads as "never implemented" (the
+      // `uMode` precision mismatch, 2026-09-06), so it must leave a trace.
+      window.__glShaderErrors = window.__glShaderErrors || [];
+      window.__glShaderErrors.push('sky link: ' + gl.getProgramInfoLog(program));
+      console.warn('voxel3d: sky program link failed\n' +
+        gl.getProgramInfoLog(program));
       gl.deleteProgram(program);
       return null;
     }
