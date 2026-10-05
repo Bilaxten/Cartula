@@ -25,8 +25,6 @@
   var statsBase = '';
 
   var TOP_TILE = 9;
-  var ISO_TILE = 32;
-  var ISO_BASE_LH = 13;
 
   var anim = null; // live overlay animation state
 
@@ -403,23 +401,17 @@
     var lv = (content.lavas || []).slice();
     if ((r.length + lv.length) > 1600 || map.width * map.height > 16e6) return;
 
-    var d = content.diamond, ts = content.tile, lh = content.lh || 20;
     var fx = $('riverfx');
     fx.width = map.width;
     fx.height = map.height;
     fx.style.transform = map.style.transform;
     anim = {
-      raf: 0, mode: view, rivers: r, lavas: lv,
-      rgb: content.riverRgb, lavaRgb: content.lavaRgb || [226, 82, 29],
-      d: d, tile: ts, lh: lh, t0: performance.now(), last: 0,
-      moveLast: 0
+      raf: 0, rivers: r, lavas: lv,
+      tile: content.tile, t0: performance.now(), last: 0
     };
     tick();
   }
 
-  function shade(rgb, f) {
-    return 'rgb(' + Math.round(rgb[0] * f) + ',' + Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
-  }
   function tick() {
     if (!anim) return;
     anim.raf = requestAnimationFrame(tick);
@@ -427,8 +419,6 @@
     if (now - anim.last < 32) return;
     anim.last = now;
     var ctx = $('riverfx').getContext('2d');
-    var seconds = (now - anim.t0) / 1000;
-    var sun = sunModel(parseFloat($('sun').value)).iso;
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     // Bu overlay artık YALNIZCA üstten görünüme hizmet ediyor: izometrik
     // görünüm WebGL'de ve kendi animasyonunu (su dalgası, lav, foam, bulut,
@@ -646,16 +636,6 @@
 
   // --- top-down brush editing ---
   function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
-
-  function hexToRgb(hex) {
-    var n = parseInt(hex.slice(1), 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-  }
-
-  function shade(rgb, f) {
-    return 'rgb(' + Math.round(rgb[0] * f) + ',' +
-      Math.round(rgb[1] * f) + ',' + Math.round(rgb[2] * f) + ')';
-  }
 
   // Paint only changed top-down cells while a brush is live. The normal
   // renderer later cleans seams and re-adds global details in one idle pass.
@@ -1333,10 +1313,7 @@
     applyDayNight();
     if (isVoxelMode()) updateVoxelSun();
   });
-  $('sun').addEventListener('change', function () {
-    if (!isVoxelMode() && view === 'iso') refresh(false); // re-bake shadows
-    applyDayNight();
-  });
+  $('sun').addEventListener('change', applyDayNight);
 
   // One "new map" action: a random seed, the sliders stay as set. There is
   // no Regenerate button any more -- every setting (and the seed field)
