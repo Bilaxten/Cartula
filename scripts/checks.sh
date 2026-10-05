@@ -91,7 +91,8 @@ else
     # --weather: kar yalnız soğuk biyomda, çölde hiçbir şey; sınırlı, seed'e bağlı.
     # --layout: ☰ panel (buton, durum, erişilebilirlik), telefon düzeni, dokunmatik gezinme.
     # --flow: akan nehirler yalnız tatlı suda, yokuş yukarı/kıyıya akmıyor, büyük gölün ortası durgun.
-    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout --flow; do
+    # --smoke: volkan dumanı kraterde, rüzgâr alanıyla bükülüyor, harita/gökyüzü dışına taşmıyor.
+    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout --flow --smoke; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else

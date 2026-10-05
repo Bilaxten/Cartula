@@ -513,6 +513,10 @@
         voxelRenderer.setWeatherData(SM.Weather.build(grid, grid.config && grid.config.seed),
           windField.prevailing);
       }
+      // Volcano smoke: a plume per crater, bent by this same wind field.
+      if (SM.Smoke && voxelRenderer.setSmokeData) {
+        voxelRenderer.setSmokeData(SM.Smoke.build(grid, windField));
+      }
     }
     updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);

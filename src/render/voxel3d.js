@@ -1662,6 +1662,12 @@
     // (grid tiles, SM.Weather.cloudsAt: the one source for the cloud, its
     // shadow and its rain) and the sky-pass mesh of those clouds.
     var weatherBuilt = null;
+    // Volcano smoke (src/render/smoke.js): static per map, the puffs' paths
+    // in the vertex shader; a map without lava draws nothing.
+    var smoke = SM.Smoke ? SM.Smoke.createLayer(gl, acct, GRADE_GLSL) : null;
+    var smokeDraw = {
+      combined: null, vScale: 1, time: 0, sun: null, strength: 0, night: 0, setGrade: null
+    };
     var weatherCentres = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS * 2);
     var weatherFades = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS);
     weatherDraw.centres = weatherCentres;
@@ -2400,6 +2406,16 @@
         weatherDraw.setGrade = setGradeUniforms;
         weather.draw(weatherDraw);
       }
+      if (smoke && !debugView) {
+        smokeDraw.combined = combined;
+        smokeDraw.vScale = vScale;
+        smokeDraw.time = elapsedTime;
+        smokeDraw.sun = sun;
+        smokeDraw.strength = strength;
+        smokeDraw.night = nightLight;
+        smokeDraw.setGrade = setGradeUniforms;
+        smoke.draw(smokeDraw);
+      }
       drawSky();
       // Night only: the bloom passes do not run at all while nightLight is 0.
       if (bloom && glowU && bloomOn && !debugView && nightLight > 0.001) {
@@ -2481,6 +2497,11 @@
       gl.bindVertexArray(null);
       sky.weatherCount = mesh.indices.length;
       sky.weatherRanges = mesh.ranges;
+    }
+
+    function setSmokeData(built) {
+      if (disposed) return;
+      if (smoke) smoke.setData(built);
     }
 
     function setWeather(on) {
@@ -2618,6 +2639,7 @@
       if (bloom) bloom.dispose();
       if (wind) wind.dispose();
       if (weather) weather.dispose();
+      if (smoke) smoke.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
@@ -2674,6 +2696,7 @@
       setWind: setWind,
       setWeatherData: setWeatherData,
       setWeather: setWeather,
+      setSmokeData: setSmokeData,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,

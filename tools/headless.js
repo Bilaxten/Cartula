@@ -17,6 +17,7 @@
  *   node tools/headless.js --wind       # wind lines: terrain-steered field, bounded stateless streaks
  *   node tools/headless.js --weather    # rain/snow: biome rules, bounded, deterministic per seed
  *   node tools/headless.js --flow       # flowing rivers: fresh water only, downhill, falls, still lake middles
+ *   node tools/headless.js --smoke      # volcano smoke: vents on craters, wind field, rise/bend/shrink, under the sky
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -29,7 +30,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -1155,7 +1156,7 @@ function runShaderChecks() {
   // fragmentSource array of quoted GLSL lines. Every GL file in src/render
   // is read (post.js has its own programs since 2026-10-05).
   const pairs = [];
-  for (const f of ['voxel3d.js', 'post.js', 'wind.js', 'weather.js']) {
+  for (const f of ['voxel3d.js', 'post.js', 'wind.js', 'weather.js', 'smoke.js']) {
     const file = fs.readFileSync(path.join(root, 'render', f), 'utf8');
     // `makeProgram` only compiles; the terrain GLSL lives in
     // `terrainShaderSources(variant)`, so that body is read under its name.
@@ -1191,7 +1192,7 @@ function runShaderChecks() {
 
   results.push(['at least four programs were inspected (terrain, sky, bloom blur, composite)', pairs.length >= 4, []]);
 
-  console.log('shader declaration lint (src/render/voxel3d.js, post.js, wind.js, weather.js):');
+  console.log('shader declaration lint (src/render/voxel3d.js, post.js, wind.js, weather.js, smoke.js):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
     for (const line of detail) console.log(`         ${line}`);
@@ -2543,6 +2544,102 @@ function runWindChecks() {
 }
 
 // ---------------------------------------------------------------------------
+// --smoke : volcano smoke (src/render/smoke.js). A plume per lava field on its
+// crater, none without lava; the wind is the wind lines' own field at the
+// vent; puffs rise, bend downwind, shrink away at the end of life and past the
+// map edge, and never reach above the sky the camera frames (SM.Sky.ceiling).
+// ---------------------------------------------------------------------------
+function runSmokeChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, !!ok, detail || '']);
+  const S = SM.Smoke;
+  let maps = 0, ventsSeen = 0, ventBad = 0, windBad = 0, riseBad = 0, bendBad = 0, endBad = 0, edgeBad = 0, ceilBad = 0;
+  let worstTop = -Infinity;
+  const p = {}, q = {};
+  for (const seed of [1337, 4242, 7, 42, 2024, 90210]) {
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const W = g.width, H = g.height;
+    const wf = SM.Wind.field(g, seed);
+    const b = S.build(g, wf);
+    const b2 = S.build(g, wf);
+    let lavaN = 0;
+    for (let i = 0; i < W * H; i++) if (g.lava[i]) lavaN++;
+    maps++;
+    if (!lavaN && b.vents.length) ventBad++;
+    if (lavaN >= S.MIN_LAVA && !b.vents.length) ventBad++;
+    if (b.vents.length > S.MAX_VENTS || b.puffs !== b.vents.length * S.PUFFS) ventBad++;
+    if (Buffer.compare(Buffer.from(b.data.buffer), Buffer.from(b2.data.buffer)) !== 0) ventBad++;
+    const mesh = SM.buildVoxelMesh(g);
+    for (let v = 0; v < b.vents.length; v++) {
+      const vent = b.vents[v];
+      ventsSeen++;
+      // On the crater: the tile under the vent is lava at the field's top level.
+      const vi = Math.floor(vent.y) * W + Math.floor(vent.x);
+      if (!g.lava[vi] || g.level[vi] !== vent.level) ventBad++;
+      // Wind = the wind lines' field at the vent, scaled.
+      const u = SM.Wind.sample(wf.u, wf, vent.x, vent.y), w = SM.Wind.sample(wf.v, wf, vent.x, vent.y);
+      const sp = SM.Wind.sample(wf.speed, wf, vent.x, vent.y);
+      const len = Math.hypot(u, w) || 1, want = sp * SM.Wind.SPEED * 0.7;
+      const got = Math.hypot(vent.wind[0], vent.wind[1]);
+      if (Math.abs(got - want) > 1e-6 || (vent.wind[0] * u + vent.wind[1] * w) / (got * len) < 0.999) windBad++;
+      for (let k = 0; k < S.PUFFS; k++) {
+        // Rises with age; drifts downwind; gone at the end of its life.
+        S.puffAt(b, v, k, 0, p);
+        const t0 = (1 - p.age) * S.LIFE;           // time of this puff's next birth
+        S.puffAt(b, v, k, t0 + 0.2, p);
+        S.puffAt(b, v, k, t0 + S.LIFE * 0.8, q);
+        if (!(q.level > p.level + 2)) riseBad++;
+        const dx = q.x - p.x, dy = q.y - p.y;
+        if (got > 0.05 && dx * vent.wind[0] + dy * vent.wind[1] <= 0) bendBad++;
+        for (let t = 0; t < S.LIFE * 2; t += 0.1) {
+          S.puffAt(b, v, k, t, q);
+          // Gone by the end of its life, born small: no pop at the wrap.
+          if (q.age > 0.985 && q.size > 0.03 * S.SIZE[1]) endBad++;
+          if (q.age < 0.015 && q.size > S.SIZE[0] * 1.3) endBad++;
+          const outside = Math.max(-q.x, q.x - W, -q.y, q.y - H);
+          if (outside >= S.EDGE && q.size > 0) edgeBad++;
+          // Top of the puff vs the sky the camera frames, at every height scale.
+          for (const vs of [0.6, 1.6, 3]) {
+            const top = q.level * vs + q.size / 2;
+            const ceil = SM.Sky.ceiling(mesh.bounds, vs, (mesh.bounds.maxX - mesh.bounds.minX) * 0.09);
+            worstTop = Math.max(worstTop, top - ceil);
+            if (top > ceil) ceilBad++;
+          }
+        }
+      }
+    }
+  }
+  push(`a plume per lava field (>= ${S.MIN_LAVA} tiles) on its crater, none without lava, deterministic (${ventsSeen} vents on ${maps} maps, ${ventBad} wrong)`,
+    ventsSeen >= 4 && ventBad === 0);
+  push(`each plume's wind is the wind lines' field at its vent (${windBad} wrong)`, windBad === 0);
+  push(`every puff rises (${riseBad} wrong) and bends downwind (${bendBad} wrong)`, riseBad === 0 && bendBad === 0);
+  push(`a puff is born small and has shrunk to nothing by the end of its life: no pop at the wrap (${endBad} wrong)`, endBad === 0);
+  push(`nothing past the map edge: a puff ${S.EDGE} tiles out has no size (${edgeBad} samples)`, edgeBad === 0);
+  push(`no puff reaches above the framed sky (SM.Sky.ceiling) at height scale 0.6-3 (closest ${worstTop.toFixed(2)})`,
+    ceilBad === 0);
+  {
+    // The shader is the JS twin's copy: same constants, same path terms.
+    const src = fs.readFileSync(path.join(root, 'render', 'smoke.js'), 'utf8');
+    push('vertex shader follows puffAt (age, spread, bend ~ age^1.4, rise with deceleration, size, edge)',
+      /fract\(ts \/ ' \+ glslFloat\(LIFE\) \+ ' \+ aPuff\.y\)/.test(src) && /0\.2 \+ 1\.1 \* age/.test(src) &&
+      /pow\(age, 1\.4\)/.test(src) && /glslFloat\(RISE\) \+ ' \* life \* \(1\.0 - ' \+ glslFloat\(DECEL\)/.test(src) &&
+      /hash\(aPuff\.z, 4\.0\)/.test(src) && /smoothstep\(0\.0, ' \+ glslFloat\(EDGE\)/.test(src));
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    push('the smoke is drawn only outside debug views, before the sky', /if \(smoke && !debugView\)[\s\S]{0,400}smoke\.draw\(smokeDraw\);\s*\}\s*drawSky\(\);/.test(voxel));
+    push('colours are palette mixes (volcanic, rock, snow, lava), no new colour',
+      /mix\(rgb01\('volcanic'\), rgb01\('rock'\)/.test(src) && /mix\(rgb01\('rock'\), rgb01\('snow'\)/.test(src) &&
+      /rgb01\('lava'\)/.test(src) && !/#[0-9a-f]{6}/i.test(src));
+  }
+
+  console.log('volcano smoke checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
 // --flow : flowing rivers (src/render/flow.js). Only fresh water flows (never
 // the sea), never toward higher water; a lip runs over its drop and a landing
 // churns; a big lake keeps a still middle; the corner image stops against
@@ -3108,6 +3205,8 @@ function runWeatherChecks() {
 
 if (process.argv[2] === '--layout') {
   runLayoutChecks();
+} else if (process.argv[2] === '--smoke') {
+  runSmokeChecks();
 } else if (process.argv[2] === '--flow') {
   runFlowChecks();
 } else if (process.argv[2] === '--weather') {
