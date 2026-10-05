@@ -664,24 +664,10 @@
     if (view !== 'top' || !content || !content.tile) return;
     var ctx = map.getContext('2d'), ts = content.tile;
     var hillshade = $('showShade').checked;
+    // Same painter the full render uses (topdown.js), so a brushed tile
+    // already has its final colour.
     for (var k = 0; k < indices.length; k++) {
-      var i = indices[k];
-      var x = i % grid.width, y = (i / grid.width) | 0;
-      var c = SM.isSea(grid, i) ? SM.seaColor(grid, i)
-        : hexToRgb(SM.BIOME_LIST[grid.biome[i]].color);
-      ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
-      ctx.fillRect(x * ts, y * ts, ts, ts);
-      if (hillshade && !grid.water[i]) {
-        var eHere = grid.elevation[i];
-        var eL = x > 0 ? grid.elevation[i - 1] : eHere;
-        var eU = y > 0 ? grid.elevation[i - grid.width] : eHere;
-        var a = ((eHere - eL) + (eHere - eU)) * 5;
-        if (a > 0.18) a = 0.18;
-        if (a < -0.18) a = -0.18;
-        ctx.fillStyle = a > 0 ? 'rgba(255,255,255,' + a + ')' :
-          'rgba(0,0,0,' + (-a) + ')';
-        ctx.fillRect(x * ts, y * ts, ts, ts);
-      }
+      SM.paintTopDownTile(ctx, grid, indices[k], ts, hillshade);
     }
   }
 

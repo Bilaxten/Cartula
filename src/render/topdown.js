@@ -18,6 +18,30 @@
     return RGB;
   }
 
+  // ONE definition of how a map tile is painted: base colour, then the
+  // hillshade overlay. The full render and the editor's live repaint
+  // (main.js `paintEditedTiles`) both call it. The editor used to carry its
+  // own copy, and the copy had drifted: it clamped the hillshade at ±0.18
+  // where this clamps at ±0.4, so a brushed tile changed tone when the idle
+  // re-render replaced it 450 ms later.
+  function paintTile(ctx, grid, i, ts, hillshade) {
+    var w = grid.width, x = i % w, y = (i / w) | 0;
+    // Sea: depth ramp + shoreline tint from the one shared definition.
+    var c = SM.isSea(grid, i) ? SM.seaColor(grid, i) : biomeRgb()[grid.biome[i]];
+    ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
+    ctx.fillRect(x * ts, y * ts, ts, ts);
+    if (hillshade && !grid.water[i]) {
+      var eHere = grid.elevation[i];
+      var eL = x > 0 ? grid.elevation[i - 1] : eHere;
+      var eU = y > 0 ? grid.elevation[i - w] : eHere;
+      var a = ((eHere - eL) + (eHere - eU)) * 5;
+      if (a > 0.4) a = 0.4;
+      if (a < -0.4) a = -0.4;
+      ctx.fillStyle = a > 0 ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + (-a) + ')';
+      ctx.fillRect(x * ts, y * ts, ts, ts);
+    }
+  }
+
   function renderTopDown(canvas, grid, opts) {
     // `markers: false` leaves out the settlement icons (the Unity albedo wants
     // colour per cell, not symbols drawn over it).
@@ -38,27 +62,12 @@
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         var i = y * w + x;
-        // Sea: depth ramp + shoreline tint from the one shared definition.
-        var c = SM.isSea(grid, i) ? SM.seaColor(grid, i) : rgb[grid.biome[i]];
-        ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
-        ctx.fillRect(x * ts, y * ts, ts, ts);
+        paintTile(ctx, grid, i, ts, o.shade);
 
         if (grid.biome[i] === RIVER) {
           rivers.push({ x: x * ts, y: y * ts, phase: (grid.flowStep ? grid.flowStep[i] : (x + y)) });
         } else if ((LAVA >= 0 && grid.biome[i] === LAVA) || (lavaFlag && lavaFlag[i])) {
           lavas.push({ x: x * ts, y: y * ts, phase: grid.elevation[i] * 60 });
-        }
-
-        if (o.shade && !grid.water[i]) {
-          var eHere = grid.elevation[i];
-          var eL = x > 0 ? grid.elevation[i - 1] : eHere;
-          var eU = y > 0 ? grid.elevation[i - w] : eHere;
-          var s = (eHere - eL) + (eHere - eU);
-          var a = s * 5;
-          if (a > 0.4) a = 0.4;
-          if (a < -0.4) a = -0.4;
-          ctx.fillStyle = a > 0 ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + (-a) + ')';
-          ctx.fillRect(x * ts, y * ts, ts, ts);
         }
       }
     }
@@ -131,6 +140,7 @@
     };
   }
 
+  SM.paintTopDownTile = paintTile;
   SM.renderStage = renderStage;
   SM.renderTopDown = renderTopDown;
 })(window.SM = window.SM || {});
