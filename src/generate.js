@@ -764,9 +764,14 @@
           // top-down hillshade, negative metres on hover, and a flooded
           // basin in the exported heightmap.
           grid.elevation[fi] = e[fi];
+          // Classified by climate, never as beach: a body handled here is
+          // by definition NOT connected to the ocean, so it has no shore. It
+          // used to become beach whenever it sat under `beachThresh` -- which
+          // is always, since it was just lifted to seaThresh + 0.012 -- and
+          // every filled inland sea turned into a flat sand plain (68% of all
+          // beach tiles on the default map, measured 2026-10-05).
           var lfF = clamp01((e[fi] - seaThresh) / landSpan);
-          grid.biome[fi] = e[fi] < beachThresh ? B.beach
-            : SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
+          grid.biome[fi] = SM.classifyBiome(lfF, grid.moisture[fi], grid.temperature[fi]);
         }
         continue;
       }
