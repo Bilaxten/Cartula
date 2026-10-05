@@ -24,8 +24,8 @@ sha() { if command -v sha256sum >/dev/null; then sha256sum | cut -d' ' -f1; else
 live_matches() {
   local want got
   # Line endings ignored: a Windows checkout holds CRLF, git (and so the live copy) LF.
-  want="$(tr -d '' < "$repo/index.html" | sha)"
-  got="$(curl -fsS -H 'Cache-Control: no-cache' "$url?v=$(date +%s)" 2>/dev/null | tr -d '' | sha || true)"
+  want="$(tr -d '\r' < "$repo/index.html" | sha)"
+  got="$(curl -fsS -H 'Cache-Control: no-cache' "$url?v=$(date +%s)" 2>/dev/null | tr -d '\r' | sha || true)"
   [ "$want" = "$got" ]
 }
 
