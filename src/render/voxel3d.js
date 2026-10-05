@@ -1167,14 +1167,12 @@
       'uniform highp float uTime;',
       'uniform sampler2D uShadowMap;',
       // Cloud shadow rides in cell-UV space because this shader has no world
-      // position. One soft ellipse per cloud LOBE (u, v, radiusU, radiusV), the
-      // same lobes the cloud voxels fill, so the shadow has the cloud's shape.
-      // Fixed-size array: GLSL uniform arrays cannot be dynamic, and
-      // `SM.Sky.MAX_SHADOW_LOBES` (6 clouds x 3 lobes) is the JS half of the
-      // same contract.
-      'uniform vec4 uCloudLobes[' + SM.Sky.MAX_SHADOW_LOBES + '];',
-      'uniform float uCloudLobeFade[' + SM.Sky.MAX_SHADOW_LOBES + '];',  // the shadow fades with its cloud
-      'uniform int uCloudLobeCount;',
+      // position: a coverage image (SM.Sky.rasterShadow, one soft ellipse per
+      // cloud LOBE, the same lobes the cloud voxels fill, so the shadow has
+      // the cloud's shape), redrawn in JS when the clouds move. One linear
+      // fetch per fragment, however many lobes the sky has (it used to be a
+      // loop over every lobe, and its cost grew with them).
+      'uniform sampler2D uCloudMap;',
       'uniform float uCloudShadow;',
       // Render debug view (0 = lit). Fragment-only on purpose: a uniform
       // declared in both stages must match precision exactly or the program
@@ -1267,17 +1265,10 @@
       '    floor(vFallCoord * 4.0 + 0.5) / 4.0);',
       '  baseColor = mix(baseColor, uFoamColor, ' + glslFloat(FOAM_OPACITY) + ' * shoreFoam);',
       '  // Cloud shadow: soft-edged ellipses (one per cloud lobe) sliding over',
-      '  // the map; overlapping lobes of one cloud merge with max(). Side faces',
-      '  // take less of it, the same split the sun shadow uses -- a wall in',
-      '  // shade from a passing cloud should not read darker than the ground.',
-      '  float cloudCover = 0.0;',
-      '  for (int c = 0; c < ' + SM.Sky.MAX_SHADOW_LOBES + '; c++) {',
-      '    if (c >= uCloudLobeCount) break;',
-      '    vec2 delta = (vCellUV - uCloudLobes[c].xy) /',
-      '      max(vec2(1e-4), uCloudLobes[c].zw);',
-      '    cloudCover = max(cloudCover, uCloudLobeFade[c] *',
-      '      (1.0 - smoothstep(0.45, 1.0, length(delta))));',
-      '  }',
+      '  // the map, merged with max() in the coverage image. Side faces take',
+      '  // less of it, the same split the sun shadow uses -- a wall in shade',
+      '  // from a passing cloud should not read darker than the ground.',
+      '  float cloudCover = texture(uCloudMap, vCellUV).r;',
       '  // `daylight`, not raw uSunStrength: the raw value is ~0.34 at noon and',
       '  // multiplying by it left the shadow at ~12% -- present in the numbers,',
       '  // invisible on screen. Daylight is the same 0..1 factor the rest of',
@@ -1577,9 +1568,7 @@
     // program). Absent uniforms come back null, which GL ignores.
     function terrainUniforms(prog) {
       var names = {
-        cloudLobes: 'uCloudLobes',
-        cloudLobeFade: 'uCloudLobeFade',
-        cloudLobeCount: 'uCloudLobeCount',
+        cloudMap: 'uCloudMap',
         cloudShadow: 'uCloudShadow',
         debugView: 'uDebugView',
         nightLight: 'uNightLight',
@@ -1664,6 +1653,12 @@
     var cloudShadowData = new Float32Array(SM.Sky.MAX_SHADOW_LOBES * 4);
     var cloudLobeFadeData = new Float32Array(SM.Sky.MAX_SHADOW_LOBES);
     var cloudLobeCount = 0;
+    // The rasterised cloud shadow (SM.Sky.rasterShadow): half the map's
+    // resolution, linear filtering; redrawn only when its inputs change.
+    var cloudMap = gl.createTexture();
+    var cloudMapData = new Uint8Array(1);
+    var cloudMapSize = [1, 1];
+    var cloudMapKey = new Float32Array(8);
     // Reused every frame. These two used to be allocated inside the render loop
     // and that is exactly the kind of quiet GC pressure this project bans in a
     // per-frame path -- three small arrays a frame is 180 allocations a second
@@ -1722,7 +1717,45 @@
       new Uint8Array([0])
     );
     acct.texture(shadowTexture, 1);
+    gl.bindTexture(gl.TEXTURE_2D, cloudMap);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, cloudMapData);
+    acct.texture(cloudMap, 1);
     gl.bindTexture(gl.TEXTURE_2D, null);
+
+    /* Redraw the cloud shadow image if anything it depends on changed
+     * (cloud positions follow time; the sun slides the shadow; vScale lifts
+     * the clouds; the sky toggle). Called once per frame from updateClouds. */
+    function updateCloudMap() {
+      var w = Math.max(1, Math.ceil((meshBounds.maxX - meshBounds.minX) / 2));
+      var h = Math.max(1, Math.ceil((meshBounds.maxZ - meshBounds.minZ) / 2));
+      var resized = w !== cloudMapSize[0] || h !== cloudMapSize[1];
+      var changed = resized;
+      var key = [elapsedTime, sun[0], sun[1], sun[2], vScale, showSky ? 1 : 0, cloudLobeCount, meshVersion];
+      for (var k = 0; k < 8; k++) {
+        if (cloudMapKey[k] !== Math.fround(key[k])) { cloudMapKey[k] = key[k]; changed = true; }
+      }
+      if (!changed) return;
+      if (resized) {
+        cloudMapSize[0] = w;
+        cloudMapSize[1] = h;
+        cloudMapData = new Uint8Array(w * h);
+      }
+      SM.Sky.rasterShadow(cloudShadowData, cloudLobeFadeData, cloudLobeCount, cloudMapData, w, h);
+      gl.bindTexture(gl.TEXTURE_2D, cloudMap);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      if (resized) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, cloudMapData);
+        acct.texture(cloudMap, w * h);
+      } else {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, cloudMapData);
+      }
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
 
     function resize(cssW, cssH, dpr) {
       if (disposed) return;
@@ -1871,6 +1904,7 @@
       // fragment -- for a second dark patch beside the cloud.
       SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
       cloudLobeCount = showSky ? SM.Sky.shadowLobeCount(cloudNow) : 0;
+      updateCloudMap();
       cloudFadeData.fill(0);
       for (f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
         cloudFadeData[f] = cloudNow[f].fade;
@@ -2306,11 +2340,12 @@
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
       gl.uniform1i(U.shadowMap, 0);
-      gl.uniform4fv(U.cloudLobes, cloudShadowData);
-      gl.uniform1fv(U.cloudLobeFade, cloudLobeFadeData);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, cloudMap);
+      gl.uniform1i(U.cloudMap, 1);
+      gl.activeTexture(gl.TEXTURE0);
       // Fair clouds only while the sky is on (updateClouds).
-      gl.uniform1i(U.cloudLobeCount, debugView ? 0 : cloudLobeCount);
-      gl.uniform1f(U.cloudShadow, cloudShadowStrength);
+      gl.uniform1f(U.cloudShadow, debugView || !cloudLobeCount ? 0 : cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
       gl.uniform3fv(U.foamColor, foamColor);
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
@@ -2506,6 +2541,8 @@
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
+      gl.deleteTexture(cloudMap);
+      acct.forget(cloudMap);
       timer.pending.forEach(function (q) { gl.deleteQuery(q); });
       timer.pending = [];
       gl.deleteVertexArray(vao);

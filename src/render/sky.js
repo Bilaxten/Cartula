@@ -24,14 +24,14 @@
   // declare. Raising it means editing the shader arrays too.
   var MAX_CLOUDS = 6;
 
-  // A cloud is a union of up to MAX_LOBES ellipsoids ("lobes"): one main body
-  // plus side puffs. The terrain shader draws the shadow as the same union of
-  // ellipses, one uniform per lobe, so its array is MAX_SHADOW_LOBES long
-  // (`uCloudLobes[...]` in voxel3d.js is built from this number -- the GLSL
-  // half of this contract). The weather clouds (src/render/weather.js, up to
+  // A cloud is a union of up to MAX_LOBES ellipsoids ("lobes"): a body plus
+  // puffs, or the separate puffs of a cluster. The shadow is the same union
+  // of ellipses, rasterised per frame into a small texture the terrain
+  // shader samples once (rasterShadow), so the lobe count no longer costs
+  // anything per fragment. The weather clouds (src/render/weather.js, up to
   // MAX_WEATHER_CLOUDS) use the same lobes and mesh builder but cast no
   // shadow (see voxel3d.js updateClouds).
-  var MAX_LOBES = 3;
+  var MAX_LOBES = 7;
   var MAX_WEATHER_CLOUDS = 3;
   var MAX_SHADOW_LOBES = MAX_CLOUDS * MAX_LOBES;
 
@@ -43,9 +43,9 @@
   // overlapping: two coplanar walls in the same place would be blended twice
   // in the translucent colour pass while a cloud fades in or out.
   var CLOUD_LAYER = CLOUD_VOXEL * 0.8;
-  // Thickest cloud, in layers. A one-layer puff and a three-layer bank side by
-  // side is most of what makes the sky read as varied.
-  var MAX_LAYERS = 3;
+  // Thickest cloud, in layers: a one-layer stratus slab and a six-layer
+  // cumulus tower side by side is most of what makes the sky read as varied.
+  var MAX_LAYERS = 6;
   // Height above the tallest terrain, in unscaled level units. The caller
   // multiplies terrain Y by `vScale`, so the final Y is resolved in
   // `driftClouds` where that scale is known. Low enough to read as a diorama
@@ -81,95 +81,166 @@
     return 4 + Math.floor(rand(seed, 991, 7) * 3);
   }
 
-  /* Cloud instances: position, shape, height and drift speed. Deterministic
-   * from the seed so the same map always gets the same sky.
-   *
-   * Every cloud used to be one squashed ellipsoid of about the same radius,
-   * two layers thick, at about the same height (Uğur 2026-10-05: "bulutlar
-   * birbirine benziyor"). Now each one varies on four axes:
-   *   size      stratified over the set, so a sky always mixes small puffs
-   *             with big banks instead of five mid-sized blobs;
-   *   shape     elongation 1..2.1 along the wind (mostly) or across it, plus
-   *             0..2 side lobes -- bigger clouds tend to carry more;
-   *   thickness 1..3 voxel layers, thicker for bigger clouds, side lobes lower
-   *             than the main body so tops are domed;
+  /* Cloud shapes (owner, 2026-10-05: "bulutlardaki şekil varyasyonunu
+   * arttıralım ... yükseklik voxel sayısı farklı bulutlar ... pofuduk
+   * bulutlar ... küçük küçük birden fazla buluta sahip bulut kümeleri").
+   * Every cloud is a set of lobes { x, z, rx, rz, h, top }: an ellipse on the
+   * ground plane, a dome of `h` layers over a flat base, cut at `top`
+   * layers (a slab: a high dome cut low). Archetypes, `main` = the size in
+   * world units, `r(k)` = a seeded 0..1 per question k:
+   *   stratus  one long, wide, flat slab (1-2 layers) plus 1-2 slabs along
+   *            it;
+   *   cumulus  a flat 1-2 layer base and 2-4 rounded towers on it, the
+   *            tallest 4-6 layers: a lumpy top over a flat bottom;
+   *   puff     a small round ball ("pofuduk") with one or two bumps;
+   *   cluster  3-7 small separate puffs, drifting as one group;
+   *   nimbus   the weather clouds: a wide 2-layer base with 3-4 puffy
+   *            towers, heavier than a cumulus.
+   * Whole voxels only: the lobes are filled on the cloud voxel grid. */
+  var ARCHETYPES = ['cumulus', 'stratus', 'puff', 'cluster'];
+
+  function cloudShape(kind, main, r, alongWind) {
+    var lobes = [];
+    var j;
+    var minR = CLOUD_VOXEL * 1.6;
+    function lobe(x, z, rx, rz, h, top) {
+      lobes.push({
+        x: alongWind ? x : z, z: alongWind ? z : x,
+        rx: Math.max(minR, alongWind ? rx : rz), rz: Math.max(minR, alongWind ? rz : rx),
+        h: h, top: top
+      });
+    }
+    if (kind === 'stratus') {
+      var st = 2.2 + r(1) * 1.4;
+      var maj = main * Math.sqrt(st);
+      var min = main / Math.sqrt(st);
+      var thick = r(2) < 0.5 ? 1 : 2;
+      lobe(0, 0, maj, min, 4, thick);
+      var side = r(3) < 0.5 ? -1 : 1;
+      for (j = 0; j < 1 + Math.floor(r(4) * 2); j++) {
+        lobe(side * maj * (0.55 + r(10 + j) * 0.3), (r(20 + j) - 0.5) * min * 0.8,
+          maj * (0.45 + r(30 + j) * 0.2), min * (0.6 + r(40 + j) * 0.3), 4, thick);
+        side = -side;
+      }
+    } else if (kind === 'cumulus' || kind === 'nimbus') {
+      var heavy = kind === 'nimbus';
+      // Flat base: a wide low dome cut at 1-2 layers.
+      lobe(0, 0, main * (heavy ? 1.15 : 1.0), main * (heavy ? 0.85 : 0.8), 4, heavy ? 2 : 1 + Math.floor(r(1) * 2));
+      var towers = (heavy ? 3 : 2) + Math.floor(r(2) * 2);
+      var a0 = r(3) * Math.PI * 2;
+      for (j = 0; j < towers; j++) {
+        var ang = a0 + j * Math.PI * 2 / towers + (r(10 + j) - 0.5) * 0.9;
+        var dist = j === 0 ? 0 : main * (0.35 + r(20 + j) * 0.3);
+        var tr = main * (j === 0 ? 0.62 : 0.4 + r(30 + j) * 0.18);
+        // The first tower is the tallest: 4-6 layers (4.5-5 for nimbus).
+        var th = j === 0 ? (heavy ? 4.5 + r(4) * 0.5 : 4 + r(4) * 2) : 2.4 + r(40 + j) * 1.8;
+        lobe(Math.cos(ang) * dist, Math.sin(ang) * dist, tr, tr * (0.85 + r(50 + j) * 0.3), th, MAX_LAYERS);
+      }
+    } else if (kind === 'puff') {
+      var pr = main * (0.9 + r(1) * 0.2);
+      // Round: the dome is about as tall as it is wide.
+      var ph = Math.min(5, Math.max(2.5, pr / CLOUD_LAYER));
+      lobe(0, 0, pr, pr * (0.9 + r(2) * 0.2), ph, MAX_LAYERS);
+      for (j = 0; j < 1 + Math.floor(r(3) * 2); j++) {
+        var pa = r(10 + j) * Math.PI * 2;
+        var bump = pr * (0.5 + r(20 + j) * 0.15);
+        lobe(Math.cos(pa) * pr * 0.65, Math.sin(pa) * pr * 0.65, bump, bump, Math.max(2, ph * 0.75), MAX_LAYERS);
+      }
+    } else {
+      // Cluster: 3-7 small puffs inside a radius of `main`, kept apart so
+      // they read as separate clouds.
+      // The first three sit on a triangle (always apart); the others take
+      // the first free seeded spot, or are left out.
+      var n = 3 + Math.floor(r(1) * 5);
+      var turn = r(2) * Math.PI * 2;
+      for (j = 0; j < n; j++) {
+        var cr = Math.max(minR, main * (0.22 + r(10 + j) * 0.18));
+        var crz = cr * (0.85 + r(30 + j) * 0.3);
+        var cx = 0;
+        var cz = 0;
+        var clear = false;
+        for (var tries = 0; tries < (j < 3 ? 1 : 30) && !clear; tries++) {
+          var ca = j < 3 ? turn + j * Math.PI * 2 / 3 : r(100 + j * 32 + tries) * Math.PI * 2;
+          var cd = main * (j < 3 ? 0.72 : 0.3 + 0.9 * Math.sqrt(r(300 + j * 32 + tries)));
+          cx = Math.cos(ca) * cd;
+          cz = Math.sin(ca) * cd;
+          clear = true;
+          for (var q = 0; q < lobes.length; q++) {
+            var L = lobes[q];
+            var need = (Math.max(L.rx, L.rz) + Math.max(cr, crz)) * 1.15;
+            if ((L.x - cx) * (L.x - cx) + (L.z - cz) * (L.z - cz) < need * need) { clear = false; break; }
+          }
+        }
+        if (!clear) continue;
+        lobes.push({ x: cx, z: cz, rx: cr, rz: crz, h: 1.4 + r(40 + j) * 1.8, top: MAX_LAYERS });
+      }
+    }
+    return lobes;
+  }
+
+  /* Horizontal bounding radius of a set of lobes (rim noise and half a voxel
+   * included). */
+  function lobeReach(lobes) {
+    var reach = 0;
+    var rim = Math.sqrt(WOBBLE_MIN + WOBBLE_SPAN);
+    for (var j = 0; j < lobes.length; j++) {
+      var L = lobes[j];
+      reach = Math.max(reach, Math.abs(L.x) + L.rx * rim, Math.abs(L.z) + L.rz * rim);
+    }
+    return reach + CLOUD_VOXEL * 0.5;
+  }
+
+  /* Cloud instances: position, archetype, shape, height and drift speed.
+   * Deterministic from the seed so the same map always gets the same sky.
+   * Varied on five axes:
+   *   archetype the first four clouds of a sky are four different
+   *             archetypes (seeded order), further ones are drawn freely;
+   *   size      stratified over the set, so a sky mixes small and big;
+   *   shape     per archetype (cloudShape), stretched along the wind (mostly)
+   *             or across it;
+   *   thickness 1 (stratus) to 6 (cumulus) voxel layers, per lobe;
    *   height    lift LIFT_MIN..LIFT_MAX, stratified like size; higher clouds
    *             drift a little faster.
    * All clouds still drift the same way: a sky where every cloud moves its own
-   * direction reads as noise, not weather.
-   *
-   * `radius` is the cloud's horizontal bounding radius (lobes + rim noise +
-   * half a voxel). Drift padding and the fade use it, so a long cloud still
-   * leaves the map completely before it wraps. `lobes` are local to the cloud
-   * origin, in world units: { x, z, rx, rz, h } (h in layers). */
+   * direction reads as noise, not weather. `radius` is the horizontal
+   * bounding radius (drift padding and the fade use it). */
   function cloudInstances(bounds, count, seed) {
     var spanX = bounds.maxX - bounds.minX;
     var spanZ = bounds.maxZ - bounds.minZ;
     var n = Math.max(0, Math.min(MAX_CLOUDS, count));
     var list = [];
-    var i, j;
+    var i;
 
-    // Seeded permutations for the size and height strata: each cloud draws
-    // from its own slice of the range, so no sky comes out all one size or
-    // all at one height.
-    function strata(salt) {
+    function strata(salt, m) {
       var order = [];
-      for (var a = 0; a < n; a++) order.push(a);
-      for (var b = n - 1; b > 0; b--) {
+      for (var a = 0; a < m; a++) order.push(a);
+      for (var b = m - 1; b > 0; b--) {
         var c = Math.floor(rand(seed, salt, b) * (b + 1));
         var t = order[b]; order[b] = order[c]; order[c] = t;
       }
       return order;
     }
-    var order = strata(17);
-    var heightOrder = strata(23);
+    var order = strata(17, n);
+    var heightOrder = strata(23, n);
+    var kinds = strata(29, ARCHETYPES.length);
 
     for (i = 0; i < n; i++) {
       var r = function (k) { return rand(seed, i * 31 + 101, k); };
       var size = (order[i] + r(0)) / Math.max(1, n);       // 0..1, stratified
-      // Radius scales with the map so a 64² and a 192² map read the same.
-      var main = spanX * (0.048 + 0.072 * size);
-      var stretch = 1 + r(1) * (0.5 + 0.6 * size);          // 1..2.1
-      var alongWind = r(2) < 0.75;
-      var major = main * Math.sqrt(stretch);
-      var minor = main / Math.sqrt(stretch);
-      var lobes = [{
-        x: 0, z: 0,
-        rx: alongWind ? major : minor,
-        rz: alongWind ? minor : major,
-        h: 0.9 + size * 1.9 + r(3) * 0.5                    // 0.9..3.3 layers
-      }];
-      var extra = Math.min(MAX_LOBES - 1, Math.floor(r(4) * (1.2 + size * 2)));
-      var side = r(5) < 0.5 ? -1 : 1;
-      for (j = 0; j < extra; j++) {
-        var lr = main * (0.42 + r(10 + j) * 0.3);
-        var lstretch = 1 + r(20 + j) * 0.35;
-        // Along the long axis, alternating sides; a little off it, so a
-        // two-lobe cloud is not a symmetric dumbbell.
-        var along = side * major * (0.6 + r(30 + j) * 0.45);
-        var across = minor * (r(40 + j) - 0.5) * 1.5;
-        lobes.push({
-          x: alongWind ? along : across,
-          z: alongWind ? across : along,
-          rx: lr * (alongWind ? Math.sqrt(lstretch) : 1 / Math.sqrt(lstretch)),
-          rz: lr * (alongWind ? 1 / Math.sqrt(lstretch) : Math.sqrt(lstretch)),
-          h: 0.85 + r(50 + j) * 1.0                         // lower than the body
-        });
-        side = -side;
-      }
-      var reach = 0;
-      var rim = Math.sqrt(WOBBLE_MIN + WOBBLE_SPAN);
-      for (j = 0; j < lobes.length; j++) {
-        var L = lobes[j];
-        reach = Math.max(reach, Math.abs(L.x) + L.rx * rim, Math.abs(L.z) + L.rz * rim);
-      }
+      var kind = i < ARCHETYPES.length ? ARCHETYPES[kinds[i]] :
+        ARCHETYPES[Math.floor(r(12) * ARCHETYPES.length)];
+      // Radius scales with the map so a 64² and a 448² map read the same.
+      var main = spanX * ({ stratus: 0.07, cumulus: 0.032, puff: 0.017, cluster: 0.06 }[kind] +
+        { stratus: 0.06, cumulus: 0.026, puff: 0.012, cluster: 0.05 }[kind] * size);
+      var lobes = cloudShape(kind, main, function (k) { return rand(seed, i * 31 + 7001, k); }, r(2) < 0.75);
       var lift = LIFT_MIN + (heightOrder[i] + r(6)) / Math.max(1, n) * (LIFT_MAX - LIFT_MIN);
       var liftT = (lift - LIFT_MIN) / (LIFT_MAX - LIFT_MIN);
       list.push({
+        kind: kind,
         // X is the drift axis, so the start is spread across the full span.
         x: bounds.minX + spanX * r(7),
         z: bounds.minZ + spanZ * (0.12 + r(8) * 0.76),
-        radius: reach + CLOUD_VOXEL * 0.5,
+        radius: lobeReach(lobes),
         lift: lift,
         speed: spanX * (0.008 + r(9) * 0.006) * (0.85 + 0.35 * liftT),
         lobes: lobes,
@@ -293,6 +364,40 @@
     return data;
   }
 
+  /* The cloud shadow as a w x h coverage image (Uint8Array, 0..255) over the
+   * same 0..1 space as cloudShadowUniforms: every lobe a soft ellipse
+   * (full inside 45% of its radius, 0 at its rim), times its fade,
+   * overlapping lobes merged with max. The terrain shader samples it once
+   * per fragment (linear filter) instead of looping over every lobe, so a
+   * sky of many lobes costs no more per pixel than one of few. */
+  function rasterShadow(data, fade, count, out, w, h) {
+    out.fill(0);
+    for (var k = 0; k < count; k++) {
+      var cu = data[k * 4];
+      var cv = data[k * 4 + 1];
+      var ru = data[k * 4 + 2];
+      var rv = data[k * 4 + 3];
+      var f = fade ? fade[k] : 1;
+      if (!(ru > 0 && rv > 0) || f <= 0) continue;
+      var x0 = Math.max(0, Math.floor((cu - ru) * w - 0.5));
+      var x1 = Math.min(w - 1, Math.ceil((cu + ru) * w - 0.5));
+      var y0 = Math.max(0, Math.floor((cv - rv) * h - 0.5));
+      var y1 = Math.min(h - 1, Math.ceil((cv + rv) * h - 0.5));
+      for (var y = y0; y <= y1; y++) {
+        var dv = ((y + 0.5) / h - cv) / rv;
+        for (var x = x0; x <= x1; x++) {
+          var du = ((x + 0.5) / w - cu) / ru;
+          var len = Math.sqrt(du * du + dv * dv);
+          if (len >= 1) continue;
+          var v = Math.round(255 * f * (1 - smoothstep(0.45, 1, len)));
+          var o = y * w + x;
+          if (v > out[o]) out[o] = v;
+        }
+      }
+    }
+    return out;
+  }
+
   /* Number of shadow lobes a cloud list uses (what `uCloudLobeCount` gets). */
   function shadowLobeCount(clouds) {
     var k = 0;
@@ -329,7 +434,7 @@
             var ex = (px - L.x) / L.rx;
             var ez = (pz - L.z) / L.rz;
             var ey = gy / L.h;
-            if (ex * ex + ez * ez + ey * ey <= wobble) {
+            if (gy < (L.top || MAX_LAYERS) && ex * ex + ez * ez + ey * ey <= wobble) {
               cells[(gy * nz + (gz + reachZ)) * nx + (gx + reachX)] = 1;
               break;
             }
@@ -506,6 +611,10 @@
 
   SM.Sky = {
     cloudFade: cloudFade,
+    cloudShape: cloudShape,
+    lobeReach: lobeReach,
+    rasterShadow: rasterShadow,
+    ARCHETYPES: ARCHETYPES,
     MAX_CLOUDS: MAX_CLOUDS,
     MAX_LOBES: MAX_LOBES,
     MAX_SHADOW_LOBES: MAX_SHADOW_LOBES,

@@ -199,14 +199,38 @@ harita kendi gökyüzünü haritanın **seed**'inden alır (`mesh.seed` →
 kalın, yan loblar daha alçak — kubbe tepe), farklı yükseklikte; yüksek bulut
 biraz daha hızlı sürüklenir, yön ortak. Boyut ve yükseklik **tabakalı**
 dağıtılır: her gökyüzü küçük kabarıklarla büyük kümeleri karıştırır.
-**Gölge şekli bulutla aynı:** arazi shader'ı lob başına bir yumuşak elips çizer
-(`uCloudLobes[18]` = 6 bulut × 3 lob, `SM.Sky.MAX_SHADOW_LOBES`). Mesh yalnız
+**Gölge şekli bulutla aynı:** lob başına bir yumuşak elips (aşağıda: artık bir
+dokuya çiziliyor). Mesh yalnız
 dış kabuğu üretir (iki dolu voxel arasındaki yüz atlanır): 192²'de bulut
 üçgeni 16 668 → ~5 500, 448²'de 96 660 → ~27 000. `--sky` denetler: 8 seed'de
 hacim oranı ≥ 2.5, iki bulut aynı voxel şeklinde değil, kalınlık ve yükseklik
 karışık, her seed farklı gökyüzü, her bulut sütunu gölge düşürür ve her gölge
 çekirdeğinin üstünde bulut var, gövde arazinin üstünde ve `SM.Sky.ceiling`
 altında, iç yüz çifti yok, üçgen sayısı eski bütçenin altında.
+
+**Bulut tipleri** (2026-10-05 üçüncü tur, Uğur: *"daha farklı şekilde bulutlar
+... yükseklik voxel sayısı farklı ... pofuduk bulutlar ... küçük küçük birden
+fazla buluta sahip bulut kümeleri"*): her bulut seed'den bir **tip** alır
+(`SM.Sky.cloudShape`); bir gökyüzünün ilk dört bulutu dört farklı tiptir:
+- **stratus**: uzun, geniş, düz levha, 1-2 katman (yüksek kubbe alçaktan
+  kesilir), yanında 1-2 levha;
+- **kümülüs**: 1-2 katman düz taban üstünde 2-4 yuvarlak kule, en uzunu 4-6
+  katman: düz alt, topak topak üst;
+- **pofuduk**: küçük, yüksekliği genişliği kadar top, 1-2 tümsek;
+- **küme**: 3-7 ayrı küçük kabarık, tek grup hâlinde sürüklenir (ilk üçü
+  üçgende, diğerleri boş yer bulursa).
+Hava bulutları ağır **nimbus** tipini kullanır (geniş 2 katman taban + 3-4
+kule). Lob artık `top` (katman tavanı) da taşır; katman tavanı 3 → 6, lob
+tavanı 3 → 7. Yalnız tam voxel, iç yüzler atlanır. Bulut üçgeni 320²'de
+14-18k → 5-10k (bulutlar daha küçük ve çeşitli).
+**Gölge artık doku:** lob sayısı arttı, arazi shader'ındaki lob döngüsü her
+fragmanda koştuğu için (bir önceki turda ~7 fazla lob ~25-30 ms yemişti)
+gölge JS'te yarım çözünürlüklü bir R8 dokuya çizilir (`SM.Sky.rasterShadow`,
+lob başına aynı yumuşak elips, max ile birleşim) ve shader onu tek seferde
+doğrusal okur; doku yalnız bulutlar/güneş/ölçek değişince yeniden çizilir.
+`--sky`: her gökyüzünde dört tip, stratus 1-2 katman, kümülüs 4-6, pofuduk
+en küçük, küme 3-7 değmeyen kabarık; dokunun her texel'i analitik elipslere
+eşit (≤ 1/255).
 
 **Arayüz dili: Türkçe + İngilizce** (2026-10-05). Panelin başlığındaki
 *TR / EN* düğmeleri arayüzü yeniden yüklemeden, haritayı yeniden üretmeden

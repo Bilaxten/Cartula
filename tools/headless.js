@@ -972,6 +972,70 @@ function runSkyChecks() {
       bad.length === 0, bad.join('; ')]);
     results.push(['the sky follows the seed: every seed gets its own sky',
       new Set(skies).size === SEEDS.length]);
+
+    // Archetypes (owner 2026-10-05: "daha farklı şekilde bulutlar ...
+    // yükseklik voxel sayısı farklı ... pofuduk ... küçük küçük birden fazla
+    // buluta sahip bulut kümeleri"). Every sky of 4+ clouds has all four;
+    // each archetype has its own build: stratus 1-2 layers, cumulus 4-6
+    // layers over a flat base, puffs the smallest, clusters 3-7 separate
+    // puffs.
+    {
+      const archBad = [];
+      const allLayers = new Set();
+      for (const seed of SEEDS) {
+        const list = SM.Sky.cloudInstances(real, SM.Sky.cloudCount(seed), seed);
+        const kinds = new Set(list.map(c => c.kind));
+        if (kinds.size < 4) archBad.push(`${seed}: kinds ${[...kinds]}`);
+        for (const c of list) {
+          const L = layersOf(c);
+          allLayers.add(L);
+          const vol = SM.Sky.cloudVoxels(c).cells.reduce((a, b) => a + b, 0);
+          if (c.kind === 'stratus' && L > 2) archBad.push(`${seed}: stratus ${L} layers`);
+          if (c.kind === 'cumulus' && (L < 4 || L > 6)) archBad.push(`${seed}: cumulus ${L} layers`);
+          if (c.kind === 'puff' && vol > Math.min(...list.filter(o => o.kind !== 'puff').map(o =>
+            SM.Sky.cloudVoxels(o).cells.reduce((a, b) => a + b, 0))) * 1.2) archBad.push(`${seed}: big puff`);
+          if (c.kind === 'cluster') {
+            const n = c.lobes.length;
+            let touching = 0;
+            for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+              const A = c.lobes[i], B = c.lobes[j];
+              if (Math.hypot(A.x - B.x, A.z - B.z) < (Math.max(A.rx, A.rz) + Math.max(B.rx, B.rz)) * 1.1) touching++;
+            }
+            if (n < 3 || n > 7 || touching) archBad.push(`${seed}: cluster of ${n}, ${touching} touching`);
+          }
+        }
+      }
+      results.push([`every sky has all four archetypes; stratus 1-2 layers, cumulus 4-6, puffs smallest, clusters 3-7 separate puffs; thicknesses seen ${[...allLayers].sort().join(',')}`,
+        archBad.length === 0 && allLayers.has(1) && allLayers.has(2) && Math.max(...allLayers) >= 5, archBad.slice(0, 4).join('; ')]);
+    }
+
+    // The rasterised shadow is the per-lobe soft ellipse, merged with max,
+    // at every texel centre (within one 8-bit step).
+    {
+      const list = SM.Sky.cloudInstances(real, 6, 4242);
+      const now = SM.Sky.driftClouds(list, 25, real, 1.6);
+      const data = SM.Sky.cloudShadowUniforms(now, real, [0.4, 0.8, 0.2]);
+      const fade = new Float32Array(SM.Sky.MAX_SHADOW_LOBES);
+      SM.Sky.cloudShadowUniforms(now, real, [0.4, 0.8, 0.2], data, fade);
+      const n = SM.Sky.shadowLobeCount(now);
+      const w = 97, h = 97;
+      const img = SM.Sky.rasterShadow(data, fade, n, new Uint8Array(w * h), w, h);
+      const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+      let worst = 0, lit = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        let want = 0;
+        for (let k = 0; k < n; k++) {
+          const du = ((x + 0.5) / w - data[k * 4]) / data[k * 4 + 2];
+          const dv = ((y + 0.5) / h - data[k * 4 + 1]) / data[k * 4 + 3];
+          want = Math.max(want, fade[k] * (1 - ss(0.45, 1, Math.hypot(du, dv))));
+        }
+        worst = Math.max(worst, Math.abs(img[y * w + x] / 255 - want));
+        if (img[y * w + x]) lit++;
+      }
+      const empty = SM.Sky.rasterShadow(data, fade, 0, new Uint8Array(16).fill(9), 4, 4).every(v => v === 0);
+      results.push([`rasterised cloud shadow = the per-lobe ellipses at every texel (worst ${(worst * 255).toFixed(2)}/255, ${lit} texels shaded); no lobes -> no shadow`,
+        worst <= 1 / 255 + 1e-9 && lit > 0 && empty]);
+    }
     // Frame cost: the old renderer drew 16668 cloud triangles on a 192² map
     // and 96660 on 448² (interior faces included). Only the shell is emitted
     // now; the budget keeps the new, bigger clouds below the old count.
