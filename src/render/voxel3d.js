@@ -33,11 +33,16 @@
       Math.max(1, +screenWidth);
     var rightX = Math.sin(yawRad);
     var rightZ = -Math.cos(yawRad);
-    var downX = Math.cos(yawRad) * Math.sin(pitchRad);
-    var downZ = Math.sin(yawRad) * Math.sin(pitchRad);
+    // The ground plane is foreshortened by sin(pitch) on screen, so a vertical
+    // drag of one pixel is 1 / sin(pitch) world units along the ground. This
+    // used to MULTIPLY by sin(pitch): the terrain then moved sin²(pitch) of
+    // the cursor (45% at pitch 42). Pitch is clamped to 10..89, so the
+    // divisor never drops below 0.17.
+    var downX = Math.cos(yawRad) / Math.sin(pitchRad);
+    var downZ = Math.sin(yawRad) / Math.sin(pitchRad);
 
     /* Moving the target opposite the drag makes the terrain follow the cursor.
-     * Vertical screen motion uses the camera plane projected onto the XZ ground. */
+     * Vertical screen motion is un-projected from the camera plane to the ground. */
     return {
       x: -(deltaX * rightX + deltaY * downX) * worldPerPixel,
       z: -(deltaX * rightZ + deltaY * downZ) * worldPerPixel

@@ -294,6 +294,23 @@ function runMeshChecks() {
     // 315..360 is the last half sector of 0, not of 270 (the old clamp).
     SM.VoxelCamera.snapYaw(316) === 0 &&
     SM.VoxelCamera.snapYaw(359.9) === 0;
+  // Pan must keep the grabbed ground point under the cursor. Project the pan
+  // vector back onto the camera's screen axes (the same basis mat4LookAt
+  // builds): the target moves, so the terrain shifts by MINUS that on screen,
+  // and that shift has to equal the drag in pixels, at any yaw and pitch.
+  let panFollows = true;
+  for (const [yaw, pitch] of [[45, 42], [200, 15], [310, 80]]) {
+    const y = yaw * Math.PI / 180, p = pitch * Math.PI / 180;
+    const zoom = 80, screenW = 1000, wpp = 2 * zoom / screenW;
+    const right = [Math.sin(y), -Math.cos(y)];                       // screen +x on the ground
+    const down = [Math.cos(y) * Math.sin(p), Math.sin(y) * Math.sin(p)]; // screen +y on the ground
+    for (const [dx, dy] of [[30, 0], [0, 30], [-12, 25]]) {
+      const v = SM.VoxelCamera.panVector(yaw, pitch, zoom, screenW, dx, dy);
+      const shiftX = -(v.x * right[0] + v.z * right[1]) / wpp;
+      const shiftY = -(v.x * down[0] + v.z * down[1]) / wpp;
+      if (Math.abs(shiftX - dx) > 1e-6 || Math.abs(shiftY - dy) > 1e-6) panFollows = false;
+    }
+  }
   const clockWrap = SM.formatClock(6) === '06:00' &&
     SM.formatClock(26) === '02:00' &&
     SM.formatClock(29.5) === '05:30';
@@ -316,6 +333,7 @@ function runMeshChecks() {
     ['AO quad-flip helper', quadFlip],
     ['cell UV range and length', cellUV],
     ['camera yaw, pitch, and snap helpers', cameraHelpers],
+    ['shift-drag pan keeps the ground under the cursor', panFollows],
     ['clock display wraps after midnight', clockWrap],
     ['triangle count (Faz 1 baseline)', triangleCount]
   ].concat(shadowChecks);
