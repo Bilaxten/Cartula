@@ -1,5 +1,46 @@
 # DEVLOG
 
+## 2026-10-05 — Arayüz iki dilli: TR / EN
+
+**Ne yapıldı:** Uğur'un kararı — bilaxten.art'ta görünen her şey Türkçe ve
+İngilizce, sağ üstte küçük bir *TR / EN* ile. Cartula'nın paneli yalnız
+İngilizceydi. Şimdi tek bir sözlükten (`src/i18n.js`, 158 anahtar) iki
+dilde geliyor; panel başlığında sitedekiyle aynı görünüşte TR / EN
+(`ab8e83b`). Yeni `--i18n` harness'i (`8f41d15`) iki dili eşit tutuyor.
+
+**Neden bu yaklaşım:** Sitenin kendi sayfaları her metni iki `<span
+lang>` ile çift yazıyor; burada bu işlemezdi çünkü metnin yarısı JS'te
+kuruluyor (slider değer kelimeleri, istatistik, aşama metinleri, biyom
+adları). Bu yüzden anahtar sözlüğü: statik metin `data-i18n*` kancasıyla,
+dinamik metin `T(key)` ile. Dil değişince `apply` kancalıları, main.js'in
+dinleyicisi kendi yazdıklarını yeniden yazar — yalnız metin; `SM.generate`
+çağrılmaz, harita/kamera/fırça geçmişi yerinde kalır (CDP ile sayıldı: 0).
+İstatistik satırı eskiden bir İngilizce dizgeyi regex'le yamıyordu
+(`land \d+%`); artık sayılar saklanıp her dilde baştan kuruluyor.
+Seçim bilaxten.art'la ortak `bx-lang` anahtarında; ilk boyamadan önce
+`<html lang>` doğru, çünkü Türkçe büyük harf (`text-transform: uppercase`)
+`i`'yi `İ` yapıyor — grup başlıkları DÜNYA / İKLİM / BİYOMLAR olarak doğru,
+İngilizce modda `lang="en"` olduğundan PIPELINE bozulmuyor.
+
+**Dikkat çeken:** Türkçe metinler çoğu yerde daha uzun. İzometrik
+ipucu ekranın altında yaw denetimiyle aynı satırda; ilk çeviri 1280 px'te
+ona çarptı (ölçüldü: sağ kenar 657, denetim 654). "sürükle: döndür ·
+shift+sürükle: kaydır · tekerlek: yakınlaş · Q/E: 90°" ile 647'ye indi.
+İngilizce ipucu da daha dar pencerelerde aynı çarpışmayı yaşıyor (eskiden
+beri).
+
+**Doğrulama:** `checks.sh` temiz; `--i18n` önce kırmızı (silinmiş TR
+anahtarı, kancasız `<p>` ve `title`; eski İngilizce `index.html`'de ~95
+bulgu), sonra yeşil. Headless Edge (CDP), `tr` ve `en-US` tarayıcı dili,
+koyu + açık tema: konsol hatası yok, panelin dört kaydırma konumu iki dilde
+ekran görüntüsüyle bakıldı.
+
+**Açık:** gerçek tıklama ve telefon genişliği denenmedi; birkaç terim
+(Hillshade, AO, Seed…) `TODO.md`'de Uğur'un gözüne bırakıldı. Dışa
+aktarılan dosyalar bilerek İngilizce.
+
+**Sonraki adım:** gözden geçirme → `scripts/publish-site.sh`.
+
 ## 2026-10-05 — Yeniden adlandırma: StilizedMaps artık Cartula
 
 Proje adı StilizedMaps iken Cartula oldu (kod, belgeler, scriptler). Canlı demo https://bilaxten.art/cartula/ adresine taşınıyor. localStorage anahtarları (`sm-*`) değişmedi.

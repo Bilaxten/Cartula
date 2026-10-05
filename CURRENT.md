@@ -11,7 +11,41 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — derin kod incelemesi (2026-10-04/05, Claude Fable 5.1)
+## Bu oturum — arayüz Türkçe + İngilizce (2026-10-05, Claude Opus 5.5)
+
+Uğur'un kararı (2026-10-05): sitede görünen her şey TR + EN, sağ üstte küçük
+bir *TR / EN* ile değişir. Uygulama arayüzü yalnız İngilizceydi.
+
+1. **Sözlük + düğme** (`ab8e83b`): `src/i18n.js` (`SM.I18N`, `<head>`'de
+   yüklenir) — 158 anahtar, iki dil. `index.html` metinleri `data-i18n*`
+   kancalı; main.js'in yazdıkları `T(key)` ile (slider kelimeleri,
+   istatistik, ipuçları, aşama metinleri, biyom adları, kopyalama geri
+   bildirimi). Panel başlığında TR / EN (sitedeki görünüş, yalnız mevcut
+   renkler). Seçim `localStorage` `bx-lang` — bilaxten.art ile ortak.
+   Dil değişimi yalnız metni değiştirir; harita, kamera, fırça düzenlemesi,
+   adım adım aşaması yerinde kalır.
+2. **Kontrol** (`8f41d15`): `node tools/headless.js --i18n`, `checks.sh`'e
+   bağlı. Bir dilde eksik anahtar, kancasız görünür metin ya da main.js'te
+   DOM'a düz metin kırmızı. Kırmızı görüldü (TR anahtarı silindi + kancasız
+   `<p>` ve `title`), sonra yeşil.
+
+**Doğrulama:** `bash scripts/checks.sh` → `SONUÇ: temiz`. Headless Edge
+(CDP; `--lang=tr` ve `en-US`; 1440 ve 1280 genişlik; koyu + açık tema):
+konsol hatası yok; ilk dil tarayıcı dilinden geliyor, düğmeyle değişiyor,
+`bx-lang` yazılıyor, `<html lang>` güncelleniyor; değişimde `SM.generate`
+hiç çağrılmadı. Adım adım modunda ve fırça düzenlemesinden sonra
+(istatistik "· düzenlendi") dil değişimi denendi; hover kartı TR'de.
+Panelin dört kaydırma konumunda TR / EN ekran görüntüsüne bakıldı; büyük
+harfli başlıklar Türkçe doğru (DÜNYA, YÜKSELTİ, İKLİM, BİYOMLAR). TR iso
+ipucu 1280'de yaw denetimine çarpıyordu, kısaltıldı (7 px boşluk kaldı).
+
+**Kapsamadığı:** gerçek fare/klavye (düğmeler JS `click()` ile
+tetiklendi), dar/telefon genişliği, WebGL2'siz yol (`view.noWebgl`), GPU
+bağlamı kaybı ipucu, panoya kopyalama başarı metni (headless'ta pano
+reddedildi, "Kopyalanamadı" görüldü), Firefox/Safari. Yayınlanmadı:
+`scripts/publish-site.sh` koşulmadı (ana ajan gözden geçirip yayınlayacak).
+
+## Önceki oturum — derin kod incelemesi (2026-10-04/05, Claude Fable 5.1)
 
 Uğur'un istediği: depoyu derinlemesine kontrol et, doğrulanabileni düzelt.
 Yeni özellik yok. Dört düzeltme, hepsi `bash scripts/checks.sh` temizken:

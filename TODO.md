@@ -9,6 +9,15 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **TR / EN arayüzüne gözle bak (2026-10-05, `ab8e83b`):** headless'ta
+      doğrulandı, gerçek tıklamayla ve telefon genişliğinde denenmedi.
+      Emin olunmayan Türkçe terimler (`src/i18n.js`): *Kabartma gölgesi*
+      (Hillshade), *Ortam kapatma (AO)*, *Tohum* (Seed), *Kıyı bükümü* (Coast
+      warp), *Şekil ölçeği* (Feature scale), *Nehir yatağı düzeltme* (River
+      grading), *Kıyı şeridi ve değişmezler* (Riparian & invariants), iso
+      ipucundaki *tekerlek: yakınlaş* ve *Q/E: 90°* (kısa tutuldu: daha uzunu
+      1280 px'te yaw denetimine çarpıyordu). Her biri sözlükte tek satır.
+
 - [ ] **2026-10-05 gece düzeltmelerine gözle bak (Uğur yokken karar verildi;
       her biri tek commit, `git revert <hash>` yalnız onu geri alır):**
       - `1cd3abb` düşen gölge artık aydınlık yüzün TERS tarafına düşüyor
