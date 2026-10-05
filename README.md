@@ -167,8 +167,21 @@ istatistik, ipuçları, adım adım modunun aşama metinleri, biyom adları)
 `T(key)` ile gelir; `data-i18n-js` "bu metni main.js yazıyor",
 `translate="no"` "çevrilmez" (Cartula, TR / EN) demektir. Seçim
 bilaxten.art'ın geri kalanıyla ortak: `localStorage` anahtarı `bx-lang`
-(`tr` / `en`), kayıt yoksa tarayıcı dili `tr` ile başlıyorsa Türkçe.
-i18n.js `<head>`'de yüklenir, `<html lang>` ilk boyamadan önce doğrudur.
+(`tr` / `en`), kayıt yoksa İngilizce (2026-10-05'ten beri; önceden
+tarayıcı diline bakıyordu). i18n.js `<head>`'de yüklenir, `<html lang>` ilk
+boyamadan önce doğrudur. Dil değişince görünen metin bilaxten.art'taki gibi
+~0.65 sn'de soldan sağa yeniden "yazılır" (harf başına `span`, yalnız
+opaklık; sonra özgün metin düğümü geri konur, yerleşim kımıldamaz);
+performans paneli ve hover kartı hariç, `prefers-reduced-motion`'da anında.
+
+**Tema** (2026-10-05): kayıt yoksa koyu. Önce bilaxten.art'ın anahtarı
+`bx-theme` okunur (aynı köken), sonra Cartula'nın eski `sm-theme`'i;
+değişince ikisi de yazılır, site ile demo aynı temada açılır. Geçişte
+arayüz renkleri 0.6 sn'de yumuşar (`html.theme-fade`), güneş/ay ikonu
+sitedeki gibi birbirine döner, sahne arka planı iki katman olarak çapraz
+geçer ve WebGL'in temizleme rengi aynı sürede ara renklerden geçer.
+Çerçeve çizme animasyonu (sitedeki `html.redraw`) Cartula'da yok: buradaki
+düğmeler köşe çerçevesi stilini kullanmıyor.
 Dışa aktarılan dosyalar (PNG, Unity .zip, `map.json`, `README.txt`) veri
 sayılır, İngilizce kalır; `biome.js` ve `PIPELINE_STAGES`'teki `label` /
 `desc` İngilizce kaynak olarak durur. Doğrulama: `node tools/headless.js

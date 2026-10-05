@@ -22,7 +22,8 @@
   /* Map background (#stage) and its overlays. Keyed on data-stage, NOT
    * data-theme: it follows the theme by default but the background button
    * can pin it either way. Light = the original daylight-sky gradient. */
-  --stage-bg: linear-gradient(180deg, #cfe9f5 0%, #e6f3f8 55%, #f1eee7 100%);
+  --stage-bg-light: linear-gradient(180deg, #cfe9f5 0%, #e6f3f8 55%, #f1eee7 100%);
+  --stage-bg-dark: radial-gradient(130% 130% at 50% 0%, #1c222c 0%, #11151c 72%);
   --stage-hint: #7d756a;
   --chip-bg: rgba(255, 255, 255, 0.82);
   --chip-edge: rgba(120, 108, 90, 0.26);
@@ -32,7 +33,6 @@
   --chip-btn-edge: rgba(120, 108, 90, 0.3);
 }
 :root[data-stage="dark"] {
-  --stage-bg: radial-gradient(130% 130% at 50% 0%, #1c222c 0%, #11151c 72%);
   --stage-hint: #9a9284;
   --chip-bg: rgba(17, 21, 28, 0.76);
   --chip-edge: rgba(211, 201, 179, 0.24);
@@ -139,9 +139,37 @@ body {
 }
 #panel .lang-switch button:hover { background: none; color: var(--accent); }
 #panel .lang-switch button[aria-pressed="true"] { color: var(--text); }
-#themeToggle .moon { display: none; }
-:root[data-theme="dark"] #themeToggle .sun { display: none; }
-:root[data-theme="dark"] #themeToggle .moon { display: block; }
+/* Sun and moon share one cell and turn into each other, as on bilaxten.art
+ * (same 0.9 s rotate + scale, 0.5 s fade). */
+#themeToggle svg { grid-area: 1 / 1; transition: transform 0.9s cubic-bezier(0.6, 0, 0.3, 1), opacity 0.5s ease; }
+#themeToggle .moon { opacity: 0; transform: rotate(-120deg) scale(0.3); }
+:root[data-theme="dark"] #themeToggle .sun { opacity: 0; transform: rotate(120deg) scale(0.3); }
+:root[data-theme="dark"] #themeToggle .moon { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { #themeToggle svg { transition: none; } }
+
+/* Theme switch: UI colours ease over 0.6 s like bilaxten.art. Only while
+ * html.theme-fade is set (main.js, ~0.7 s), so hover and focus keep their
+ * own quick transitions the rest of the time. */
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-fade body,
+  html.theme-fade body *,
+  html.theme-fade body *::before,
+  html.theme-fade body *::after {
+    transition: background-color 0.6s ease, color 0.6s ease, border-color 0.6s ease,
+      box-shadow 0.6s ease, fill 0.6s ease, stroke 0.6s ease !important;
+  }
+  html.theme-fade #themeToggle svg {
+    transition: transform 0.9s cubic-bezier(0.6, 0, 0.3, 1), opacity 0.5s ease !important;
+  }
+  /* The stage's two background layers crossfade by opacity (see #stage). */
+  html.theme-fade #stage::before,
+  html.theme-fade #stage::after { transition: opacity 0.6s ease !important; }
+}
+
+/* Language switch: characters of the new language appear left to right
+ * (src/i18n.js typeIn), opacity only, so nothing moves. */
+.typing > span { opacity: 0; animation: type-in 0.14s ease-out forwards; }
+@keyframes type-in { from { opacity: 0; } to { opacity: 1; } }
 #brand h1 {
   margin: 0;
   font-size: 15px;
@@ -429,7 +457,26 @@ details.group .body { padding: 2px 18px 18px; }
   flex: 1;
   overflow: hidden;
   cursor: grab;
-  background: var(--stage-bg);
+  /* The two backgrounds are stacked layers, so a switch crossfades them
+   * (a gradient cannot transition). isolation keeps the z-index -1 layers
+   * inside the stage, under the canvases. */
+  isolation: isolate;
+}
+#stage::before,
+#stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+}
+#stage::before { background: var(--stage-bg-light); }
+#stage::after { background: var(--stage-bg-dark); }
+:root[data-stage="light"] #stage::before,
+:root[data-stage="dark"] #stage::after { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  #stage::before, #stage::after { transition: opacity 0.6s ease; }
 }
 #stage.dragging { cursor: grabbing; }
 #stage.editing { cursor: crosshair; }

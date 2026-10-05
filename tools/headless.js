@@ -1915,6 +1915,28 @@ function runI18nChecks() {
       btns === 2 ? '' : `data-set-lang buttons: ${btns}`);
   }
 
+  // 5) Theme + language behave like bilaxten.art (Uğur 2026-10-05): with no
+  //    saved choice English and dark; `bx-theme` (the main site's key) read
+  //    before Cartula's `sm-theme`, both written on a switch; the re-type
+  //    restores detached-safe and is skipped with reduced motion.
+  {
+    const i18nSrc = fs.readFileSync(path.join(root, 'i18n.js'), 'utf8');
+    const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    const head = html.slice(0, html.indexOf('</head>'));
+    const bxFirst = head.indexOf("getItem('bx-theme')"), smAfter = head.indexOf("getItem('sm-theme')");
+    push('defaults: English with no saved language (no browser-language guess), dark with no saved theme',
+      /var lang = readSaved\(\) \|\| 'en';/.test(i18nSrc) && !/navigator\.language/.test(i18nSrc) &&
+      /if \(t !== 'dark' && t !== 'light'\) t = 'dark';/.test(head) && !/prefers-color-scheme/.test(head),
+      '');
+    push('theme: bx-theme read before sm-theme; a switch writes both keys',
+      bxFirst > 0 && smAfter > bxFirst &&
+      /setItem\('bx-theme', next\);\s*localStorage\.setItem\('sm-theme', next\);/.test(mainJs), '');
+    push('re-type: restores only attached wraps, finishes before apply(), off with reduced motion',
+      /if \(w\.wrap\.parentNode\) w\.wrap\.parentNode\.replaceChild\(w\.node, w\.wrap\);/.test(i18nSrc) &&
+      /finishTyping\(\);\s*lang = next;\s*markRoot\(\);\s*apply\(document\);/.test(i18nSrc) &&
+      /prefers-reduced-motion: reduce/.test(i18nSrc), '');
+  }
+
   console.log('UI language checks (tr / en):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);

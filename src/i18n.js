@@ -436,12 +436,8 @@
     } catch (e) { return null; }
   }
 
-  function browserLang() {
-    var nav = typeof navigator !== 'undefined' ? (navigator.language || '') : '';
-    return /^tr\b/i.test(nav) ? 'tr' : 'en';
-  }
-
-  var lang = readSaved() || browserLang();
+  // No saved choice: English (Uğur 2026-10-05), whatever the browser says.
+  var lang = readSaved() || 'en';
   var listeners = [];
 
   // Missing in the active language -> English -> the key itself, so a gap
@@ -495,14 +491,83 @@
     }
   }
 
+  /* Re-typing on a language switch, as on bilaxten.art: every visible text
+   * node on screen is split into one span per character and the characters
+   * fade in left to right over TYPE_MS; then the original text node is put
+   * back. Opacity only, so layout does not move. Text that main.js rewrites
+   * while it runs simply replaces the spans (restoring skips detached ones);
+   * the performance panel and the hover card are left out because they
+   * repaint on their own. Instant with prefers-reduced-motion. */
+  var TYPE_MS = 650;
+  var typing = [];
+  var typingTimer = 0;
+
+  function finishTyping() {
+    clearTimeout(typingTimer);
+    typing.forEach(function (w) {
+      if (w.wrap.parentNode) w.wrap.parentNode.replaceChild(w.node, w.wrap);
+    });
+    typing = [];
+  }
+
+  function typeIn() {
+    var vh;
+    var walker;
+    var nodes = [];
+    var total = 0;
+    var step;
+    var i = 0;
+    var n;
+
+    finishTyping();
+    if (typeof document === 'undefined' || !document.createTreeWalker) return;
+    if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    vh = window.innerHeight;
+    walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (t) {
+        var el = t.parentElement;
+        var r;
+        if (!t.nodeValue.trim() || !el) return NodeFilter.FILTER_REJECT;
+        if (el.closest('script, style, option, select, [aria-hidden="true"], #perfPanel, #hover')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        r = el.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom < 0 || r.top > vh) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    while ((n = walker.nextNode())) nodes.push(n);
+    nodes.forEach(function (t) { total += t.nodeValue.length; });
+    if (!total) return;
+    step = TYPE_MS / Math.max(total, 40);
+    nodes.forEach(function (t) {
+      var wrap = document.createElement('span');
+      var text = t.nodeValue;
+      wrap.className = 'typing';
+      for (var k = 0; k < text.length; k++) {
+        var c = document.createElement('span');
+        c.textContent = text[k];
+        c.style.animationDelay = Math.round(i * step) + 'ms';
+        wrap.appendChild(c);
+        i++;
+      }
+      t.parentNode.replaceChild(wrap, t);
+      typing.push({ node: t, wrap: wrap });
+    });
+    typingTimer = setTimeout(finishTyping, TYPE_MS + 260);
+  }
+
   function setLang(next) {
     if (next !== 'tr' && next !== 'en') return;
     try { localStorage.setItem(STORAGE_KEY, next); } catch (e) {}
     if (next === lang) return;
+    // Put any running re-type back first: apply() writes into text nodes.
+    finishTyping();
     lang = next;
     markRoot();
     apply(document);
     for (var i = 0; i < listeners.length; i++) listeners[i](lang);
+    typeIn();
   }
 
   markRoot();

@@ -1280,16 +1280,56 @@
   // dark = the old night blue, light = the middle of the daylight gradient.
   var STAGE_CLEAR = { dark: [0.055, 0.075, 0.11], light: [0.87, 0.93, 0.95] };
 
-  function applyStageClear() {
+  // The clear colour the renderer has now, and a running crossfade.
+  var stageClearNow = null;
+  var stageFade = 0;
+
+  /* `animate`: crossfade over 0.6 s (the CSS stage layers take the same
+   * time), one cheap re-render per frame; instant otherwise or with
+   * prefers-reduced-motion. */
+  function applyStageClear(animate) {
     if (!voxelRenderer) return;
     var c = STAGE_CLEAR[document.documentElement.getAttribute('data-stage')] || STAGE_CLEAR.dark;
-    voxelRenderer.setClearColor(c[0], c[1], c[2], 1);
+    var from = stageClearNow || c;
+    var t0 = 0;
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (stageFade) { cancelAnimationFrame(stageFade); stageFade = 0; }
+    if (!animate || reduce || !stageClearNow) {
+      stageClearNow = c.slice();
+      voxelRenderer.setClearColor(c[0], c[1], c[2], 1);
+      return;
+    }
+    from = from.slice();
+    stageFade = requestAnimationFrame(function step(now) {
+      var k;
+      var e;
+      if (!t0) t0 = now;
+      k = Math.min(1, (now - t0) / 600);
+      e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;   // ease in-out
+      stageClearNow = [0, 1, 2].map(function (j) { return from[j] + (c[j] - from[j]) * e; });
+      if (voxelRenderer) {
+        voxelRenderer.setClearColor(stageClearNow[0], stageClearNow[1], stageClearNow[2], 1);
+        requestVoxelRender();
+      }
+      stageFade = k < 1 ? requestAnimationFrame(step) : 0;
+    });
   }
 
-  function applyStage(mode) {
+  function applyStage(mode, animate) {
     document.documentElement.setAttribute('data-stage', mode === 'light' ? 'light' : 'dark');
-    applyStageClear();
+    applyStageClear(animate);
     if (voxelRenderer) requestVoxelRender();
+  }
+
+  // Theme switch: html.theme-fade turns on the 0.6 s colour transitions in
+  // the CSS for a moment (they are off otherwise, so hover stays quick).
+  var themeFadeTimer = 0;
+  function fadeTheme() {
+    var root = document.documentElement;
+    root.classList.add('theme-fade');
+    clearTimeout(themeFadeTimer);
+    themeFadeTimer = setTimeout(function () { root.classList.remove('theme-fade'); }, 700);
   }
 
   // `mscale` (Moisture scale) was removed from the panel 2026-09-23 -- the
@@ -1650,12 +1690,18 @@
   $('themeToggle').addEventListener('click', function () {
     var root = document.documentElement;
     var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    fadeTheme();
     root.setAttribute('data-theme', next);
-    try { localStorage.setItem('sm-theme', next); } catch (e) {}
+    // Both keys: bilaxten.art reads `bx-theme` (same origin), so the site and
+    // the demo agree; `sm-theme` keeps older Cartula builds in step.
+    try {
+      localStorage.setItem('bx-theme', next);
+      localStorage.setItem('sm-theme', next);
+    } catch (e) {}
     // An unpinned map background follows the theme.
     var pinned = null;
     try { pinned = localStorage.getItem('sm-stage'); } catch (e) {}
-    if (pinned !== 'dark' && pinned !== 'light') applyStage(next);
+    if (pinned !== 'dark' && pinned !== 'light') applyStage(next, true);
   });
   // Map background, independent of the theme. Picking the value the theme
   // would give anyway unpins it, so it follows the theme again from then on.
@@ -1666,7 +1712,7 @@
       if (next === root.getAttribute('data-theme')) localStorage.removeItem('sm-stage');
       else localStorage.setItem('sm-stage', next);
     } catch (e) {}
-    applyStage(next);
+    applyStage(next, true);
   });
   // Render debug views live in the voxel shader; top-down has no lighting
   // terms to isolate, so the control only acts in the isometric view.

@@ -6,13 +6,16 @@
 <title data-i18n="app.title">Cartula</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>
-  // Theme before first paint (no light flash): saved choice, else the OS.
+  // Theme before first paint (no light flash), as on bilaxten.art: the main
+  // site's saved choice (`bx-theme`, same origin) first, then Cartula's own
+  // older key, else dark (Uğur 2026-10-05). main.js writes both on a switch.
   (function () {
     var t = null;
-    try { t = localStorage.getItem('sm-theme'); } catch (e) {}
-    if (t !== 'dark' && t !== 'light') {
-      t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
+    try {
+      t = localStorage.getItem('bx-theme');
+      if (t !== 'dark' && t !== 'light') t = localStorage.getItem('sm-theme');
+    } catch (e) {}
+    if (t !== 'dark' && t !== 'light') t = 'dark';
     document.documentElement.setAttribute('data-theme', t);
     // Map background (#stage) follows the theme unless the user pinned one
     // with the background button; see applyStage in src/main.js.
