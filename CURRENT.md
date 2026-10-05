@@ -11,7 +11,72 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — ölçüm paneli + yedi görsel iş (2026-10-05)
+## Bu oturum — telefon: düzen, dokunmatik zoom, ☰ panel (2026-10-05)
+
+Uğur'un isteği (telefonda canlı siteye baktı): *"cartula mobilde hem kötü
+gözüküyor hem de zoom kötü çalışıyor … 3 çizgi şeklinde yan paneli
+küçültebilelim. küçültünce 3 çizgi butonu yarı saydam … aynı yerinde boyutu
+da sabit kalsın"*; sonradan: kapalıyken ☰ sitenin turuncusu (`--accent`).
+Üç commit, hepsi push'landı:
+
+1. **☰ panel** (`7b76615`): tek düğme iki durumda, panelin sol üst köşesinde
+   sabit (`position: fixed`). Açıkken başlıkta sıradan ikon düğmesi; kapalıyken
+   `--accent` 0.55 opak, hover/odak/dokunuşta 1. Harita zoom/pan'ı onu
+   etkilemez; telefonda sayfa iki parmakla büyütülürse `visualViewport` ile
+   geri ölçeklenir. İlk durum boyamadan önce (`<html data-panel>`):
+   `sm-panel` kayıtlıysa o, yoksa telefonda kapalı, masaüstünde açık. Panel
+   kayarken `ResizeObserver` haritanın merkezini ve ekrandaki ölçeğini korur,
+   WebGL karesini aynı karede yeniden boyutlayıp çizer. Başlık grid oldu
+   (☰ sütunu + slogan alt satırda), yüksekliği eskisiyle aynı (88.75 px).
+2. **Telefon düzeni** (`e5c1fc4`): kompakt ekranda
+   (`(max-width: 700px), (max-height: 500px)`) harita tam ekran, panel üstüne
+   açılan çekmece; karartılmış haritaya dokunmak ya da Esc kapatır. Kontroller
+   ≥ 44 px, giriş alanı 16 px yazı, `safe-area`, `100dvh`; yatayda çekmece
+   tek parça kayar.
+3. **Dokunmatik gezinme** (`bb2caae`): tek parmak = fare sürüklemesi; iki
+   parmak = kaydır + parmakların ortasına yakınlaş (`src/touch.js`); parmak
+   ekleme/kaldırmada sıçrama yok; `#stage` `touch-action: none` (panelde
+   sayfa zoom'u açık kaldı).
+
+**Ölçüm (önce):** 390×844 telefonda harita 78 px (360×740'ta 48 px), panel
+312 px; açı çipi 36 px'e ezilip sağdan taşıyordu; görünür 20-22 kontrol
+44 px altı. Dokunmatik (CDP, 844×390 yatay): tek parmak sürükleme hiçbir şey
+yapmadı (yaw 035° kaldı), haritada kıstırma bütün sayfayı ×1.94 (iso) /
+×5 (üstten) büyüttü, kamera hiç değişmedi.
+**Ölçüm (sonra):** üç telefon boyutunda harita tam genişlik, yatay taşma yok,
+görünür 44 px altı kontrol 0; telefon kapalı başlıyor, masaüstü açık.
+CDP dokunmatik: kıstırmada parmak altındaki dünya noktası 1e-5 içinde sabit
+(iso ve üstten), iki parmak kaydırma tam piksel, ikinci parmak inince / ilk
+kalkınca kamera aynı, kalan parmak kaydırıyor (döndürmüyor), sayfa ölçeği
+hep 1, ☰ hep (12,12) 44 px; sayfa ölçeği 2.5'e zorlanınca da ☰ ekranda
+aynı. Çip slider'ı dokunarak çalışıyor; üstten görünümde dokunuş tile
+kartını gösteriyor; kıstırmaya dönüşen fırça darbesi geri alınıyor.
+Masaüstü 1376×808: başlık dışında piksel farkı yok (üstten görünüm sahnesi
+0 piksel; iso'daki fark dalga fazı, eski sürüm kendisiyle de aynı farkı
+veriyor). `--layout` yeni harness: panel, kompakt düzen, dokunmatik
+matematiği (200 rastgele hareket, bağımsız ortografik izdüşüm); her kontrol
+bilerek bozulup kırmızı görüldü.
+
+**Uğur'a sorulacak kararlar (yaptım — öyle mi kalsın?):**
+- Telefon eşiği genişlik ≤ 700 px **ya da** yükseklik ≤ 500 px; yani alçak
+  bir masaüstü penceresi de çekmece düzenine geçer.
+- Kapalı ☰ masaüstünde 34 px, telefonda 44 px; konumu panelin sol üst köşesi.
+- Kıstırmadan bir parmak kalkınca kalan parmak **kaydırır** (döndürmez).
+- Telefonda çekmece açıkken haritanın yanı hafif karartılıyor (mevcut
+  `--card-shadow` tonu, yeni renk yok).
+- Esc yalnız telefonda paneli kapatır; masaüstündeki sabit panel açılır
+  pencere sayılmadı.
+
+**Kapsamadığı:** gerçek telefon (yalnız Edge cihaz öykünmesi + CDP dokunmatik
+olayları), iOS Safari (`gesturestart`, `touch-action`, `visualViewport`,
+`100dvh` davranışı orada denenmedi), görsel viewport'un zoom'lu **kaydırılması**
+(ölçek telafisi ölçüldü, ofset kısmı CDP ile üretilemedi), gerçek GPU'da panel
+kayarken kare akıcılığı (SwiftShader'da kareler ~0.4 sn). Bir koşuda sayfa
+başlangıçta bir kez `$(SLIDERS[id].label)` null hatası verdi; aynı sıra 3+
+kez tekrarlandı, yeniden üretilemedi — gözünüz olsun. Yayınlanmadı:
+`publish-site.sh` koşulmadı.
+
+## Önceki oturum — ölçüm paneli + yedi görsel iş (2026-10-05)
 
 Uğur'un onayladığı liste (2026-10-05), her biri tek commit, hepsi
 push'landı. Sıra bilinçli: önce ölçüm aracı, her sonraki işin bedeli onunla.

@@ -9,6 +9,15 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-05 telefonda gerçek cihazda bak** (`7b76615` ☰ panel,
+      `e5c1fc4` telefon düzeni, `bb2caae` dokunmatik). Edge öykünmesi + CDP
+      dokunmatikle ölçüldü; gerçek telefon ve iOS Safari denenmedi. **Bak:**
+      telefonda aç → harita tam ekran, ☰ sol üstte yarı saydam turuncu;
+      tek parmak döndürür, iki parmak kaydırır + yakınlaştırır, sayfa
+      büyümez; ☰ → çekmece, yanına dokun ya da geri → kapanır. iPhone'da
+      çentik/ev çubuğu boşlukları ve adres çubuğu (100dvh) özellikle.
+      Masaüstünde ☰ ile panel kapanıp açılırken harita ortada kalıyor mu.
+
 - [ ] **2026-10-05 sekiz isteğe gözle bak** (her biri tek commit, `git revert
       <hash>` yalnız onu geri alır). Headless Edge'de (SwiftShader) bakıldı;
       gerçek GPU, telefon, Firefox/Safari denenmedi; animasyon yalnız sabit

@@ -1,5 +1,44 @@
 # DEVLOG
 
+## 2026-10-05 — Telefon: harita önce, iki parmak zoom, ☰ panel
+
+**Ne yapıldı:** Uğur telefonda canlı siteye baktı: kötü görünüyor, zoom
+kötü çalışıyor, panel küçülebilsin. Üç commit: ☰ ile küçülen panel
+(`7b76615`), telefon düzeni (`e5c1fc4`), dokunmatik gezinme (`bb2caae`).
+
+**Neden bu yaklaşım:** Önce ölçüldü (headless Edge, cihaz öykünmesi, CDP
+dokunmatik olayları). Sorun "kötü görünüm" değil yokluktu: hiç telefon
+düzeni yoktu, 312 px panel 390 px ekranda haritaya 78 px bırakıyordu; hiç
+dokunmatik dinleyici yoktu, iki parmak haritayı değil sayfayı büyütüyordu.
+Panel telefonda çekmeceye döndü, harita tam ekran oldu; `#stage`'e
+`touch-action: none` verilip pointer olayları bağlandı, ama panelde sayfa
+zoom'u erişilebilirlik için bırakıldı. ☰ düğmesi tek eleman ve hep aynı
+yerde (`position: fixed`), çünkü "yerinde ve boyutu sabit" istendi; sayfa
+zoom'u bile onu büyütmesin diye `visualViewport` ile geri ölçekleniyor.
+Kıstırma matematiği DOM'suz bir dosyada (`src/touch.js`): iki parmağın
+ortası ve aralığı karelere bölünür, her kare arasında parmak altındaki nokta
+parmak altında tutulur. İzometrik kamera ortografik ve `zoom` yarı genişlik;
+çözüm mevcut `panVector`'dan geçiyor, doğrulaması ise ondan bağımsız bir
+izdüşümle yapılıyor ki ikisinde aynı işaret hatası birbirini örtmesin.
+
+**Dikkat çeken:** Panel kayarken WebGL tuvalinin boyutu her karede
+değişiyor; tuvali yeniden boyutlamak onu siler, çizim bir sonraki kareye
+kalırsa bir boş kare görünür. Bu yüzden yeniden boyutlama ve çizim
+`ResizeObserver` içinde, düzen ile boyama arasında. Masaüstünün aynı
+kaldığını göstermek için piksel farkı alındı: başlıktaki ☰ sütunu başlığı
+0.25 px kısaltmıştı ve altındaki her şey alt piksele kayıyordu (yalnız
+dönmüş ok işareti farklı çıktı); yükseklik 88.75 px'e sabitlendi.
+CDP'de bir tuzak: `touchEnd` yalnız listelediği parmağı kaldırır, bir
+`touchMove`'dan parmak çıkarmak onu kaldırmaz.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → temiz; yeni
+`--layout` harness'i (panel, kompakt düzen, 200 rastgele kıstırma), her
+kontrol bilerek bozulup kırmızı görüldü. Önce/sonra ekran görüntüleri ve
+CDP dokunmatik kayıtları 390×844, 360×740, 844×390, 1376×808.
+
+**Açık:** gerçek telefon ve iOS Safari; zoom'lu sayfada görsel viewport
+kaydırması; gerçek GPU'da kayma akıcılığı.
+
 ## 2026-10-05 — Ölç, sonra ekle: performans paneli, gece ışıkları, köpük, rüzgâr, hava, araziye uyan dalga
 
 **Ne yapıldı:** Önce ölçüm aracı, sonra yedi görsel/davranış işi, her biri
