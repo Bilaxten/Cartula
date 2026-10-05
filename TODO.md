@@ -9,6 +9,14 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-05 dört isteğe gözle bak (`b7fd80e`, `8c0c60b`, `527f137`,
+      `e456dcf`):** headless'ta CDP girdi olaylarıyla doğrulandı; gerçek
+      klavye/fare ve gerçek GPU'da denenmedi. **Bak:** Isometric, seed 1337:
+      Boşluk basılı tutup sürükle (el imleci, harita kayar, sayfa kaymaz);
+      sonra çipteki ortala düğmesi. Bulutlar akarken birbirinden farklı mı,
+      gölgeleri şekillerine uyuyor mu; birkaç seed dene. Türkçe ipucunda
+      *boşluk* (Space) kelimesi yerinde mi?
+
 - [ ] **TR / EN arayüzüne gözle bak (2026-10-05, `ab8e83b`):** headless'ta
       doğrulandı, gerçek tıklamayla ve telefon genişliğinde denenmedi.
       Emin olunmayan Türkçe terimler (`src/i18n.js`): *Kabartma gölgesi*

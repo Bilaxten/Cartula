@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-10-05 — Unity kapalı, Boşluk+sürükle, ortala, çeşitli bulutlar
+
+**Ne yapıldı:** Uğur'un dört isteği, dört commit. Unity export düğmesi
+şimdilik gizli, kod ve testi yerinde (`b7fd80e`). Boşluk basılıyken
+sürükleme iki görünümde de kaydırıyor (`8c0c60b`). Açı çipine "ortala"
+düğmesi (`527f137`). Bulutlar artık birbirine benzemiyor ve gölgeleri
+kendi şekillerinde (`e456dcf`).
+
+**Neden bu yaklaşım:** Unity'yi silmek yerine bayrak: geri gelmesi tek
+satır, `--export` bağın kopmadığını da denetliyor. Boşluk için global
+dinleyici, ama metin alanı ve select'e dokunmadan; düğmenin tıklaması
+keyup'ta tetiklendiği için keydown ile birlikte keyup da engelleniyor.
+Ortala yeni bir kadraj hesaplamıyor, yeni haritanın kullandığı
+`fitCamera`'yı çağırıyor — gökyüzü dahil, her açıda geçerli olan çerçeve;
+açı korunuyor. Bulutlar için en ucuz ama en çok fark yaratan şey
+çeşitliliği tesadüfe bırakmamak oldu: boyut ve yükseklik tabakalı
+dağıtılıyor, yani her gökyüzü küçük ve büyük bulutu birlikte taşıyor.
+Şekil, bulutu 1-3 elipsoit lobun birleşimi yapmaktan geliyor; aynı loblar
+gölgeye de veriliyor (lob başına bir elips), böylece gövde ve gölge tek
+kaynaktan. Bedeli lob döngüsü (6 yerine en çok 18 adım); buna karşılık
+mesh'ten iç yüzler atıldı ve bulut üçgeni üçte bire indi.
+
+**Dikkat çeken:** Eski bulut seed'i her haritada sabit 1337'ydi — "bulutlar
+benziyor" kısmen buydu: farklı haritalar aynı gökyüzünü taşıyordu. İkinci
+sebep hash'ti: `seed ^ salt` üstüne çıplak LCG, ardışık tuzlar ilişkili
+değerler veriyordu. Bulutlar büyüyünce eski solma aralığı (iki yarıçap
+öteye) haritanın yanında gri bir hayalet bıraktı; ekran görüntüsünde
+görüldü, solma bulutun kendi erimine indirildi.
+
+**Doğrulama:** `checks.sh` temiz; `--sky` yeni kontroller (8 seed: hacim,
+şekil, kalınlık, yükseklik çeşitliliği; seed başına farklı gökyüzü; gölge
+ve gövde aynı şekil; tavan; iç yüz yok; üçgen bütçesi). Headless Edge'de
+CDP girdi olaylarıyla etkileşim ve ekran görüntüleri.
+
+**Açık:** gerçek GPU ve gerçek klavye; bulutların akarken hissi.
+
 ## 2026-10-05 — Su dalgası: siyah yarıklar kapandı, dalga okunur oldu
 
 **Ne yapıldı:** Uğur iso görünümde suyun yalıyar dibinde inip çıktığını

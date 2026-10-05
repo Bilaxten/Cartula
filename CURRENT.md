@@ -11,7 +11,57 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — su dalgasında kara şeritler + daha okunur dalga (2026-10-05, Claude Opus 5.5)
+## Bu oturum — Unity kapalı, Boşluk+sürükle, ortala düğmesi, çeşitli bulutlar (2026-10-05, Claude Opus 5.5)
+
+Uğur'un dört isteği (2026-10-05), her biri tek commit:
+
+1. **Unity export şimdilik kapalı** (`b7fd80e`): düğme satırı `index.html`'de
+   duruyor ama `hidden`; `main.js` onu yalnız `UNITY_EXPORT_ENABLED = true`
+   iken gösterip bağlar (bugün `false`). `src/export.js`, `exportUnity()` ve
+   `--export` dokunulmadı. `--export`'a yeni kontrol: gizli satır + bayrağa
+   bağlı bağlama hâlâ yerinde (satırın `hidden`'ı bayrak kapalıyken
+   kaldırılınca kırmızı görüldü). README/AGENTS/TODO "şimdilik kapalı" diyor.
+   Neden kapalı: Uğur'un isteği; gerekçesini söylemedi (ayrıca Unity'de hiç
+   denenmemişti — bu bir gözlem, onun gerekçesi diye yazılmadı).
+2. **Boşluk+sürükle = kaydır** (`8c0c60b`): iki görünümde, üstten görünümde
+   fırça seçiliyken bile. Boşluk basılıyken imleç grab/grabbing
+   (`#stage.space-pan`), fırça imleci gizli. Metin/sayı alanı ve select
+   dışında Boşluk yutulur: keydown + keyup `preventDefault` (sayfa/panel
+   kaymaz, odaktaki düğme/kutucuk/summary basılmaz); pencere `blur` modu
+   bırakır. Shift+sürükle aynen. İpuçları iki dilde güncellendi.
+3. **Ortala düğmesi** (`527f137`): açı çipinde slider'ın solunda, yalnız
+   ikon; `renderer.fitCamera` (yeni haritanın aldığı kadraj) ile pan + zoom
+   sıfırlanır, yaw ve pitch korunur. Çip 260 → 292 px; iso ipucu çipe
+   varmadan yalnız `·`'da kırılıyor (`\u00a0`'lı parçalar).
+4. **Bulutlar çeşitli** (`e456dcf`): gökyüzü haritanın seed'inden
+   (`mesh.seed`; eskiden her haritada sabit 1337). 4-6 bulut, boyut ve
+   yükseklik tabakalı; her bulut 1-3 lob, 1-2.1 kat uzun, 1-3 katman. Gölge
+   lob başına elips (`uCloudLobes[18]`) — şekil gövdeyle aynı. Mesh yalnız
+   dış kabuk: 192²'de 16 668 → ~5 500 üçgen. Solma bulutun kendi erimine
+   indi (uzun bulutlar harita yanında gri hayalet bırakıyordu).
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → `SONUÇ: temiz`
+(baseline değişmedi; `--mesh` üçgen tabanı aynı, bulut üçgeni ayrı).
+`--sky` yeni kontroller 8 seed'de yeşil. Headless Edge (CDP, SwiftShader,
+`?seed=1337`, gerçek `Input.dispatchKeyEvent`/`dispatchMouseEvent`):
+Unity düğmesi görünmüyor; Boşluk+sürükle iso'da hedefi kaydırıyor
+(yaw/pitch/zoom sabit), üstten görünümde Raise seçiliyken haritayı tam
+sürükleme kadar taşıyor ve boyamıyor; düz sürükle hâlâ döndürüyor/boyuyor,
+Shift+sürükle hâlâ kaydırıyor; odaktaki Yeniden üret / kutucuk / summary
+Boşlukla basılmıyor, panel kaymıyor, seed alanı ve select'te Boşluk pan
+modunu açmıyor. Ortala: pan + zoom + orbit sonrası tık → hedef ve zoom ilk
+kadrajla birebir, yaw/pitch aynı (EN 1400, TR 1280). Bulut: eski/yeni
+ekran görüntüsü (iso + tepeden), gölge-maskesi (gökyüzü kapalı taban ile
+fark) gövde çizgisini izliyor. SwiftShader'da kare süresi gürültü içinde
+(gökyüzü açık eski 71-84 ms, yeni 78-93 ms; kapalı aynı).
+
+**Kapsamadığı:** gerçek GPU (yalnız SwiftShader), gerçek klavye/fare
+(CDP girdi olayları tarayıcının girdi hattından geçiyor ama fiziksel değil),
+bulutların akarken gözle hissi (sabit kareler), telefon genişliği,
+Firefox/Safari, Türkçe ipucundaki *boşluk* kelimesi (TODO). Yayınlanmadı:
+`publish-site.sh` koşulmadı.
+
+## Önceki oturum — su dalgasında kara şeritler + daha okunur dalga (2026-10-05, Claude Opus 5.5)
 
 Uğur'un raporu (ekran görüntüsüyle): iso görünümde su, kara sütununa
 (yalıyar) değdiği yerde dalgayla inip çıkıyor; inince aradaki boşluk siyah.
