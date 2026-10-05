@@ -87,7 +87,7 @@ Bu projede test koşucusu yok. Üç katman var ve **üçü aynı şey değil**:
 | Katman | Komut | Ne yakalar |
 |---|---|---|
 | Sözdizimi + hijyen | `scripts/checks.sh` | Kırık JS, `index.html`'de ölü `<script src>`, namespace ihlali, commit'te CRLF — ve aşağıdaki harness'lerin hepsini koşturur |
-| Üretim hattı | `node tools/headless.js --geo` / `--sweep` / `--mesh` / `--edit` / `--river` / `--falls` / `--sky` / `--export` / `--worldtypes` / `--shaders` | Coğrafi vaatler, determinism, kule, mesh bütünlüğü, fırça türetimi, export. Bayraksız `node tools/headless.js` yalnız bir haritanın özetini JSON basar, hiçbir şeyi sınamaz |
+| Üretim hattı | `node tools/headless.js --geo` / `--sweep` / `--mesh` / `--edit` / `--river` / `--falls` / `--sky` / `--export` / `--worldtypes` / `--i18n` / `--shaders` | Coğrafi vaatler, determinism, kule, mesh bütünlüğü, fırça türetimi, export, arayüz dili (TR/EN anahtar eşliği, kancasız metin). Bayraksız `node tools/headless.js` yalnız bir haritanın özetini JSON basar, hiçbir şeyi sınamaz |
 | Görsel | **tarayıcıda gözle** | Render, iso projeksiyon, animasyon, gölge, palet |
 
 **Üçüncü katman otomatikleştirilemez.** Canvas çıktısını hiçbir ajan headless
@@ -137,4 +137,8 @@ Canlı demo `https://bilaxten.art/cartula/`. Commit + push sonrası `scripts/pub
 (`index.html`, `css/`, `src/`, `assets/`) bilaxten.art `master`'ında `cartula/` altına kopyalar, push eder ve
 canlı baytları doğrular; yalnız `cartula/` değişir. bilaxten.art'ın yayın betiği bu klasörü korur
 (`scripts/external-dirs.txt`). bilaxten.art'ta `cartula/`'yı elle düzenleme; kaynak bu repo.
-Sitede görünen her metin TR + EN olmalı (Uğur 2026-10-05); uygulama arayüzü şu an yalnız İngilizce.
+Sitede görünen her metin TR + EN olmalı (Uğur 2026-10-05). Uygulama arayüzü 2026-10-05'ten beri iki dilli:
+**görünür her yeni metin `src/i18n.js`'te iki dilde de anahtar alır** — `index.html`'de `data-i18n*` kancasıyla,
+JS'te `T(key)` ile (main.js'te `.textContent = '...'` gibi düz metin yazma). Kancasız metin ya da tek dilde
+anahtar `node tools/headless.js --i18n`'de (`checks.sh`) kırmızıdır. Dil seçimi bilaxten.art ile ortak
+(`localStorage` `bx-lang`). Dışa aktarılan dosyalar İngilizce kalır. Ayrıntı: `README.md` → *Arayüz dili*.

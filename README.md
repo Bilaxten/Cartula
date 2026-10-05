@@ -120,6 +120,23 @@ Edit → *Reset to generated*.
 birlikte solar. Saydam voxel bulut iki geçişle çizilir (önce yalnız derinlik,
 sonra en öndeki yüzey karıştırılarak) — iç kutu yüzleri görünmez. `--sky`.
 
+**Arayüz dili: Türkçe + İngilizce** (2026-10-05). Panelin başlığındaki
+*TR / EN* düğmeleri arayüzü yeniden yüklemeden, haritayı yeniden üretmeden
+çevirir. Tek sözlük `src/i18n.js` (`SM.I18N`): `index.html`'deki metinler
+`data-i18n` / `data-i18n-title` / `-aria-label` / `-placeholder` / `-alt`
+kancalarıyla, main.js'in kurduğu metinler (slider değer kelimeleri,
+istatistik, ipuçları, adım adım modunun aşama metinleri, biyom adları)
+`T(key)` ile gelir; `data-i18n-js` "bu metni main.js yazıyor",
+`translate="no"` "çevrilmez" (Cartula, TR / EN) demektir. Seçim
+bilaxten.art'ın geri kalanıyla ortak: `localStorage` anahtarı `bx-lang`
+(`tr` / `en`), kayıt yoksa tarayıcı dili `tr` ile başlıyorsa Türkçe.
+i18n.js `<head>`'de yüklenir, `<html lang>` ilk boyamadan önce doğrudur.
+Dışa aktarılan dosyalar (PNG, Unity .zip, `map.json`, `README.txt`) veri
+sayılır, İngilizce kalır; `biome.js` ve `PIPELINE_STAGES`'teki `label` /
+`desc` İngilizce kaynak olarak durur. Doğrulama: `node tools/headless.js
+--i18n` (iki dilde aynı anahtarlar, `index.html`'de kancasız görünür metin
+yok, main.js'te DOM'a doğrudan yazılan metin yok).
+
 **Canlı demo:** https://bilaxten.art/cartula/ (GitHub Pages, `master`).
 
 ## Milestone'lar
