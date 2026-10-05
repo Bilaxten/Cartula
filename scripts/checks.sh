@@ -86,7 +86,8 @@ else
     # --i18n: arayüz TR + EN (Uğur 2026-10-05); bir dilde eksik anahtar ya da
     # index.html'de çeviri kancası olmayan görünür metin burada kırmızı olur.
     # --perf: performans paneli dürüst mü (istatistik, sayaç, sayaçsız çizim yok).
-    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf; do
+    # --night: gece ışıkları yalnız yerleşimde, saat eğrisi, shader renk düzeltmesi.
+    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else

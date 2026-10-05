@@ -19,6 +19,26 @@
   // tile takes ONE value, from the wave at its centre, so the swell reads as
   // calm stepped bands of whole tiles rolling across the water.
   var WAVE_SHADE = 0.07;
+  // Mean of the window pattern (makeProgram windowLight): 45% of windows lit
+  // x pane area 0.56 x 0.5 x mean intensity 0.875.
+  var WINDOW_MEAN = 0.45 * 0.56 * 0.5 * 0.875;
+  // Bloom: how bright a settlement face is in the glow source (a flat level,
+  // not the window pattern, so the 1/4-res source cannot sparkle), and the
+  // strength of the additive composite at full night. Tuned by eye in
+  // headless Edge at 22:00, seed 1337 (2026-10-05).
+  var BLOOM_SOURCE = 0.55;
+  var BLOOM_STRENGTH = 1.6;
+
+  /* Warm window light, from the biome palette rather than a new colour:
+   * desert sand warmed a quarter toward lava, pushed above 1 so it survives
+   * the night wash (index.html #daynight multiplies the canvas). */
+  function windowLightColor() {
+    var desert = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'desert'; }).color);
+    var lava = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'lava'; }).color);
+    return [0, 1, 2].map(function (k) {
+      return (desert[k] * 0.75 + lava[k] * 0.25) / 255 * 1.3;
+    });
+  }
 
   function wrapYaw(yaw) {
     // A compact 0..359 range keeps camera state and shared links canonical.
@@ -149,6 +169,11 @@
     var shore = [];
     var ao = [];
     var fall = [];
+    // 1 on every vertex of a settlement cell's faces (top and walls): the
+    // only geometry that may carry night window lights (--mesh checks it).
+    var town = [];
+    var cellTown = 0;
+    var TOWN = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'town'; });
     var indices = [];
     var minX = Infinity;
     var minY = Infinity;
@@ -220,6 +245,7 @@
       // 0/1: a falling-water face swaps its cliff material for an animated
       // cascade in the fragment shader (see makeProgram's vFall handling).
       fall.push(fallFlag ? 1 : 0);
+      town.push(cellTown);
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -525,6 +551,7 @@
         var surface = grid.water[i] ? 1 : 0;
         var glow = lava[i] ? 1 : 0;
 
+        cellTown = grid.biome[i] === TOWN && !grid.water[i] ? 1 : 0;
         // A plunge pool churns even though its own biome/neighbours give it
         // no shoreline weight of its own (terrainColor only computes shore
         // tint for the shallow_water biome). LANDING (tag 2) is set by the
@@ -541,6 +568,7 @@
         addWall(i, x, y, L, 0, 1, 3, material, glow, surface);
       }
     }
+    cellTown = 0;
 
     /* A one-cell charcoal ring follows the nearest map edge. Its exterior walls
      * always reach the base, while changed edge heights expose connecting walls. */
@@ -616,6 +644,7 @@
       shore: new Float32Array(shore),
       ao: new Uint8Array(ao),
       fall: new Uint8Array(fall),
+      town: new Uint8Array(town),
       indices: new Uint32Array(indices),
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
@@ -632,6 +661,37 @@
         maxZ: maxZ
       }
     };
+  }
+
+  /* Same triangles, settlement ones last (a triangle is a settlement one when
+   * its first vertex carries the flag: every vertex of a face shares it).
+   * Order within each group is kept; with depth testing and no coplanar
+   * overlaps in the terrain, the picture is unchanged. */
+  function settlementLast(indices, town) {
+    var n = indices.length;
+    var out;
+    var head = 0;
+    var tail;
+    var t;
+
+    if (!town) return { indices: indices, townStart: n };
+    out = new Uint32Array(n);
+    for (t = 0; t < n; t += 3) {
+      if (!town[indices[t]]) {
+        out[head++] = indices[t];
+        out[head++] = indices[t + 1];
+        out[head++] = indices[t + 2];
+      }
+    }
+    tail = head;
+    for (t = 0; t < n; t += 3) {
+      if (town[indices[t]]) {
+        out[tail++] = indices[t];
+        out[tail++] = indices[t + 1];
+        out[tail++] = indices[t + 2];
+      }
+    }
+    return { indices: out, townStart: head };
   }
 
   function mat4Multiply(out, a, b) {
@@ -686,6 +746,47 @@
     out[13] = b30 * a01 + b31 * a11 + b32 * a21 + b33 * a31;
     out[14] = b30 * a02 + b31 * a12 + b32 * a22 + b33 * a32;
     out[15] = b30 * a03 + b31 * a13 + b32 * a23 + b33 * a33;
+    return out;
+  }
+
+  // General 4x4 inverse (column-major, same layout as mat4Multiply).
+  function mat4Invert(out, m) {
+    var a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
+    var a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+    var a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+    var a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+    var b00 = a00 * a11 - a01 * a10;
+    var b01 = a00 * a12 - a02 * a10;
+    var b02 = a00 * a13 - a03 * a10;
+    var b03 = a01 * a12 - a02 * a11;
+    var b04 = a01 * a13 - a03 * a11;
+    var b05 = a02 * a13 - a03 * a12;
+    var b06 = a20 * a31 - a21 * a30;
+    var b07 = a20 * a32 - a22 * a30;
+    var b08 = a20 * a33 - a23 * a30;
+    var b09 = a21 * a32 - a22 * a31;
+    var b10 = a21 * a33 - a23 * a31;
+    var b11 = a22 * a33 - a23 * a32;
+    var det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+
+    if (!det) return null;
+    det = 1 / det;
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
     return out;
   }
 
@@ -790,7 +891,60 @@
     return text.indexOf('.') < 0 ? text + '.0' : text;
   }
 
-  function makeProgram(gl) {
+  /* The day/night colour grade (main.js sunModel), in GLSL: CSS
+   * brightness(), then saturate() with its sRGB luminance matrix, each
+   * clamped like the CSS filter, then the multiply wash. Identity by default.
+   * Spliced into every program that draws the world, so the voxel view looks
+   * as it did under the CSS filter -- and light sources can be added AFTER
+   * it. Fragment-only uniforms (no cross-stage precision pair). */
+  var GRADE_GLSL = [
+    'uniform vec3 uGradeTint;',
+    'uniform vec2 uGradeBS;',
+    'uniform float uGradeOn;',
+    'vec3 grade(vec3 c) {',
+    '  if (uGradeOn < 0.5) return c;',   // uniform branch: by day, no cost
+    '  float s = uGradeBS.y;',
+    '  mat3 m = mat3(',
+    '    0.213 + 0.787 * s, 0.213 - 0.213 * s, 0.213 - 0.213 * s,',
+    '    0.715 - 0.715 * s, 0.715 + 0.285 * s, 0.715 - 0.715 * s,',
+    '    0.072 - 0.072 * s, 0.072 - 0.072 * s, 0.072 + 0.928 * s);',
+    '  c = clamp(c * uGradeBS.x, 0.0, 1.0);',
+    '  return clamp(m * c, 0.0, 1.0) * uGradeTint;',
+    '}'
+  ].join('\n');
+
+  // The same grade in JS, for the clear colour (and the headless check that
+  // the two agree).
+  function gradeColor(rgb, g) {
+    var s = g.saturate;
+    var b = g.brightness;
+    var c = rgb.map(function (v) { return Math.max(0, Math.min(1, v * b)); });
+    var out = [
+      (0.213 + 0.787 * s) * c[0] + (0.715 - 0.715 * s) * c[1] + (0.072 - 0.072 * s) * c[2],
+      (0.213 - 0.213 * s) * c[0] + (0.715 + 0.285 * s) * c[1] + (0.072 - 0.072 * s) * c[2],
+      (0.213 - 0.213 * s) * c[0] + (0.715 - 0.715 * s) * c[1] + (0.072 + 0.928 * s) * c[2]
+    ];
+    return out.map(function (v, k) { return Math.max(0, Math.min(1, v)) * g.tint[k]; });
+  }
+
+  // Fixed attribute slots, bound before linking, so the three terrain
+  // program variants share one VAO.
+  var TERRAIN_ATTRIBS = ['aPosition', 'aNormal', 'aColor', 'aSideDepth', 'aCellUV',
+    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown'];
+
+  /* `variant`: '' = day (exactly the lighting it always had), 'NIGHT' =
+   * plus the in-shader colour grade, 'NIGHT WINDOWS' = that plus the
+   * settlement window lights (drawn over settlement triangles only), 'GLOW' =
+   * the bloom source (depth for everything, colour from settlement faces
+   * only). Separate COMPILED variants rather than uniform branches: on
+   * SwiftShader both sides of a branch are executed with lane masks, and the
+   * never-taken night code cost ~18 ms per frame by day (measured
+   * 2026-10-05). On a GPU it is also simply less code per fragment. */
+  function terrainShaderSources(variant) {
+    // Space-separated defines, e.g. 'NIGHT WINDOWS'.
+    var define = (variant || '').split(' ').filter(Boolean).map(function (d) {
+      return '#define ' + d + ' 1';
+    }).join('\n');
     // Arrays preserve GLSL's own line structure without a template dependency.
     var vertexSource = [
       '#version 300 es',
@@ -804,6 +958,7 @@
       'in float aShore;',
       'in float aAO;',
       'in float aFall;',
+      'in float aTown;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
@@ -828,7 +983,10 @@
       '  vCellUV = aCellUV;',
       '  vEmissive = aEmissive;',
       '  vShore = aShore;',
-      '  vAO = aAO;',
+      '  // The settlement flag rides in the AO varying (+4): it is constant',
+      '  // over a face, so the fragment decodes both exactly, and the day path',
+      '  // interpolates no extra component (SwiftShader pays per component).',
+      '  vAO = aAO + 4.0 * aTown;',
       '  vHeight = aPosition.y; // raw voxel level, before uVScale',
       '  vFall = aFall;',
       '  // Falling-water faces have no per-vertex horizontal attribute of their',
@@ -863,6 +1021,7 @@
     ].join('\n');
     var fragmentSource = [
       '#version 300 es',
+      define,
       'precision mediump float;',
       'in vec3 vNormal;',
       'in vec3 vColor;',
@@ -893,9 +1052,75 @@
       // declared in both stages must match precision exactly or the program
       // silently fails to link (uTime, uMode) -- one stage, no risk.
       'uniform float uDebugView;',
+      // Night window lights on settlement faces (flag decoded from vAO), 0 by
+      // day. The window pattern needs the fragment's position inside its
+      // tile; rather than interpolating it for every fragment of the map, it
+      // is rebuilt from gl_FragCoord for settlement fragments only:
+      // uInvLevelVP maps (ndc) back to (x, raw level, z), uGridHalf moves
+      // that into cell space, uViewport/uPixelWorld give the pixel footprint.
+      // All fragment-only (no cross-stage precision pair).
+      '#if defined(NIGHT) || defined(GLOW)',
+      'uniform vec3 uLightColor;',
+      '#endif',
+      '#ifdef NIGHT',
+      'uniform float uNightLight;',
+      'uniform highp mat4 uInvLevelVP;',
+      'uniform highp vec2 uGridHalf;',
+      'uniform highp vec2 uViewport;',
+      'uniform float uPixelWorld;',
+      'uniform vec3 uViewDir;',
+      GRADE_GLSL,
+      '#define GRADE(c) grade(c)',
+      '#else',
+      '#define GRADE(c) (c)',
+      '#endif',
       'out vec4 outColor;',
       '',
+      '#ifdef WINDOWS',
+      // Average of windowLight() over a face: lit share x window area x mean
+      // intensity. Used when a window is smaller than a pixel and by the
+      // bloom source, so neither can sparkle.
+      'const float WINDOW_MEAN = ' + glslFloat(WINDOW_MEAN) + ';',
+      '',
+      '// Stylized lit windows: a 3x3 grid per tile top, 3 per tile width and',
+      '// 2 per level on walls; a hash per window and tile decides which are',
+      '// lit. Blocky on purpose (voxel look); fades to its mean once a window',
+      '// gets smaller than about a pixel.',
+      '// Called for settlement fragments at night only.',
+      'float windowLight(float top, vec3 n) {',
+      '  highp vec4 ndc = vec4(gl_FragCoord.xy / uViewport * 2.0 - 1.0,',
+      '    gl_FragCoord.z * 2.0 - 1.0, 1.0);',
+      '  highp vec4 w = uInvLevelVP * ndc;',
+      '  highp vec3 cell = w.xyz / w.w + vec3(uGridHalf.x, 0.0, uGridHalf.y);',
+      '  // Tops: x/z inside the tile. Walls: the coordinate along the wall',
+      '  // (the other one is the wall plane) and the level up the wall.',
+      '  vec2 p = top > 0.5 ? fract(cell.xz) * 3.0 : vec2(',
+      '    fract(abs(n.x) > 0.5 ? cell.z : cell.x) * 3.0, fract(cell.y) * 2.0);',
+      '  // Window size in pixels from the orthographic pixel footprint,',
+      '  // foreshortened by the angle between face and view (no derivative:',
+      '  // this runs in non-uniform control flow).',
+      '  float size = 3.0 * uPixelWorld / max(0.15, abs(dot(n, uViewDir)));',
+      '  vec2 id = floor(p);',
+      '  vec2 f = fract(p);',
+      '  float h = fract(sin(dot(id + vCellUV * 157.0, vec2(12.9898, 78.233))) *',
+      '    43758.5453);',
+      '  float pane = step(0.22, f.x) * step(f.x, 0.78) * step(0.25, f.y) *',
+      '    step(f.y, 0.75);',
+      '  float win = step(h, 0.45) * pane * (0.75 + 0.25 * fract(h * 7.31));',
+      '  return mix(win, WINDOW_MEAN, smoothstep(0.35, 0.9, size));',
+      '}',
+      '#endif',
+      '',
       'void main() {',
+      '  float town = step(3.5, vAO);',
+      '  float aoCount = vAO - 4.0 * town;',
+      '#ifdef GLOW',
+      '  // Bloom source. Independent of the hour (the composite scales by',
+      '  // it), so the blurred source can be reused while the camera stands',
+      '  // still.',
+      '  outColor = vec4(uLightColor * (town * ' + glslFloat(BLOOM_SOURCE) + '), 1.0);',
+      '  return;',
+      '#endif',
       '  vec3 light = normalize(uSunDirection);',
       '  float ndl = max(0.0, dot(normalize(vNormal), light));',
       '  // True Lambert plus daylight-scaled ambient keeps low sun directional.',
@@ -906,7 +1131,7 @@
       '  float shadow = texture(uShadowMap, vCellUV).r;',
       '  // AO reaches 0.60 at a buried corner: distinct form without black pits.',
       '  const float AO_STRENGTH = 0.40;',
-      '  float aoFactor = mix(1.0 - AO_STRENGTH, 1.0, vAO / 3.0);',
+      '  float aoFactor = mix(1.0 - AO_STRENGTH, 1.0, aoCount / 3.0);',
       '  // AO now carries local form, so 1.14 keeps cast shadows directional.',
       '  const float SHADOW_GAIN = 1.14;',
       '  // 0.70 gives side faces more shade while retaining readable Lambert form.',
@@ -973,20 +1198,34 @@
       '    else if (uDebugView < 4.5) dbg = baseColor;',
       '    else if (uDebugView < 5.5) dbg = vec3(1.0 - SHADOW_GAIN * shadowHit * shadow * 0.8);',
       '    else dbg = mix(vColor * 0.35, vec3(1.0, 0.55, 0.15), vFall);',
-      '    outColor = vec4(dbg, 1.0);',
+      '    outColor = vec4(GRADE(dbg), 1.0);',
       '    return;',
       '  }',
-      '  outColor = vec4(',
+      '  // Graded like the rest of the world; window lights are light sources,',
+      '  // added after the grade so the night wash cannot grey them out.',
+      '  vec3 color = GRADE(',
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
-      '      emission + foamColor,',
-      '    1.0',
-      '  );',
+      '      emission + foamColor);',
+      '#ifdef WINDOWS',
+      '  // Settlement faces only (this variant only ever draws their',
+      '  // triangles); light added after the grade.',
+      '  if (uNightLight > 0.0 && town > 0.5) {',
+      '    color += uLightColor * (town * uNightLight *',
+      '      windowLight(topFace, normalize(vNormal)));',
+      '  }',
+      '#endif',
+      '  outColor = vec4(color, 1.0);',
       '}'
     ].join('\n');
+    return { vertex: vertexSource, fragment: fragmentSource };
+  }
+
+  function makeProgram(gl, variant) {
+    var src = terrainShaderSources(variant);
     // Vertex scale and fragment lighting are uniforms, not baked attributes.
-    var vertex = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
-    var fragment = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+    var vertex = compileShader(gl, gl.VERTEX_SHADER, src.vertex);
+    var fragment = compileShader(gl, gl.FRAGMENT_SHADER, src.fragment);
     var program;
 
     /* Albedo stays unlit in the mesh. Light is evaluated in the shader so a
@@ -999,13 +1238,17 @@
     program = gl.createProgram();
     gl.attachShader(program, vertex);
     gl.attachShader(program, fragment);
+    TERRAIN_ATTRIBS.forEach(function (name, slot) {
+      gl.bindAttribLocation(program, slot, name);
+    });
     gl.linkProgram(program);
     gl.deleteShader(vertex);
     gl.deleteShader(fragment);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       window.__glShaderErrors = window.__glShaderErrors || [];
-      window.__glShaderErrors.push('link: ' + gl.getProgramInfoLog(program));
-      console.warn('voxel3d: terrain program link failed\n' +
+      window.__glShaderErrors.push('link ' + (variant || 'day') + ': ' +
+        gl.getProgramInfoLog(program));
+      console.warn('voxel3d: terrain program (' + (variant || 'day') + ') link failed\n' +
         gl.getProgramInfoLog(program));
       gl.deleteProgram(program);
       return null;
@@ -1107,6 +1350,7 @@
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp int uMode;',      // see the vertex shader note
+      GRADE_GLSL,
       'out vec4 outColor;',
       '',
       'void main() {',
@@ -1122,7 +1366,7 @@
       '    // Birds read as silhouettes: shape carries them, not shading.',
       '    tint = uColor * mix(0.45, 1.0, daylight);',
       '  }',
-      '  outColor = vec4(tint * vShade, vFade);',
+      '  outColor = vec4(grade(tint * vShade), vFade);',
       '}'
     ].join('\n');
     var vertex = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
@@ -1169,8 +1413,12 @@
     }
     if (!gl) return null;
 
-    var program = makeProgram(gl);
+    var program = makeProgram(gl, '');
     if (!program) return null;
+    // Optional: without them the map still renders, without night lights.
+    var nightProgram = makeProgram(gl, 'NIGHT');
+    var windowsProgram = makeProgram(gl, 'NIGHT WINDOWS');
+    var glowProgram = makeProgram(gl, 'GLOW');
 
     // Every draw call and buffer/texture allocation below goes through this
     // counter (src/perf.js), so the performance panel reports what the
@@ -1200,31 +1448,74 @@
     var shoreBuffer = gl.createBuffer();
     var aoBuffer = gl.createBuffer();
     var fallBuffer = gl.createBuffer();
+    var townBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
-    var position = gl.getAttribLocation(program, 'aPosition');
-    var normal = gl.getAttribLocation(program, 'aNormal');
-    var color = gl.getAttribLocation(program, 'aColor');
-    var sideDepth = gl.getAttribLocation(program, 'aSideDepth');
-    var cellUV = gl.getAttribLocation(program, 'aCellUV');
-    var cloudLobesUniform = gl.getUniformLocation(program, 'uCloudLobes');
-    var cloudLobeFadeUniform = gl.getUniformLocation(program, 'uCloudLobeFade');
-    var cloudLobeCountUniform = gl.getUniformLocation(program, 'uCloudLobeCount');
-    var cloudShadowUniform = gl.getUniformLocation(program, 'uCloudShadow');
-    var debugViewUniform = gl.getUniformLocation(program, 'uDebugView');
-    var emission = gl.getAttribLocation(program, 'aEmissive');
-    var water = gl.getAttribLocation(program, 'aWater');
-    var shore = gl.getAttribLocation(program, 'aShore');
-    var ambientOcclusion = gl.getAttribLocation(program, 'aAO');
-    var fall = gl.getAttribLocation(program, 'aFall');
-    var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
-    var verticalScale = gl.getUniformLocation(program, 'uVScale');
-    var gridSizeUniform = gl.getUniformLocation(program, 'uGridSize');
-    var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
-    var sunStrength = gl.getUniformLocation(program, 'uSunStrength');
-    var time = gl.getUniformLocation(program, 'uTime');
-    var shadowMap = gl.getUniformLocation(program, 'uShadowMap');
+    var position = TERRAIN_ATTRIBS.indexOf('aPosition');
+    var normal = TERRAIN_ATTRIBS.indexOf('aNormal');
+    var color = TERRAIN_ATTRIBS.indexOf('aColor');
+    var sideDepth = TERRAIN_ATTRIBS.indexOf('aSideDepth');
+    var cellUV = TERRAIN_ATTRIBS.indexOf('aCellUV');
+    var emission = TERRAIN_ATTRIBS.indexOf('aEmissive');
+    var water = TERRAIN_ATTRIBS.indexOf('aWater');
+    var shore = TERRAIN_ATTRIBS.indexOf('aShore');
+    var ambientOcclusion = TERRAIN_ATTRIBS.indexOf('aAO');
+    var fall = TERRAIN_ATTRIBS.indexOf('aFall');
+    var townAttr = TERRAIN_ATTRIBS.indexOf('aTown');
+    var levelVP = new Float32Array(16);
+    var invLevelVP = new Float32Array(16);
+    var viewDir = [0, 1, 0];          // towards the camera, set per frame
+    // Off (CSS does the grade) until main.js hands one over (setGrade).
+    var grade = null;
+    var NO_GRADE = { tint: [1, 1, 1], brightness: 1, saturate: 1 };
+    var lightColor = windowLightColor();
+    // Uniform locations per program variant (a location belongs to one
+    // program). Absent uniforms come back null, which GL ignores.
+    function terrainUniforms(prog) {
+      var names = {
+        cloudLobes: 'uCloudLobes',
+        cloudLobeFade: 'uCloudLobeFade',
+        cloudLobeCount: 'uCloudLobeCount',
+        cloudShadow: 'uCloudShadow',
+        debugView: 'uDebugView',
+        nightLight: 'uNightLight',
+        lightColor: 'uLightColor',
+        invLevelVP: 'uInvLevelVP',
+        gridHalf: 'uGridHalf',
+        viewport: 'uViewport',
+        pixelWorld: 'uPixelWorld',
+        viewDir: 'uViewDir',
+        gradeTint: 'uGradeTint',
+        gradeBS: 'uGradeBS',
+        gradeOn: 'uGradeOn',
+        viewProjection: 'uViewProjection',
+        verticalScale: 'uVScale',
+        gridSize: 'uGridSize',
+        sunDirection: 'uSunDirection',
+        sunStrength: 'uSunStrength',
+        time: 'uTime',
+        shadowMap: 'uShadowMap'
+      };
+      var out = { program: prog };
+      if (!prog) return null;
+      Object.keys(names).forEach(function (key) {
+        out[key] = gl.getUniformLocation(prog, names[key]);
+      });
+      return out;
+    }
+    var dayU = terrainUniforms(program);
+    var nightU = terrainUniforms(nightProgram);
+    var windowsU = terrainUniforms(windowsProgram);
+    var glowU = terrainUniforms(glowProgram);
+    var nightLight = 0;
+    // Optional: without it the window lights still draw, just without glow.
+    var bloom = SM.Bloom ? SM.Bloom.create(gl, acct) : null;
+    var bloomOn = true;
+    // What the bloom source depends on: view-projection, height scale, the
+    // mesh and the canvas size. Unchanged -> post.js reuses last frame's blur.
+    var bloomKey = new Float32Array(20);
+    var meshVersion = 0;
     var projection = new Float32Array(16);
     var view = new Float32Array(16);
     var combined = new Float32Array(16);
@@ -1236,6 +1527,9 @@
     var strength = 0.34;
     var elapsedTime = 0;
     var indexCount = 0;
+    // Settlement triangles are moved to the END of the index buffer at upload
+    // (setMesh), so at night the window variant draws only them.
+    var townIndexStart = 0;
     var clearColor = [0.055, 0.075, 0.11, 1];
     var width = 1;
     var height = 1;
@@ -1287,6 +1581,7 @@
     setupAttrib(shoreBuffer, shore, 1);
     setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
     setupAttrib(fallBuffer, fall, 1, gl.UNSIGNED_BYTE);
+    setupAttrib(townBuffer, townAttr, 1, gl.UNSIGNED_BYTE);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -1373,7 +1668,10 @@
           sunDirection: gl.getUniformLocation(skyProgram, 'uSunDirection'),
           sunStrength: gl.getUniformLocation(skyProgram, 'uSunStrength'),
           flockCenter: gl.getUniformLocation(skyProgram, 'uFlockCenter'),
-          flockSpan: gl.getUniformLocation(skyProgram, 'uFlockSpan')
+          flockSpan: gl.getUniformLocation(skyProgram, 'uFlockSpan'),
+          gradeTint: gl.getUniformLocation(skyProgram, 'uGradeTint'),
+          gradeBS: gl.getUniformLocation(skyProgram, 'uGradeBS'),
+          gradeOn: gl.getUniformLocation(skyProgram, 'uGradeOn')
         };
       }
 
@@ -1442,6 +1740,7 @@
       gl.uniform1f(sky.time, elapsedTime);
       gl.uniform3fv(sky.sunDirection, sun);
       gl.uniform1f(sky.sunStrength, strength);
+      setGradeUniforms(sky.gradeTint, sky.gradeBS, sky.gradeOn);
 
       if (sky.cloudCount && cloudNow.length) {
         flat = cloudWorldData;
@@ -1513,6 +1812,30 @@
       sun[1] = Math.max(0.12, +s.rise || 0.12);
       sun[2] = -(+s.dy || 0);
       strength = Math.max(0, Math.min(1, +s.strength || 0));
+      // 0 by day .. 1 at full night (SM.nightAmount in time.js).
+      nightLight = Math.max(0, Math.min(1, +s.night || 0));
+    }
+
+    function setGradeUniforms(tintLoc, bsLoc, onLoc) {
+      var g = grade || NO_GRADE;
+      gl.uniform3fv(tintLoc, g.tint);
+      gl.uniform2f(bsLoc, g.brightness, g.saturate);
+      gl.uniform1f(onLoc, grade ? 1 : 0);
+    }
+
+    /* The day/night colour grade in the shaders, or null to leave it to the
+     * CSS filter + wash (main.js applyDayNight decides; it hands one over
+     * only while the night lights are on). */
+    function setGrade(g) {
+      if (!g || !g.tint) {
+        grade = null;
+        return;
+      }
+      grade = {
+        tint: [+g.tint[0], +g.tint[1], +g.tint[2]],
+        brightness: +g.brightness,
+        saturate: +g.saturate
+      };
     }
 
     function setTime(seconds) {
@@ -1580,11 +1903,17 @@
         mesh.fall || new Uint8Array(mesh.vertexCount),
         gl.STATIC_DRAW
       );
+      gl.bindBuffer(gl.ARRAY_BUFFER, townBuffer);
+      acct.bufferData(gl.ARRAY_BUFFER, townBuffer,
+        mesh.town || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
+      var ordered = settlementLast(mesh.indices, mesh.town);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, mesh.indices, gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, ordered.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       indexCount = mesh.indices.length;
+      townIndexStart = ordered.townStart;
       gridSize = mesh.gridSize || gridSize;
+      meshVersion++;
     }
 
     function maxVerticalExtent(horizontalRadius, verticalHalf) {
@@ -1697,38 +2026,115 @@
         fit.far
       );
       mat4LookAt(view, eye, target, [0, 1, 0]);
+      viewDir[0] = eye[0] - target[0];
+      viewDir[1] = eye[1] - target[1];
+      viewDir[2] = eye[2] - target[2];
       mat4Multiply(combined, projection, view);
-      gl.clearColor(
-        clearColor[0],
-        clearColor[1],
-        clearColor[2],
-        clearColor[3]
-      );
+      // The stage colour behind the map takes the day/night grade too (it
+      // was under the CSS wash before the grade moved into the shaders).
+      var bg = grade ? gradeColor(clearColor, grade) : clearColor;
+      gl.clearColor(bg[0], bg[1], bg[2], clearColor[3]);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       if (!indexCount) return;
-      gl.useProgram(program);
-      gl.uniformMatrix4fv(viewProjection, false, combined);
-      gl.uniform1f(verticalScale, vScale);
-      gl.uniform2f(gridSizeUniform, gridSize[0], gridSize[1]);
-      gl.uniform3fv(sunDirection, sun);
-      gl.uniform1f(sunStrength, strength);
-      gl.uniform1f(debugViewUniform, debugView);
-      gl.uniform1f(time, elapsedTime);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
-      gl.uniform1i(shadowMap, 0);
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
-      gl.uniform4fv(cloudLobesUniform, cloudShadowData);
-      gl.uniform1fv(cloudLobeFadeUniform, cloudLobeFadeData);
-      gl.uniform1i(cloudLobeCountUniform,
+      gl.bindVertexArray(vao);
+      if (nightLight > 0.001 && nightU && windowsU) {
+        // Night: the colour grade in the shader; window lights only on the
+        // settlement triangles at the end of the buffer (one extra draw).
+        setTerrainUniforms(nightU);
+        acct.drawElements(gl.TRIANGLES, townIndexStart, gl.UNSIGNED_INT, 0);
+        if (townIndexStart < indexCount) {
+          setTerrainUniforms(windowsU);
+          acct.drawElements(gl.TRIANGLES, indexCount - townIndexStart,
+            gl.UNSIGNED_INT, townIndexStart * 4);
+        }
+      } else {
+        setTerrainUniforms(dayU);
+        acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
+      }
+      gl.bindVertexArray(null);
+      drawSky();
+      // Night only: the bloom passes do not run at all while nightLight is 0.
+      if (bloom && glowU && bloomOn && !debugView && nightLight > 0.001) {
+        bloom.render(width, height, BLOOM_STRENGTH * nightLight, drawBloomSource,
+          bloomSourceChanged());
+      }
+    }
+
+    function setTerrainUniforms(U) {
+      gl.useProgram(U.program);
+      gl.uniformMatrix4fv(U.viewProjection, false, combined);
+      gl.uniform1f(U.verticalScale, vScale);
+      gl.uniform2f(U.gridSize, gridSize[0], gridSize[1]);
+      gl.uniform3fv(U.sunDirection, sun);
+      gl.uniform1f(U.sunStrength, strength);
+      gl.uniform1f(U.debugView, debugView);
+      gl.uniform1f(U.time, elapsedTime);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
+      gl.uniform1i(U.shadowMap, 0);
+      gl.uniform4fv(U.cloudLobes, cloudShadowData);
+      gl.uniform1fv(U.cloudLobeFade, cloudLobeFadeData);
+      gl.uniform1i(U.cloudLobeCount,
         showSky && !debugView && cloudNow.length ? cloudLobeCount : 0);
-      gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
+      gl.uniform1f(U.cloudShadow, cloudShadowStrength);
+      gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
+      gl.uniform3fv(U.lightColor, lightColor);
+      if (nightLight > 0.001) {
+        // (x, raw level, z) -> clip is view-projection after the vertex
+        // shader's Y scale; its inverse brings a fragment back to cells.
+        levelVP.set(combined);
+        levelVP[4] *= vScale;
+        levelVP[5] *= vScale;
+        levelVP[6] *= vScale;
+        levelVP[7] *= vScale;
+        mat4Invert(invLevelVP, levelVP);
+        gl.uniformMatrix4fv(U.invLevelVP, false, invLevelVP);
+        gl.uniform2f(U.gridHalf, gridSize[0] / 2, gridSize[1] / 2);
+        gl.uniform2f(U.viewport, width, height);
+        gl.uniform1f(U.pixelWorld, 2 * camera.zoom / width);
+        gl.uniform3f(U.viewDir, viewDir[0], viewDir[1], viewDir[2]);
+      }
+      setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
+    }
+
+    function bloomSourceChanged() {
+      var changed = false;
+      var k;
+
+      for (k = 0; k < 16; k++) {
+        if (bloomKey[k] !== combined[k]) { bloomKey[k] = combined[k]; changed = true; }
+      }
+      if (bloomKey[16] !== Math.fround(vScale)) { bloomKey[16] = vScale; changed = true; }
+      if (bloomKey[17] !== meshVersion) { bloomKey[17] = meshVersion; changed = true; }
+      if (bloomKey[18] !== width || bloomKey[19] !== height) {
+        bloomKey[18] = width;
+        bloomKey[19] = height;
+        changed = true;
+      }
+      return changed;
+    }
+
+    // Measurement / comparison hook: lights stay, only the glow is skipped.
+    function setBloom(on) {
+      bloomOn = on !== false;
+    }
+
+    // Bloom source: the same terrain, GLOW variant, into post.js's
+    // 1/4-resolution target (post.js set the viewport). The wave needs the
+    // same time and scale so water depth matches the main pass.
+    function drawBloomSource() {
+      gl.useProgram(glowU.program);
+      gl.uniformMatrix4fv(glowU.viewProjection, false, combined);
+      gl.uniform1f(glowU.verticalScale, vScale);
+      gl.uniform2f(glowU.gridSize, gridSize[0], gridSize[1]);
+      gl.uniform1f(glowU.time, elapsedTime);
+      gl.uniform3fv(glowU.lightColor, lightColor);
       gl.bindVertexArray(vao);
       acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
-      drawSky();
     }
 
     /* A PNG of the current frame.
@@ -1839,6 +2245,8 @@
       gl.deleteBuffer(shoreBuffer);
       gl.deleteBuffer(aoBuffer);
       gl.deleteBuffer(fallBuffer);
+      gl.deleteBuffer(townBuffer);
+      if (bloom) bloom.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
@@ -1846,6 +2254,9 @@
       timer.pending = [];
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
+      if (nightProgram) gl.deleteProgram(nightProgram);
+      if (windowsProgram) gl.deleteProgram(windowsProgram);
+      if (glowProgram) gl.deleteProgram(glowProgram);
       if (sky) {
         gl.deleteBuffer(sky.cloudPos);
         gl.deleteBuffer(sky.cloudNormal);
@@ -1876,6 +2287,8 @@
       setVerticalScale: setVerticalScale,
       setSun: setSun,
       setTime: setTime,
+      setGrade: setGrade,
+      setBloom: setBloom,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,
@@ -1891,6 +2304,11 @@
 
   SM.buildVoxelMesh = buildVoxelMesh;
   SM.VOXEL_WAVE_DIP = WAVE_DIP;
+  SM.voxelGradeColor = gradeColor;
+  SM.mat4Invert = mat4Invert;
+  SM.voxelSettlementLast = settlementLast;
+  SM.voxelTerrainShaderSources = terrainShaderSources;
+  SM.mat4Multiply = mat4Multiply;
   SM.buildShadowMap = buildShadowMap;
   SM.shouldFlipVoxelQuad = shouldFlipVoxelQuad;
   SM.VoxelCamera = {

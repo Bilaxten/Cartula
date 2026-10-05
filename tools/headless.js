@@ -13,6 +13,7 @@
  *   node tools/headless.js --worldtypes # world type preset validity + effect
  *   node tools/headless.js --i18n       # UI language: tr/en key parity, index.html hooks
  *   node tools/headless.js --perf       # perf panel: stats math, GL counter, no uncounted draws
+ *   node tools/headless.js --night      # night lights: settlement-only flag, night curve, grade
  */
 'use strict';
 const fs = require('fs');
@@ -24,7 +25,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -980,14 +981,20 @@ function runSkyChecks() {
  * catches a type mismatch as well as a precision one.
  */
 function runShaderChecks() {
-  const file = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
   const results = [];
   // Each program is a `makeX(gl)` function holding a vertexSource and a
-  // fragmentSource array of quoted GLSL lines.
-  const programs = file.split(/function make(\w*[Pp]rogram)\(gl\)/).slice(1);
+  // fragmentSource array of quoted GLSL lines. Every GL file in src/render
+  // is read (post.js has its own programs since 2026-10-05).
   const pairs = [];
-  for (let i = 0; i < programs.length; i += 2) {
-    pairs.push([programs[i], programs[i + 1] || '']);
+  for (const f of ['voxel3d.js', 'post.js']) {
+    const file = fs.readFileSync(path.join(root, 'render', f), 'utf8');
+    // `makeProgram` only compiles; the terrain GLSL lives in
+    // `terrainShaderSources(variant)`, so that body is read under its name.
+    const programs = file.replace(/function terrainShaderSources\(variant\)/, 'function makeTerrainProgram(gl)')
+      .split(/function make(\w*[Pp]rogram)\(gl[^)]*\)/).slice(1);
+    for (let i = 0; i < programs.length; i += 2) {
+      pairs.push([f + ' ' + programs[i], programs[i + 1] || '']);
+    }
   }
 
   function uniformsIn(text) {
@@ -1013,9 +1020,9 @@ function runShaderChecks() {
       clashes.length === 0, clashes]);
   }
 
-  results.push(['at least two programs were inspected', pairs.length >= 2, []]);
+  results.push(['at least four programs were inspected (terrain, sky, bloom blur, composite)', pairs.length >= 4, []]);
 
-  console.log('shader declaration lint (src/render/voxel3d.js):');
+  console.log('shader declaration lint (src/render/voxel3d.js, post.js):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
     for (const line of detail) console.log(`         ${line}`);
@@ -1984,8 +1991,161 @@ function runPerfChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
+// ---------------------------------------------------------------------------
+// --night : settlement window lights + bloom (2026-10-05). Lights may only
+// sit on settlement voxels, fade with the clock without popping, and the
+// shader grade that replaced the CSS night wash must equal the CSS formula.
+// ---------------------------------------------------------------------------
+function runNightChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const TOWN = SM.BIOME_LIST.findIndex(b => b.id === 'town');
+
+  for (const seed of [1337, 4242, 90210]) {
+    const g = run(seed, 128, 0.38).grid;
+    const mesh = SM.buildVoxelMesh(g);
+    let flagged = 0, wrong = 0, missing = 0;
+    const W = g.width, H = g.height;
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      const x = Math.floor(mesh.cellUV[v * 2] * W);
+      const y = Math.floor(mesh.cellUV[v * 2 + 1] * H);
+      const i = y * W + x;
+      // Plinth/base vertices clamp their cellUV to an edge cell: identify them
+      // by position outside the grid footprint.
+      const px = mesh.positions[v * 3], pz = mesh.positions[v * 3 + 2];
+      const inside = px >= -W / 2 && px <= W / 2 && pz >= -H / 2 && pz <= H / 2 &&
+        mesh.positions[v * 3 + 1] > -((g.config && g.config.waterDepth) || 3) - 1;
+      const isTownCell = g.biome[i] === TOWN && !g.water[i];
+      if (mesh.town[v]) {
+        flagged++;
+        if (!isTownCell || !inside) wrong++;
+      } else if (isTownCell && inside && mesh.normals[v * 3 + 1] === 1 &&
+                 Math.abs(mesh.positions[v * 3 + 1] - g.level[i]) < 1e-6 &&
+                 px > x - W / 2 - 1e-6 && px < x - W / 2 + 1 + 1e-6 &&
+                 pz > y - H / 2 - 1e-6 && pz < y - H / 2 + 1 + 1e-6) {
+        missing++;   // a settlement cell's own top face without the flag
+      }
+    }
+    const towns = g.biome.filter((b, i) => b === TOWN && !g.water[i]).length;
+    // The renderer draws settlement triangles in their own range at night:
+    // the reordered buffer must hold exactly the same triangles.
+    const ord = SM.voxelSettlementLast(mesh.indices, mesh.town);
+    const key = (arr, t) => arr[t] + ',' + arr[t + 1] + ',' + arr[t + 2];
+    const before = [], after = [];
+    for (let t = 0; t < mesh.indices.length; t += 3) { before.push(key(mesh.indices, t)); after.push(key(ord.indices, t)); }
+    let split = true;
+    for (let t = 0; t < ord.indices.length; t += 3) {
+      if (!!mesh.town[ord.indices[t]] !== (t >= ord.townStart)) { split = false; break; }
+    }
+    push(`seed ${seed}: settlement-last index order keeps every triangle, splits exactly at the boundary`,
+      split && ord.indices.length === mesh.indices.length && ord.townStart % 3 === 0 &&
+      before.sort().join(';') === after.sort().join(';'), '');
+    push(`seed ${seed}: light flag only on settlement voxels (${flagged} vertices, ${towns} town cells), every town top flagged`,
+      towns > 0 && flagged >= towns * 4 && wrong === 0 && missing === 0 &&
+      mesh.town.length === mesh.vertexCount,
+      `wrong ${wrong}, missing ${missing}`);
+  }
+
+  {
+    const n = h => SM.nightAmount(h);
+    let maxStep = 0;
+    for (let h = 0; h < 48; h += 0.01) maxStep = Math.max(maxStep, Math.abs(n(h + 0.01) - n(h)));
+    let monotone = true;
+    for (let h = 17; h < 19; h += 0.05) if (n(h + 0.05) < n(h)) monotone = false;
+    for (let h = 5; h < 7; h += 0.05) if (n(h + 0.05) > n(h)) monotone = false;
+    const dayZero = [7, 9, 12, 14, 16.9].every(h => n(h) === 0);
+    const nightOne = [19, 22, 0, 3, 4.9, 27].every(h => n(h) === 1);
+    push('night curve: 0 from 7:00 to 17:00, 1 from 19:00 to 5:00, half at sunset/sunrise, monotone, no pop',
+      dayZero && nightOne && Math.abs(n(18) - 0.5) < 1e-9 && Math.abs(n(6) - 0.5) < 1e-9 &&
+      Math.abs(n(30) - n(6)) < 1e-9 && monotone && maxStep < 0.02,
+      `max step per 0.01 h ${maxStep.toFixed(4)}`);
+  }
+
+  {
+    // Independent CSS reference: brightness, clamp, saturate matrix (Filter
+    // Effects spec, sRGB), clamp, then multiply-blend of rgba(wash, a).
+    const css = (c, wash, a, b, s) => {
+      const cl = v => Math.max(0, Math.min(1, v));
+      const x = c.map(v => cl(v * b));
+      const m = [
+        [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s],
+        [0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s]
+      ];
+      const y = m.map(r => cl(r[0] * x[0] + r[1] * x[1] + r[2] * x[2]));
+      return y.map((v, k) => (1 - a) * v + a * v * wash[k] / 255);
+    };
+    const cases = [
+      [[34, 50, 102], 0.64, 0.62, 0.82], [[255, 150, 95], 0.31, 0.84, 1.14],
+      [[255, 250, 235], 0, 1.02, 1]
+    ];
+    let worst = 0;
+    for (const [wash, a, b, s] of cases) {
+      const grade = { tint: wash.map(c => 1 - a + a * c / 255), brightness: b, saturate: s };
+      for (const c of [[0.1, 0.2, 0.3], [0.9, 0.8, 0.2], [1, 1, 1], [0, 0, 0], [0.4, 0.6, 0.35]]) {
+        const got = SM.voxelGradeColor(c, grade), want = css(c, wash, a, b, s);
+        for (let k = 0; k < 3; k++) worst = Math.max(worst, Math.abs(got[k] - want[k]));
+      }
+    }
+    const id = SM.voxelGradeColor([0.2, 0.5, 0.7], { tint: [1, 1, 1], brightness: 1, saturate: 1 });
+    push('shader grade (JS twin) equals the CSS brightness + saturate + multiply wash it replaced',
+      worst < 1e-9 && Math.abs(id[0] - 0.2) < 1e-9 && Math.abs(id[2] - 0.7) < 1e-9,
+      `worst ${worst}`);
+  }
+
+  {
+    const src = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const lightLines = src.split('\n').filter(l => /uLightColor \*/.test(l));
+    push('terrain shader: window light colour is only ever multiplied by the settlement flag',
+      lightLines.length === 2 && lightLines.every(l => /\(town \*/.test(l)) &&
+      /vAO = aAO \+ 4\.0 \* aTown;/.test(src) && /float town = step\(3\.5, vAO\);/.test(src),
+      lightLines.join(' | '));
+    push('bloom and the window pattern run only at night, only on settlement faces, never in debug views',
+      /if \(bloom && glowU && bloomOn && !debugView && nightLight > 0\.001\)/.test(src) &&
+      /if \(uNightLight > 0\.0 && town > 0\.5\) \{/.test(src), '');
+  }
+
+  {
+    // Day variant = no night code compiled in (SwiftShader runs both sides of
+    // a branch, so dead night code cost ~18 ms a frame by day). A minimal
+    // #ifdef/#if defined/#else/#endif preprocessor over the real sources.
+    const pre = (text, defs) => {
+      const out = [], stack = [];
+      for (const line of text.split('\n')) {
+        const t = line.trim();
+        let m;
+        if ((m = t.match(/^#ifdef (\w+)/))) stack.push(defs.has(m[1]));
+        else if (t.startsWith('#if ')) stack.push([...t.matchAll(/defined\((\w+)\)/g)].some(d => defs.has(d[1])));
+        else if (t === '#else') stack.push(!stack.pop());
+        else if (t === '#endif') stack.pop();
+        else if (stack.every(Boolean)) out.push(line);
+      }
+      return out.join('\n');
+    };
+    const frag = v => pre(SM.voxelTerrainShaderSources(v).fragment, new Set(v.split(' ').filter(Boolean)));
+    const day = frag(''), night = frag('NIGHT'), windows = frag('NIGHT WINDOWS'), glow = frag('GLOW');
+    const nightOnly = ['windowLight(', 'uInvLevelVP', 'grade(', 'uNightLight', 'uLightColor'];
+    const leaked = nightOnly.filter(k => day.includes(k));
+    push('day terrain shader compiles none of the night code; the window code only in NIGHT WINDOWS; glow returns before lighting',
+      leaked.length === 0 && nightOnly.every(k => windows.includes(k)) &&
+      night.includes('grade(') && !night.includes('windowLight(') &&
+      /outColor = vec4\(uLightColor \* \(town \*[^;]*;[\s\S]{0,20}return;/.test(glow) &&
+      !glow.includes('windowLight('),
+      leaked.join(', '));
+  }
+
+  console.log('night lights checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 if (process.argv[2] === '--perf') {
   runPerfChecks();
+} else if (process.argv[2] === '--night') {
+  runNightChecks();
 } else if (process.argv[2] === '--worldtypes') {
   runWorldTypesChecks();
 } else if (process.argv[2] === '--i18n') {

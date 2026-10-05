@@ -100,30 +100,61 @@
       dx: up ? Math.cos(day * Math.PI) : -0.6,    // travels east in the morning, west by evening
       dy: -0.35 - 0.45 * elev,                    // always travelling north (lit from the south)
       rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
-      strength: up ? (0.16 + 0.26 * elev) : 0.05
+      strength: up ? (0.16 + 0.26 * elev) : 0.05,
+      night: SM.nightAmount(hour)                 // settlement window lights
     };
-    var overlay, filter;
+    // The colour grade as numbers: a multiply wash (rgb 0..255, alpha) and a
+    // brightness + saturate filter. Rounded exactly as the CSS strings are,
+    // because the voxel view applies the same numbers in its shaders.
+    var r2 = function (v) { return Math.round(v * 100) / 100; };
+    var wash, alpha, bright, sat;
     if (!up) {                                    // night — deep blue, dim
       var nd = Math.min(1, (hour < 6 ? (6 - hour) : (hour - 18)) / 3); // dusk->deep
-      overlay = 'rgba(34,50,102,' + (0.4 + 0.24 * nd).toFixed(2) + ')';
-      filter = 'brightness(' + (0.78 - 0.16 * nd).toFixed(2) + ') saturate(0.82)';
+      wash = [34, 50, 102]; alpha = r2(0.4 + 0.24 * nd);
+      bright = r2(0.78 - 0.16 * nd); sat = 0.82;
     } else if (elev < 0.55) {                      // golden hour — warm
       var w = 1 - elev / 0.55;                     // 1 at horizon, 0 mid-morning
-      overlay = 'rgba(255,' + Math.round(178 - 40 * w) + ',' + Math.round(120 - 30 * w) + ',' + (0.05 + 0.26 * w).toFixed(2) + ')';
-      filter = 'brightness(' + (0.98 - 0.14 * w).toFixed(2) + ') saturate(' + (1 + 0.14 * w).toFixed(2) + ')';
+      wash = [255, Math.round(178 - 40 * w), Math.round(120 - 30 * w)]; alpha = r2(0.05 + 0.26 * w);
+      bright = r2(0.98 - 0.14 * w); sat = r2(1 + 0.14 * w);
     } else {                                       // midday — clear
-      overlay = 'rgba(255,250,235,0)';
-      filter = 'brightness(1.02) saturate(1)';
+      wash = [255, 250, 235]; alpha = 0;
+      bright = 1.02; sat = 1;
     }
-    return { iso: iso, overlay: overlay, filter: filter };
+    return {
+      iso: iso,
+      overlay: 'rgba(' + wash.join(',') + ',' + alpha + ')',
+      filter: 'brightness(' + bright + ') saturate(' + sat + ')',
+      // #daynight is mix-blend-mode: multiply, so the wash scales each
+      // channel by (1 - a + a * wash / 255).
+      grade: {
+        tint: wash.map(function (c) { return 1 - alpha + alpha * c / 255; }),
+        brightness: bright,
+        saturate: sat
+      }
+    };
   }
 
+  /* The colour grade is the CSS wash (#daynight) + filter on the canvases,
+   * except in the voxel view while the night lights are on (17:00-7:00):
+   * then the SAME grade runs inside the shaders and the CSS pair is off for
+   * the GL canvas. Night window lights and their bloom are light SOURCES;
+   * under a CSS wash applied after WebGL they came out grey-brown
+   * (2026-10-05), in the shader they are added after the grade. By day the
+   * CSS path stays, because a per-fragment grade cost ~20% of a frame on
+   * SwiftShader for nothing. The two grades differ by <= 4/255 (measured),
+   * so the hand-over at 17:00 / 7:00 does not show. */
   function applyDayNight() {
     var s = sunModel(parseFloat($('sun').value));
-    $('daynight').style.background = s.overlay;
+    var inShader = !!(isVoxelMode() && voxelRenderer && voxelRenderer.setGrade &&
+      s.iso.night > 0);
+    $('daynight').style.background = inShader ? 'transparent' : s.overlay;
     map.style.filter = s.filter;
     $('riverfx').style.filter = s.filter;
-    glCanvas.style.filter = s.filter;
+    glCanvas.style.filter = inShader ? 'none' : s.filter;
+    if (voxelRenderer && voxelRenderer.setGrade) {
+      voxelRenderer.setGrade(inShader ? s.grade : null);
+      requestVoxelRender();
+    }
   }
 
   function readConfig() {
@@ -225,6 +256,7 @@
     $('showClouds').disabled = false;
     setIsoHint('hint.top');
     updateRotationLabel();
+    applyDayNight();
   }
 
   function updateRotationLabel() {
@@ -444,6 +476,7 @@
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     glCanvas.hidden = false;
     setIsoHint('hint.iso');
+    applyDayNight();
     resizeVoxel();
     updateRotationLabel();
     return true;
