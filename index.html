@@ -139,6 +139,9 @@
           <label for="sun" data-i18n="sun.label">Time of day <span id="sunVal">14:00</span></label>
           <input type="range" id="sun" min="6" max="29.5" step="0.5" value="14">
 
+          <label for="season" data-i18n="season.label" data-i18n-title="season.title" title="Spring, summer, autumn, winter: autumn leaves, then snow down the mountains and frozen lakes in the cold. Only the look changes, never the map.">Season <span id="seasonVal" data-i18n-js>Summer</span></label>
+          <input type="range" id="season" min="0" max="3" step="0.05" value="1">
+
           <label for="debugView" id="debugViewLabel" data-i18n="debug.label">Render debug view</label>
           <select id="debugView">
             <option value="0" data-i18n="debug.lit">Lit (normal)</option>
@@ -311,6 +314,7 @@
 <script src="src/render/smoke.js"></script>
 <script src="src/render/fog.js"></script>
 <script src="src/render/lightning.js"></script>
+<script src="src/render/season.js"></script>
 <script src="src/render/voxel3d.js"></script>
 <script src="src/touch.js"></script>
 <script src="src/time.js"></script>

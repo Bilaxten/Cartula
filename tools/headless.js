@@ -20,6 +20,7 @@
  *   node tools/headless.js --smoke      # volcano smoke: vents on craters, wind field, rise/bend/shrink, under the sky
  *   node tools/headless.js --fog        # valley fog: clock curve, valleys not ridges or sea, free while off
  *   node tools/headless.js --lightning  # lightning: rain clouds only, rare, calm pulses, axis-aligned bolt
+ *   node tools/headless.js --season     # season slider: render only, snow line, frozen fresh water, autumn forest
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -32,7 +33,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js', 'render/season.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -2715,8 +2716,8 @@ function runFogChecks() {
       ['', 'NIGHT', 'RIVER'].every(v => !/#define FOG /.test(src(v).fragment) &&
         /#else\n#define FOGGED\(c\) \(c\)\n#endif/.test(src(v).fragment)));
     push('the renderer swaps in a FOG variant only while the clock has fog (and never in debug views), compiling it then',
-      /if \(!U \|\| fogAmount < FOG_MIN \|\| debugView\) return U;/.test(voxel) &&
-      /if \(!\(key in fogVariants\)\) fogVariants\[key\] = terrainUniforms\(makeProgram\(gl, key\)\);/.test(voxel));
+      /var fog = fogAmount >= FOG_MIN && !debugView;/.test(voxel) &&
+      /if \(!\(key in extraVariants\)\) extraVariants\[key\] = terrainUniforms\(makeProgram\(gl, key\)\);/.test(voxel));
     push('the clock hands the fog over (sunModel), and its colour is the palette snow dimmed with the daylight',
       /fog: SM\.Fog \? SM\.Fog\.amount\(hour\) : 0/.test(main) &&
       /fogColor\[fk\] = foamColor\[fk\] \* fogLight;/.test(voxel));
@@ -2834,6 +2835,118 @@ function runLightningChecks() {
   }
 
   console.log('lightning checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
+// --season : the Season slider (src/render/season.js). Render only: the map,
+// its seed determinism and Random / Regenerate are untouched; spring and
+// summer are the map as generated; autumn warms deciduous forest only, with
+// palette tones; winter lowers the snow line (more snow the colder and higher)
+// and freezes fresh water in cold zones, never the sea; both views agree.
+// ---------------------------------------------------------------------------
+function runSeasonChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, !!ok, detail || '']);
+  const S = SM.Season;
+  const B = SM.BIOME_IDX;
+  {
+    const a = s => S.amounts(s);
+    push('spring and summer leave the map as generated; autumn peaks at 2 and is gone at 3; winter rises from 2 to 3',
+      a(0).winter === 0 && a(0).autumn === 0 && a(1).winter === 0 && a(1).autumn === 0 &&
+      a(2).autumn === 1 && a(2).winter === 0 && a(3).autumn === 0 && a(3).winter === 1 &&
+      a(2.5).winter > 0 && a(2.5).winter < 1);
+  }
+  let snowBad = 0, monoBad = 0, seaBad = 0, autumnBad = 0, warmBad = 0, frozenBad = 0, summerBad = 0;
+  let cover = [], coldFrozen = 0, warmFrozen = 0;
+  const C = S.colors();
+  for (const seed of [1337, 4242, 90210]) {
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const n = g.width * g.height;
+    const before = Buffer.from(g.level.buffer).toString('base64') + Buffer.from(g.biome).toString('base64');
+    const d = S.data(g);
+    let land = 0, snowy = 0;
+    const amt = {};
+    for (let i = 0; i < n; i++) {
+      const b = [d[i * 4], d[i * 4 + 1], d[i * 4 + 2]];
+      const sea = SM.isSea(g, i);
+      // Summer: identical colour in the top-down twin.
+      const c0 = [10, 20, 30];
+      const cs = S.tileColor(g, i, c0, 1);
+      if (cs[0] !== 10 || cs[1] !== 20 || cs[2] !== 30) summerBad++;
+      if (sea && (b[0] !== 255 || b[1] !== 255 || b[2] !== 0)) seaBad++;
+      if (b[2] && g.biome[i] !== B.forest) autumnBad++;
+      if (!g.water[i] && g.biome[i] === B.forest && !b[2]) autumnBad++;
+      if (g.water[i] && b[0] !== 255) snowBad++;
+      // Winter snow: monotone in the season, and nothing snows in winter
+      // that sits higher above its snow line than a tile that does not.
+      const w = S.tileAmounts(b, S.amounts(3), amt).snow;
+      const half = S.tileAmounts(b, S.amounts(2.5), {}).snow;
+      if (half > w + 1e-9) monoBad++;
+      if (!g.water[i]) { land++; if (w > 0.5) snowy++; }
+      if (g.biome[i] === B.snow && w < 0.99) snowBad++;
+      const f = S.tileAmounts(b, S.amounts(3), {}).frozen;
+      if (f > 0 && (!g.water[i] || sea)) frozenBad++;
+      if (g.water[i] && !sea && f > 0.5) { if (g.temperature[i] < S.FREEZE_T) coldFrozen++; else warmFrozen++; }
+    }
+    // Autumn's colours on a real forest tile: its own colour pulled toward
+    // a mix of the palette's savanna and mesa, nothing outside that box.
+    for (let i = 0; i < n; i++) {
+      if (g.water[i] || g.biome[i] !== B.forest) continue;
+      const base = [79, 127, 66];
+      const c = S.tileColor(g, i, base, 2);
+      for (let j = 0; j < 3; j++) {
+        const lo = Math.min(base[j], C.autumnA[j], C.autumnB[j]) - 1e-9;
+        const hi = Math.max(base[j], C.autumnA[j], C.autumnB[j]) + 1e-9;
+        if (c[j] < lo || c[j] > hi) warmBad++;
+      }
+      if (c.join() === base.join()) warmBad++;
+    }
+    const after = Buffer.from(g.level.buffer).toString('base64') + Buffer.from(g.biome).toString('base64');
+    if (before !== after) summerBad++;
+    cover.push(`${seed}: ${(100 * snowy / land).toFixed(0)}%`);
+  }
+  push(`summer paints every tile exactly as generated, and the season never touches the grid (${summerBad} wrong)`, summerBad === 0);
+  push(`the sea takes no season (${seaBad} wrong); only deciduous forest turns in autumn (${autumnBad} wrong)`,
+    seaBad === 0 && autumnBad === 0);
+  push(`winter snow grows with the season and never falls on water; snow tiles stay white (${monoBad} not monotone, ${snowBad} wrong)`,
+    monoBad === 0 && snowBad === 0);
+  push(`deep winter lowers the snow line onto part of the land (${cover.join(', ')})`,
+    cover.every(c => { const v = +c.split(': ')[1].replace('%', ''); return v > 15 && v < 50; }));
+  push(`only cold fresh water freezes (${coldFrozen} cold tiles frozen, ${warmFrozen} warm, ${frozenBad} land/sea)`,
+    coldFrozen > 50 && warmFrozen === 0 && frozenBad === 0);
+  push('autumn tones lie between two palette colours (savanna, mesa); snow and ice are palette snow and snow-to-shallow-sea',
+    warmBad === 0 && C.snow.join() === SM.BIOME_LIST[B.snow].color.match(/\w\w/g).map(h => parseInt(h, 16)).join());
+  {
+    // Determinism: the same seed generates the same map whatever the season
+    // slider says -- it is not an input of generation at all.
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    const readCfg = main.slice(main.indexOf('function readConfig()'), main.indexOf('function applyCam()'));
+    const randomFn = main.slice(main.indexOf('function randomSettings()'), main.indexOf('function randomMap()'));
+    push('season is not a generation input, not in a world type, not touched by Random / Regenerate; it is in the share link',
+      !/season/.test(readCfg) && !/season/.test(randomFn) && SM.WorldTypes.KEYS.indexOf('season') < 0 &&
+      /'sun', 'season',/.test(main));
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const src = v => SM.voxelTerrainShaderSources(v);
+    push('SEASON variants read the tile bytes and recolour per vertex (before the light); frozen rivers stop flowing; plain variants compile it out',
+      ['SEASON', 'NIGHT SEASON', 'RIVER FOG SEASON'].every(v => /texelFetch\(uSeasonMap, seasonCell, 0\)/.test(src(v).vertex) &&
+        /sc = mix\(sc, uSnowColor/.test(src(v).vertex) && /vColor = sc;/.test(src(v).vertex)) &&
+      /mix\(riverFlow\(baseColor\), baseColor, vFrozen\)/.test(src('RIVER SEASON').fragment) &&
+      ['', 'NIGHT', 'RIVER'].every(v => !/#define SEASON/.test(src(v).vertex)));
+    push('the renderer uses a SEASON variant only off summer (and never in debug views), compiling it then',
+      /var season = \(seasonAmount\[0\] >= SEASON_MIN \|\| seasonAmount\[1\] >= SEASON_MIN\) && !debugView;/.test(voxel) &&
+      /if \(!\(key in extraVariants\)\) extraVariants\[key\] = terrainUniforms\(makeProgram\(gl, key\)\);/.test(voxel));
+    const topdown = fs.readFileSync(path.join(root, 'render', 'topdown.js'), 'utf8');
+    push('the top-down view paints the same season (SM.Season.tileColor); the Unity albedo export stays seasonless',
+      /SM\.Season\.tileColor\(grid, i, c, season\)/.test(topdown) &&
+      /SM\.renderTopDown\(big, grid, \{ tile: 1, grid: false, shade: false, markers: false \}\)/.test(main));
+  }
+
+  console.log('season checks:');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
     if (!ok && detail) console.log(`         ${detail}`);
@@ -3407,6 +3520,8 @@ function runWeatherChecks() {
 
 if (process.argv[2] === '--layout') {
   runLayoutChecks();
+} else if (process.argv[2] === '--season') {
+  runSeasonChecks();
 } else if (process.argv[2] === '--lightning') {
   runLightningChecks();
 } else if (process.argv[2] === '--fog') {

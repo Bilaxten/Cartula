@@ -819,8 +819,10 @@
       riverIndexStart: riverIndexStart,
       // Per-corner flow image, (W+1) x (H+1) RGBA8 (flow.js).
       flowMap: flow ? flow.corner : null,
-      // Valley fog surface per tile, W x H R8 (fog.js).
+      // Valley fog per tile, W x H R8 (fog.js).
       fogMap: SM.Fog ? SM.Fog.field(grid) : null,
+      // Season bytes per tile, W x H RGBA8 (season.js).
+      seasonMap: SM.Season ? SM.Season.data(grid) : null,
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
       // The map's seed: the sky (SM.Sky.cloudInstances) is derived from it.
@@ -1133,18 +1135,35 @@
       'uniform float uFogAmount;',
       'out float vFog;',
       '#endif',
+      '#ifdef SEASON',
+      // Seasons (src/render/season.js): each tile's bytes (RGBA8), the
+      // slider's winter / autumn amounts and the palette colours they lead
+      // to. Vertex-only uniforms: the season recolours vColor per vertex.
+      'uniform highp sampler2D uSeasonMap;',
+      'uniform vec2 uSeason;',
+      'uniform vec3 uSnowColor;',
+      'uniform vec3 uIceColor;',
+      'uniform vec3 uAutumnA;',
+      'uniform vec3 uAutumnB;',
+      'uniform vec3 uBare;',
+      '#ifdef RIVER',
+      'out float vFrozen;',          // a frozen river does not flow
+      '#endif',
+      '#endif',
       '',
       'void main() {',
       '  vNormal = aNormal;',
       '#ifdef RIVER',
       '  vRiverPos = aPosition.xz;',
       '#endif',
+      '#if defined(FOG) || defined(SEASON)',
+      '  // The display plinth (its own colour, its cells clamped onto the edge',
+      '  // tiles) takes neither fog nor season.',
+      '  float plinth = step(length(aColor - vec3(' + BORD.map(function (v) { return glslFloat(v / 255); }).join(', ') + ')), 0.004);',
+      '#endif',
       '#ifdef FOG',
       '  ivec2 fogSize = textureSize(uFogMap, 0);',
       '  ivec2 fogCell = clamp(ivec2(aCellUV * vec2(fogSize)), ivec2(0), fogSize - 1);',
-      '  // The display plinth (its own colour, its cells clamped onto the edge',
-      '  // tiles) never fogs.',
-      '  float plinth = step(length(aColor - vec3(' + BORD.map(function (v) { return glslFloat(v / 255); }).join(', ') + ')), 0.004);',
       '  vFog = (1.0 - plinth) * uFogAmount * texelFetch(uFogMap, fogCell, 0).r;',
       '#endif',
       '  vColor = aColor;',
@@ -1182,6 +1201,9 @@
       '  // reads the same value.',
       '  vWaveShade = aWater * step(0.5, aNormal.y) * aWave.w *',
       '    sin(uTime * 1.40 + aWave.z * (255.0 / 256.0) * TAU);',
+      '#ifdef SEASON',
+      SM.Season ? SM.Season.VERTEX_GLSL : '',
+      '#endif',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
       '    (aPosition.y + wave) * uVScale,',
@@ -1226,6 +1248,9 @@
       // Lightning flash (fragment-only).
       'uniform vec4 uFlash;',
       // Flowing water (src/render/flow.js): only the river draw compiles it.
+      '#if defined(SEASON) && defined(RIVER)',
+      'in float vFrozen;',
+      '#endif',
       '#ifdef FOG',
       'in float vFog;',
       'uniform vec3 uFogColor;',
@@ -1321,7 +1346,12 @@
       '  vec3 baseColor = mix(vColor, fallColor, vFall);',
       '#ifdef RIVER',
       '  // Rivers and plunge pools: the advected flow pattern (flow.js).',
+      '#if defined(SEASON)',
+      '  // Ice does not flow (season.js).',
+      '  baseColor = mix(riverFlow(baseColor), baseColor, vFrozen);',
+      '#else',
       '  baseColor = riverFlow(baseColor);',
+      '#endif',
       '#endif',
       '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
       '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
@@ -1579,10 +1609,11 @@
     // are drawn by the plain programs, still.
     var riverProgram = makeProgram(gl, 'RIVER');
     var nightRiverProgram = nightProgram ? makeProgram(gl, 'NIGHT RIVER') : null;
-    // Valley fog (fog.js): FOG variants of the four above, compiled the
-    // first time the clock brings fog (a session at noon never builds them).
-    // key -> uniforms, or null when it failed (then the plain one draws).
-    var fogVariants = {};
+    // Valley fog (fog.js) and seasons (season.js): FOG / SEASON variants of
+    // the four above, each compiled the first time it is needed (a session
+    // at noon in summer never builds one). key -> uniforms, or null when it
+    // failed (then the plain one draws).
+    var extraVariants = {};
 
     // Every draw call and buffer/texture allocation below goes through this
     // counter (src/perf.js), so the performance panel reports what the
@@ -1664,7 +1695,14 @@
         fogMap: 'uFogMap',
         fogAmount: 'uFogAmount',
         fogColor: 'uFogColor',
-        flash: 'uFlash'
+        flash: 'uFlash',
+        seasonMap: 'uSeasonMap',
+        season: 'uSeason',
+        snowColor: 'uSnowColor',
+        iceColor: 'uIceColor',
+        autumnA: 'uAutumnA',
+        autumnB: 'uAutumnB',
+        bare: 'uBare'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1684,12 +1722,23 @@
     var fogColor = [1, 1, 1];
     var FOG_MIN = 0.003;
 
-    // The fog twin of a plain variant (U), or U itself when there is no
-    // fog or its program failed.
-    function fogged(U, key) {
-      if (!U || fogAmount < FOG_MIN || debugView) return U;
-      if (!(key in fogVariants)) fogVariants[key] = terrainUniforms(makeProgram(gl, key));
-      return fogVariants[key] || U;
+    // Seasons: the per-map bytes and the slider's winter / autumn amounts.
+    var seasonTexture = gl.createTexture();
+    var seasonAmount = [0, 0];
+    var seasonColors = SM.Season ? SM.Season.colors() : null;
+    var SEASON_MIN = 0.003;
+
+    // The terrain program for this frame: night or day, river or not, with
+    // FOG / SEASON when the clock has fog or the slider is off summer (never
+    // in debug views). Falls back to the plain variant if one fails.
+    function terrainVariant(night, river) {
+      var U = night ? (river ? nightRiverU : nightU) : (river ? riverU : dayU);
+      var fog = fogAmount >= FOG_MIN && !debugView;
+      var season = (seasonAmount[0] >= SEASON_MIN || seasonAmount[1] >= SEASON_MIN) && !debugView;
+      if (!U || (!fog && !season)) return U;
+      var key = [night && 'NIGHT', river && 'RIVER', fog && 'FOG', season && 'SEASON'].filter(Boolean).join(' ');
+      if (!(key in extraVariants)) extraVariants[key] = terrainUniforms(makeProgram(gl, key));
+      return extraVariants[key] || U;
     }
     // The flow image (flow.js corners, RGBA8, linear) and where the flowing
     // tops start in the index buffer.
@@ -1858,6 +1907,13 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([0]));
     acct.texture(fogTexture, 1);
+    gl.bindTexture(gl.TEXTURE_2D, seasonTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 0, 255]));
+    acct.texture(seasonTexture, 4);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2325,6 +2381,13 @@
         gl.bindTexture(gl.TEXTURE_2D, null);
         acct.texture(fogTexture, mesh.gridSize[0] * mesh.gridSize[1]);
       }
+      if (mesh.seasonMap && mesh.gridSize) {
+        gl.bindTexture(gl.TEXTURE_2D, seasonTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, mesh.gridSize[0], mesh.gridSize[1], 0,
+          gl.RGBA, gl.UNSIGNED_BYTE, mesh.seasonMap);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        acct.texture(seasonTexture, mesh.gridSize[0] * mesh.gridSize[1] * 4);
+      }
       gridSize = mesh.gridSize || gridSize;
       meshVersion++;
     }
@@ -2462,10 +2525,10 @@
       // Flowing water's tops (the end of the index buffer) are drawn by the
       // RIVER variant; without it they stay in the main draw.
       // Fog hours swap each for its FOG twin (fogged).
-      var flowU = fogged(night ? nightRiverU : riverU, night ? 'NIGHT RIVER FOG' : 'RIVER FOG');
+      var flowU = terrainVariant(night, true);
       var mainCount = flowU ? riverIndexStart : indexCount;
       // Night: the colour grade in the shader, lava shining past it.
-      setTerrainUniforms(fogged(night ? nightU : dayU, night ? 'NIGHT FOG' : 'FOG'));
+      setTerrainUniforms(terrainVariant(night, false));
       acct.drawElements(gl.TRIANGLES, mainCount, gl.UNSIGNED_INT, 0);
       if (mainCount < indexCount) {
         setTerrainUniforms(flowU);
@@ -2554,6 +2617,18 @@
         gl.uniform1f(U.fogAmount, fogAmount);
         gl.uniform3fv(U.fogColor, fogColor);
       }
+      if (U.seasonMap) {
+        gl.activeTexture(gl.TEXTURE4);
+        gl.bindTexture(gl.TEXTURE_2D, seasonTexture);
+        gl.uniform1i(U.seasonMap, 4);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.uniform2f(U.season, seasonAmount[0], seasonAmount[1]);
+        gl.uniform3f(U.snowColor, seasonColors.snow[0] / 255, seasonColors.snow[1] / 255, seasonColors.snow[2] / 255);
+        gl.uniform3f(U.iceColor, seasonColors.ice[0] / 255, seasonColors.ice[1] / 255, seasonColors.ice[2] / 255);
+        gl.uniform3f(U.autumnA, seasonColors.autumnA[0] / 255, seasonColors.autumnA[1] / 255, seasonColors.autumnA[2] / 255);
+        gl.uniform3f(U.autumnB, seasonColors.autumnB[0] / 255, seasonColors.autumnB[1] / 255, seasonColors.autumnB[2] / 255);
+        gl.uniform3f(U.bare, seasonColors.bare[0] / 255, seasonColors.bare[1] / 255, seasonColors.bare[2] / 255);
+      }
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
     }
 
@@ -2607,6 +2682,13 @@
       gl.bindVertexArray(null);
       sky.weatherCount = mesh.indices.length;
       sky.weatherRanges = mesh.ranges;
+    }
+
+    // Season slider value (0 spring .. 3 winter; season.js): render only.
+    function setSeason(value) {
+      var a = SM.Season ? SM.Season.amounts(value) : { winter: 0, autumn: 0 };
+      seasonAmount[0] = a.winter;
+      seasonAmount[1] = a.autumn;
     }
 
     // prefers-reduced-motion: strikes keep their bolt, lose the light flash.
@@ -2769,9 +2851,11 @@
       if (glowProgram) gl.deleteProgram(glowProgram);
       if (riverProgram) gl.deleteProgram(riverProgram);
       if (nightRiverProgram) gl.deleteProgram(nightRiverProgram);
-      Object.keys(fogVariants).forEach(function (k) {
-        if (fogVariants[k]) gl.deleteProgram(fogVariants[k].program);
+      Object.keys(extraVariants).forEach(function (k) {
+        if (extraVariants[k]) gl.deleteProgram(extraVariants[k].program);
       });
+      gl.deleteTexture(seasonTexture);
+      acct.forget(seasonTexture);
       gl.deleteTexture(fogTexture);
       acct.forget(fogTexture);
       gl.deleteTexture(flowTexture);
@@ -2819,6 +2903,7 @@
       setWeather: setWeather,
       setSmokeData: setSmokeData,
       setFlashLight: setFlashLight,
+      setSeason: setSeason,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,

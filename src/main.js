@@ -57,6 +57,8 @@
   };
   var AUTOROTATE_DEG_PER_SEC = 5;   // one full turn every 72s -- "yavaş" per Uğur
   function isoExag() { return parseFloat($('isoexag').value); }
+  // Season slider (0 spring .. 3 winter): a view setting, never generation.
+  function seasonValue() { return parseFloat($('season').value); }
 
   var SLIDERS = {
     size: { label: 'sizeVal', fmt: function (v) { return v + '²'; } },
@@ -83,7 +85,11 @@
     brushSize: { label: 'brushSizeVal', fmt: function (v) { return v; } },
     brushStrength: { label: 'brushStrengthVal', fmt: function (v) { return (+v).toFixed(1); } },
     isoexag: { label: 'isoexagVal', fmt: function (v) { return (+v).toFixed(1); } },
-    sun: { label: 'sunVal', fmt: SM.formatClock }
+    sun: { label: 'sunVal', fmt: SM.formatClock },
+    // Season (season.js): render only, named by the nearest season.
+    season: { label: 'seasonVal', fmt: function (v) {
+      return T(['season.spring', 'season.summer', 'season.autumn', 'season.winter'][Math.round(+v)] || 'season.summer');
+    } }
   };
 
   // Time of day -> sun for the voxel view, plus a colour wash and a canvas
@@ -483,6 +489,7 @@
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     if (voxelRenderer.setWind) voxelRenderer.setWind($('showWind').checked);
     if (voxelRenderer.setWeather) voxelRenderer.setWeather($('showWeather').checked);
+    if (voxelRenderer.setSeason) voxelRenderer.setSeason(seasonValue());
     // Lightning keeps its bolt but not its light flash for reduced motion.
     if (voxelRenderer.setFlashLight) {
       voxelRenderer.setFlashLight(!(window.matchMedia &&
@@ -688,7 +695,8 @@
     content = SM.renderTopDown(map, grid, {
       tile: tt,
       grid: $('showGrid').checked,
-      shade: $('showShade').checked
+      shade: $('showShade').checked,
+      season: seasonValue()
     });
     editedSinceRender = false;
   }
@@ -815,7 +823,7 @@
     // Same painter the full render uses (topdown.js), so a brushed tile
     // already has its final colour.
     for (var k = 0; k < indices.length; k++) {
-      SM.paintTopDownTile(ctx, grid, indices[k], ts, hillshade);
+      SM.paintTopDownTile(ctx, grid, indices[k], ts, hillshade, seasonValue());
     }
   }
 
@@ -827,7 +835,8 @@
       content = SM.renderTopDown(map, grid, {
         tile: content.tile,
         grid: $('showGrid').checked,
-        shade: $('showShade').checked
+        shade: $('showShade').checked,
+        season: seasonValue()
       });
       editedSinceRender = false;
       applyCam();
@@ -1352,7 +1361,7 @@
   // weakest slider (20-25% of tiles) with a jargon name; old links carrying it
   // are simply ignored and the generator keeps its default.
   var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
-    'island', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'yaw',
+    'island', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'season', 'yaw',
     'pitch', 'zoom'];
 
   function applyQueryValue(input, value) {
@@ -1551,6 +1560,21 @@
     if (isVoxelMode()) updateVoxelSun();
   });
   $('sun').addEventListener('change', applyDayNight);
+  // Season: the voxel view follows the drag (uniforms only); the top-down
+  // bake is repainted once the slider is let go. The map is not touched.
+  $('season').addEventListener('input', function () {
+    if (isVoxelMode() && voxelRenderer && voxelRenderer.setSeason) {
+      voxelRenderer.setSeason(seasonValue());
+      requestVoxelRender();
+    }
+  });
+  $('season').addEventListener('change', function () {
+    if (!isVoxelMode() && grid && !pipeline) {
+      drawContent();
+      applyCam();
+      startRiverAnim();
+    }
+  });
 
   // Two "new map" actions (Uğur 2026-10-05; between 2026-09-23 and then there was only one):
   //   Regenerate -- a new random seed, every slider stays as set (R).

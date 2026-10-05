@@ -24,10 +24,13 @@
   // own copy, and the copy had drifted: it clamped the hillshade at ±0.18
   // where this clamps at ±0.4, so a brushed tile changed tone when the idle
   // re-render replaced it 450 ms later.
-  function paintTile(ctx, grid, i, ts, hillshade) {
+  // `season`: the Season slider (season.js), 1 (summer) = as generated.
+  function paintTile(ctx, grid, i, ts, hillshade, season) {
     var w = grid.width, x = i % w, y = (i / w) | 0;
     // Sea: depth ramp + shoreline tint from the one shared definition.
     var c = SM.isSea(grid, i) ? SM.seaColor(grid, i) : biomeRgb()[grid.biome[i]];
+    // The season's snow, ice and autumn leaves: the voxel view's own steps.
+    if (season != null && SM.Season) c = SM.Season.tileColor(grid, i, c, season);
     ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
     ctx.fillRect(x * ts, y * ts, ts, ts);
     if (hillshade && !grid.water[i]) {
@@ -45,7 +48,7 @@
   function renderTopDown(canvas, grid, opts) {
     // `markers: false` leaves out the settlement icons (the Unity albedo wants
     // colour per cell, not symbols drawn over it).
-    var o = Object.assign({ tile: 10, grid: false, shade: true, markers: true }, opts || {});
+    var o = Object.assign({ tile: 10, grid: false, shade: true, markers: true, season: null }, opts || {});
     var w = grid.width, h = grid.height, ts = o.tile;
 
     canvas.width = w * ts;
@@ -62,7 +65,7 @@
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         var i = y * w + x;
-        paintTile(ctx, grid, i, ts, o.shade);
+        paintTile(ctx, grid, i, ts, o.shade, o.season);
 
         if (grid.biome[i] === RIVER) {
           rivers.push({ x: x * ts, y: y * ts, phase: (grid.flowStep ? grid.flowStep[i] : (x + y)) });
