@@ -130,3 +130,11 @@ Bu depo Uğur'un vault'una (`BilaxtenOS`) bağlı. Vault'taki proje notu:
 **Sınır:** proje gerçeği bu depodadır, vault onu kopyalamaz. Vault yalnızca
 ilişkisel katmanı tutar (bu proje neden var, hangi işe bağlı, hangi karar nerede
 alındı). İkisini senkron tutmaya çalışma — vault depoya *işaret eder*.
+
+## Yayın: bilaxten.art/cartula (2026-10-05)
+
+Canlı demo `https://bilaxten.art/cartula/`. Commit + push sonrası `scripts/publish-site.sh` uygulamayı
+(`index.html`, `css/`, `src/`, `assets/`) bilaxten.art `master`'ında `cartula/` altına kopyalar, push eder ve
+canlı baytları doğrular; yalnız `cartula/` değişir. bilaxten.art'ın yayın betiği bu klasörü korur
+(`scripts/external-dirs.txt`). bilaxten.art'ta `cartula/`'yı elle düzenleme; kaynak bu repo.
+Sitede görünen her metin TR + EN olmalı (Uğur 2026-10-05); uygulama arayüzü şu an yalnız İngilizce.
