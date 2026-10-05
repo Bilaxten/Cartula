@@ -24,15 +24,27 @@
   // Continuous elevation (0..1), bilinear-resampled to res×res, as 16-bit
   // little-endian bytes. Row 0 is the map's SOUTH edge: Unity puts raw row 0
   // at terrain z = 0, so the terrain then reads the same way up as the
-  // top-down view with no "Flip Vertically".
+  // top-down view with no "Flip Vertically" (⚠️ not yet confirmed inside
+  // Unity -- see TODO.md).
+  //
+  // A cell is an AREA, not a point: cell k covers [k, k+1) and its height
+  // belongs to its centre, k + 0.5. The heightmap spans the same W×H cells
+  // the 1-px-per-cell albedo and biome textures span, so a sample at terrain
+  // fraction u reads cell coordinate u*W - 0.5 (clamped at the border). The
+  // first version mapped u to u*(W-1) -- corner samples on corner cell
+  // CENTRES -- which stretched the heights by W/(W-1) against the textures:
+  // up to half a cell of drift between a coastline in the albedo and the same
+  // coastline in the terrain, zero only at the map centre.
   function heightmapR16(grid, res) {
     var W = grid.width, H = grid.height, e = grid.elevation;
     var out = new Uint8Array(res * res * 2);
     for (var r = 0; r < res; r++) {
-      var gy = (1 - r / (res - 1)) * (H - 1);
+      var gy = (1 - r / (res - 1)) * H - 0.5;
+      gy = gy < 0 ? 0 : gy > H - 1 ? H - 1 : gy;
       var y0 = Math.floor(gy), y1 = Math.min(H - 1, y0 + 1), fy = gy - y0;
       for (var c = 0; c < res; c++) {
-        var gx = c / (res - 1) * (W - 1);
+        var gx = c / (res - 1) * W - 0.5;
+        gx = gx < 0 ? 0 : gx > W - 1 ? W - 1 : gx;
         var x0 = Math.floor(gx), x1 = Math.min(W - 1, x0 + 1), fx = gx - x0;
         var top = e[y0 * W + x0] * (1 - fx) + e[y0 * W + x1] * fx;
         var bot = e[y1 * W + x0] * (1 - fx) + e[y1 * W + x1] * fx;
@@ -99,7 +111,8 @@
     '',
     '1. Terrain: GameObject > 3D Object > Terrain. In Terrain Settings set',
     '   Heightmap Resolution to the value in map.json heightmap.resolution,',
-    '   Terrain Width/Length to taste (e.g. 1 m per cell), Height to taste.',
+    '   Terrain Width/Length to taste (map.json width/height in metres gives',
+    '   exactly 1 m per cell), Height to taste.',
     '2. Terrain Settings > Import Raw: heightmap.r16, Depth 16 bit,',
     '   Byte Order Windows (little-endian), no flip. Row 0 is the south edge.',
     '3. Water: a plane at height = Terrain Height * map.json seaLevelNormalized.',

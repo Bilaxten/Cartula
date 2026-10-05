@@ -1204,6 +1204,23 @@ function runExportChecks() {
   push('corners: row 0 is the south edge, little-endian, exact at grid corners', corners,
     corners ? '' : `got ${at(0, 0)} want ${q(e[(H - 1) * W])}`);
 
+  // Registration against the 1-px-per-cell textures: a cell is an area and
+  // its height sits at its CENTRE. One raised cell on an 8² grid at 33²:
+  // cell (5, 2) has its centre at u = 5.5/8, v(from the north) = 2.5/8, i.e.
+  // column 22 and -- rows run south to north -- row 22. The old corner-to-
+  // corner mapping (u * (W-1)) put no sample on that centre at all.
+  {
+    const n = 8, tiny = { width: n, height: n, elevation: new Float32Array(n * n) };
+    tiny.elevation[2 * n + 5] = 1;
+    const tr = X.unityResolution(n), t16 = X.heightmapR16(tiny, tr);
+    const tat = (r, c) => t16[(r * tr + c) * 2] | (t16[(r * tr + c) * 2 + 1] << 8);
+    let peak = [0, 0], best = -1;
+    for (let r = 0; r < tr; r++) for (let c = 0; c < tr; c++) if (tat(r, c) > best) { best = tat(r, c); peak = [r, c]; }
+    push('heightmap samples cell centres: a raised cell peaks where its texel is',
+      tr === 33 && best === 65535 && peak[0] === 22 && peak[1] === 22,
+      `peak ${best} at row ${peak[0]}, col ${peak[1]} (want 65535 at 22, 22)`);
+  }
+
   const meta = X.exportMeta(g);
   const rivers = g.biome.filter(b => b === SM.BIOME_IDX.river).length;
   const lips = g.waterfalls.filter(v => v === 1).length;
