@@ -27,7 +27,7 @@ const win = {};
 global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
-for (const f of ['noise.js', 'grid.js', 'biome.js', 'huts.js', 'generate.js',
+for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
@@ -428,10 +428,8 @@ function runMeshChecks() {
   // 123314: sea is one flat surface at level 0, depth drawn as colour.
   // 123314 → 124228: wave skirts (2026-10-05) -- a land column level with
   // the water and the plinth ring beside edge water each gain a skirt quad.
-  // 124228 → 124708: three huts (src/huts.js, 2026-10-05), 160 triangles
-  // each; the terrain itself is unchanged (124228 with grid.huts = []).
-  const triangleCount = mesh.triangleCount === 124708 &&
-    SM.buildVoxelMesh(Object.assign({}, a, { huts: [] })).triangleCount === 124228;
+  // (2026-10-05: huts came and went the same day; back to terrain only.)
+  const triangleCount = mesh.triangleCount === 124228;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -2127,58 +2125,27 @@ function runPerfChecks() {
 function runNightChecks() {
   const results = [];
   const push = (name, ok, detail) => results.push([name, ok, detail || '']);
-  const TOWN = SM.BIOME_LIST.findIndex(b => b.id === 'town');
 
-  // Night lights since 2026-10-05 (owner: "biz ev koymuyoruz ki niye
-  // parlamalar var?"): only hut WINDOW faces carry the light flag -- no
-  // settlement tile does -- and the bloom source holds hut windows and lava.
+  // Night lights since 2026-10-05 (second round): lava only. There are no
+  // houses on the map, so nothing else lights up -- not the settlement
+  // tiles, and the huts that briefly carried windows are gone (owner).
   for (const seed of [1337, 4242, 90210]) {
     const g = run(seed, 128, 0.38).grid;
     const mesh = SM.buildVoxelMesh(g);
     const W = g.width, H = g.height;
-    // Independent model of a window face: the outward face of a G voxel.
-    const windowCells = new Map();
-    for (const h of g.huts) {
-      for (const v of SM.Huts.voxels(g, h)) if (v.m === 'G') windowCells.set(v.x + ',' + v.y, v.level);
-    }
-    let flagged = 0, wrong = 0, onTown = 0, lavaV = 0, lavaWrong = 0;
+    let lavaV = 0, lavaWrong = 0, lavaCells = 0;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const x = Math.floor(mesh.cellUV[v * 2] * W);
       const y = Math.floor(mesh.cellUV[v * 2 + 1] * H);
-      const i = y * W + x;
-      if (mesh.town[v]) {
-        flagged++;
-        const lvl = windowCells.get(x + ',' + y);
-        const py = mesh.positions[v * 3 + 1];
-        if (lvl == null || py < lvl - 1e-6 || py > lvl + 1 + 1e-6 || mesh.normals[v * 3 + 1] !== 0) wrong++;
-        if (g.biome[i] === TOWN && lvl == null) onTown++;
-      }
       if (mesh.emissive[v] > 0) {
         lavaV++;
-        if (!g.lava[i] || mesh.town[v]) lavaWrong++;
+        if (!g.lava[y * W + x]) lavaWrong++;
       }
     }
-    const windows = g.huts.filter(h => SM.Huts.voxels(g, h).length).length * 2;
-    const towns = g.biome.filter((b, i) => b === TOWN && !g.water[i]).length;
-    push(`seed ${seed}: the light flag sits only on hut window faces (${flagged} vertices = ${windows} windows x 4), ` +
-      `none on the ${towns} settlement tiles`,
-      flagged === windows * 4 && windows >= 6 && wrong === 0 && onTown === 0 && mesh.town.length === mesh.vertexCount,
-      `wrong ${wrong}, on town ${onTown}`);
-    push(`seed ${seed}: bloom source inputs: lava faces carry emission (${lavaV} vertices), only on lava, never a window`,
-      lavaWrong === 0 && (lavaV > 0 || !g.lava.some(Boolean)), `wrong ${lavaWrong}`);
-    // The renderer draws window triangles in their own range at night:
-    // the reordered buffer must hold exactly the same triangles.
-    const ord = SM.voxelSettlementLast(mesh.indices, mesh.town);
-    const key = (arr, t) => arr[t] + ',' + arr[t + 1] + ',' + arr[t + 2];
-    const before = [], after = [];
-    for (let t = 0; t < mesh.indices.length; t += 3) { before.push(key(mesh.indices, t)); after.push(key(ord.indices, t)); }
-    let split = true;
-    for (let t = 0; t < ord.indices.length; t += 3) {
-      if (!!mesh.town[ord.indices[t]] !== (t >= ord.townStart)) { split = false; break; }
-    }
-    push(`seed ${seed}: window-last index order keeps every triangle, splits exactly at the boundary (${(ord.indices.length - ord.townStart) / 3} window triangles)`,
-      split && ord.indices.length === mesh.indices.length && ord.townStart % 3 === 0 &&
-      before.sort().join(';') === after.sort().join(';'), '');
+    for (let i = 0; i < W * H; i++) if (g.lava[i]) lavaCells++;
+    push(`seed ${seed}: emission only on lava faces (${lavaV} vertices, ${lavaCells} lava cells); no light flag, no hut on the map`,
+      lavaWrong === 0 && (lavaV > 0) === (lavaCells > 0) && !('town' in mesh) && !('huts' in g),
+      `wrong ${lavaWrong}`);
   }
 
   {
@@ -2206,7 +2173,7 @@ function runNightChecks() {
     }
     const post = fs.readFileSync(path.join(root, 'render', 'post.js'), 'utf8');
     push(`lava halo: the composite rebuilds the per-tile pulse from the blurred phasor channels (worst error ${worst.toFixed(4)} with 8-bit storage)`,
-      worst < 0.01 && /0\.651 \* s\.g \+ 0\.189 \* \(lavaCos \* uPulse\.x \+ lavaSin \* uPulse\.y\)/.test(post) &&
+      worst < 0.01 && /0\.651 \* s\.r \+ 0\.189 \* \(lavaCos \* uPulse\.x \+ lavaSin \* uPulse\.y\)/.test(post) &&
       /Math\.sin\(look\.time \* 2\.4\), Math\.cos\(look\.time \* 2\.4\)/.test(post) && /outColor = c;/.test(post), '');
   }
 
@@ -2259,12 +2226,8 @@ function runNightChecks() {
 
   {
     const src = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
-    const lightLines = src.split('\n').filter(l => /uLightColor \*/.test(l));
-    push('terrain shader: the window light colour is only ever multiplied by the window flag',
-      lightLines.length === 1 && lightLines.every(l => /\(town \*/.test(l)) &&
-      /vAO = aAO \+ 4\.0 \* aTown;/.test(src) && /float town = step\(3\.5, vAO\);/.test(src) &&
-      /cellTown = v\.m === 'G' \? 1 : 0;/.test(src) && !/cellTown = grid\.biome/.test(src),
-      lightLines.join(' | '));
+    push('no window or settlement light left in the renderer (no aTown, uLightColor, WINDOWS variant)',
+      !/aTown|uLightColor|WINDOWS|windowLight|settlementLast/.test(src), '');
     push('bloom runs only at night and never in debug views; lava pulses in the composite, not the source',
       /if \(bloom && glowU && bloomOn && !debugView && nightLight > 0\.001\)/.test(src) &&
       /bloomLook\.lavaStrength = LAVA_BLOOM \* nightLight;/.test(src), '');
@@ -2288,15 +2251,13 @@ function runNightChecks() {
       return out.join('\n');
     };
     const frag = v => pre(SM.voxelTerrainShaderSources(v).fragment, new Set(v.split(' ').filter(Boolean)));
-    const day = frag(''), night = frag('NIGHT'), windows = frag('NIGHT WINDOWS'), glow = frag('GLOW');
-    const nightOnly = ['grade(', 'uNightLight', 'uLightColor'];
+    const day = frag(''), night = frag('NIGHT'), glow = frag('GLOW');
+    const nightOnly = ['grade(', 'uNightLight'];
     const leaked = nightOnly.filter(k => day.includes(k));
-    push('day terrain shader compiles none of the night code; lava goes past the grade only at night; the window light only in NIGHT WINDOWS; glow returns before lighting with windows in R and lava in G/B/A',
-      leaked.length === 0 && nightOnly.every(k => windows.includes(k)) &&
-      night.includes('grade(') && /emission \* \(uNightLight \*/.test(night) && !/emission \* \(uNightLight/.test(day) &&
-      !night.includes('uLightColor *') && windows.includes('uLightColor * (town') &&
-      /outColor = vec4\(town \* [\d.]+, lavaGlow,[^;]*;[\s\S]{0,20}return;/.test(glow) &&
-      !glow.includes('uLightColor') && !glow.includes('windowLight('),
+    push('day terrain shader compiles none of the night code; lava goes past the grade only at night; glow returns before lighting with lava in R and its phasor in G/B',
+      leaked.length === 0 && nightOnly.every(k => night.includes(k)) &&
+      /emission \* \(uNightLight \*/.test(night) && !/emission \* \(uNightLight/.test(day) &&
+      /outColor = vec4\(lavaGlow, lavaGlow \* \(0\.5 \+ 0\.5 \* cos\(glowPhase\)\),[^;]*;[\s\S]{0,20}return;/.test(glow),
       leaked.join(', '));
   }
 
@@ -2806,114 +2767,7 @@ function runWeatherChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-// ---------------------------------------------------------------------------
-// --huts : the fixed voxel hut (src/huts.js). Count range, every hut on a
-// valid footprint, spacing, determinism, the model itself, the mesh shell.
-// ---------------------------------------------------------------------------
-function runHutChecks() {
-  const results = [];
-  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
-  const Hu = SM.Huts;
-  const habit = new Set(Hu.HABITABLE.map(id => SM.BIOME_IDX[id]));
-  const sigs = [];
-
-  for (const [seed, size] of [[1337, 192], [4242, 192], [90210, 192], [7, 256], [2024, 128], [1337, 320]]) {
-    const g = run(seed, size, 0.38).grid;
-    const g2 = SM.generate({ seed, width: size, height: size, seaLevel: 0.38 });
-    const huts = g.huts;
-    const W = g.width;
-    let land = 0;
-    for (let i = 0; i < g.water.length; i++) if (!g.water[i]) land++;
-    const want = Math.max(Hu.MIN_HUTS, Math.min(Hu.MAX_HUTS, Math.round(land / Hu.LAND_PER_HUT)));
-    sigs.push(JSON.stringify(huts));
-    push(`seed ${seed} ${size}²: ${huts.length} huts for ${land} land tiles (want ${want}, ${Hu.MIN_HUTS}..${Hu.MAX_HUTS}); same seed -> same huts`,
-      huts.length === want && JSON.stringify(huts) === JSON.stringify(g2.huts), '');
-    const bad = [];
-    let nearWater = 0;
-    for (const h of huts) {
-      const why = [];
-      if (![0, 1, 2, 3].includes(h.rot)) why.push('rot');
-      if (Hu.fits(g, h.x, h.y, null) !== h.base) why.push('footprint');
-      const fl = [];
-      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) fl.push(g.level[(h.y + dy) * W + h.x + dx]);
-      if (Math.max(...fl) - Math.min(...fl) > 1 || Math.max(...fl) !== h.base) why.push('uneven');
-      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) {
-        const i = (h.y + dy) * W + h.x + dx;
-        if (g.water[i] || g.lava[i] || !habit.has(g.biome[i])) why.push('cell ' + SM.BIOME_LIST[g.biome[i]].id);
-      }
-      for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 3; dx++) {
-        if (Math.abs(g.level[(h.y + dy) * W + h.x + dx] - h.base) > 2) why.push('cliff');
-      }
-      for (const o of huts) {
-        if (o !== h && Math.hypot(o.x - h.x, o.y - h.y) < Hu.MIN_SPACING) why.push('spacing');
-      }
-      let water = false;
-      for (let dy = -Hu.NEAR_WATER; dy <= Hu.NEAR_WATER + 2 && !water; dy++) {
-        for (let dx = -Hu.NEAR_WATER; dx <= Hu.NEAR_WATER + 2; dx++) {
-          const x = h.x + dx, y = h.y + dy;
-          if (x >= 0 && y >= 0 && x < W && y < g.height && g.water[y * W + x]) { water = true; break; }
-        }
-      }
-      if (water) nearWater++;
-      // The model on this ground: nothing inside the terrain, posts reach it.
-      const vox = Hu.voxels(g, h);
-      for (const v of vox) if (v.level < g.level[v.y * W + v.x]) why.push('buried');
-      if (vox.filter(v => v.m === 'G').length !== 2 || vox.filter(v => v.m === 'D').length !== 1) why.push('model');
-      if (why.length) bad.push(`${h.x},${h.y}: ${[...new Set(why)].join(' ')}`);
-    }
-    push(`seed ${seed} ${size}²: every hut on dry habitable land, footprint within one level, no cliff edge, ` +
-      `>= ${Hu.MIN_SPACING} tiles apart, nothing buried; ${nearWater}/${huts.length} within ${Hu.NEAR_WATER} tiles of water`,
-      bad.length === 0 && nearWater * 2 >= huts.length, bad.slice(0, 3).join(' | '));
-  }
-  push('huts differ between seeds', new Set(sigs).size === sigs.length, '');
-
-  {
-    // The model: 4 posts, 9 floor, walls with a door in front and a window
-    // on each side, a 9-voxel roof and a plus-shaped peak; rotation keeps it.
-    const g = run(1337, 192, 0.38).grid;
-    const h = g.huts[0];
-    const count = m => Hu.MODEL.join('').split('').filter(c => c === m).length;
-    const shapes = [0, 1, 2, 3].map(rot => {
-      const v = Hu.voxels(g, Object.assign({}, h, { rot }));
-      return v.filter(q => q.level >= h.base).length;
-    });
-    const doorRow = Hu.MODEL[2][0].indexOf('D') === 1 && Hu.MODEL[2][1] === 'GWG';
-    push('model: 4 posts, 9 floor, door front-centre, a window on each side wall, 9 roof + 5 peak; all four rotations keep 36 voxels',
-      count('P') === 4 && count('F') === 9 && count('D') === 1 && count('G') === 2 && count('R') === 14 &&
-      doorRow && shapes.every(n => n === 36), shapes.join(','));
-    // Mesh shell: huts add faces, all inside their footprint, none on the
-    // terrain without huts.
-    const mesh = SM.buildVoxelMesh(g);
-    const bare = SM.buildVoxelMesh(Object.assign({}, g, { huts: [] }));
-    const extra = mesh.triangleCount - bare.triangleCount;
-    push(`mesh: the ${g.huts.length} huts add ${extra} triangles (a closed shell, <= 12 per voxel), terrain untouched`,
-      extra > 0 && extra % 2 === 0 && extra <= g.huts.length * 40 * 12 && bare.triangleCount === 124228, '');
-    // Top-down: the roof covers exactly the footprint.
-    let cover = 0, outside = 0;
-    for (let y = h.y - 2; y < h.y + 5; y++) for (let x = h.x - 2; x < h.x + 5; x++) {
-      const inside = x >= h.x && y >= h.y && x < h.x + 3 && y < h.y + 3;
-      const hit = Hu.at(g, x, y) === h;
-      if (inside && hit) cover++;
-      if (!inside && hit) outside++;
-    }
-    // A brush edit that breaks the footprint removes the hut (never floats).
-    const edited = Object.assign({}, g, { level: g.level.slice() });
-    edited.level[(h.y + 1) * g.width + h.x + 1] = h.base - 3;
-    push('top-down roof covers exactly the 3x3 footprint; a hut whose ground is edited away is not drawn',
-      cover === 9 && outside === 0 && Hu.voxels(edited, h).length === 0 && Hu.at(edited, h.x + 1, h.y + 1) === null, '');
-  }
-
-  console.log('hut checks:');
-  for (const [name, ok, detail] of results) {
-    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
-    if (!ok && detail) console.log(`         ${detail}`);
-  }
-  if (!results.every(r => r[1])) process.exitCode = 1;
-}
-
-if (process.argv[2] === '--huts') {
-  runHutChecks();
-} else if (process.argv[2] === '--layout') {
+if (process.argv[2] === '--layout') {
   runLayoutChecks();
 } else if (process.argv[2] === '--weather') {
   runWeatherChecks();

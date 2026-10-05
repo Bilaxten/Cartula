@@ -186,8 +186,7 @@
         lava: grid.lava ? grid.lava.slice() : null,
         flowStep: grid.flowStep ? grid.flowStep.slice() : null,
         settlements: grid.settlements ? grid.settlements.slice() : null,
-        waterfalls: grid.waterfalls ? grid.waterfalls.slice() : null,
-        huts: grid.huts ? grid.huts.slice() : null
+        waterfalls: grid.waterfalls ? grid.waterfalls.slice() : null
       });
     }
     var B = SM.BIOME_IDX;
@@ -953,10 +952,6 @@
 
     // --- 8b: waterfalls — from the FINAL levels, after grading and tower clamp ---
     SM.tagWaterfalls(grid);
-
-    // --- 8c: huts — a few fixed voxel huts at good spots (src/huts.js) ---
-    if (SM.Huts) SM.Huts.place(grid, cfg.seed);
-    else grid.huts = [];
 
     // --- 8a: fantasy labels — final land/water components and voxel heights ---
     if (cfg.decorations) makeFantasyLabels(grid, cfg, B);

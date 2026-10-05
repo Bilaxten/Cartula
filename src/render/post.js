@@ -1,13 +1,13 @@
-/* Night bloom for the voxel view: hut windows and lava glow.
+/* Night bloom for the voxel view: lava glows.
  *
  * Pipeline (only while the night factor is above zero -- the day path never
  * touches any of this, so bloom costs nothing in daylight):
  *
  *   1. SOURCE   the caller redraws the terrain into a 1/4-resolution target in
  *               "emissive only" mode: every fragment writes depth (so hills
- *               occlude a light behind them) but only emitters write colour,
- *               as AMOUNTS, not colours: R = hut window, G = lava, B and A =
- *               lava x (cos, sin) of its pulse phase shifted into 0..1. This
+ *               occlude a light behind them) but only lava writes colour,
+ *               as AMOUNTS, not colours: R = lava, G and B = lava x (cos,
+ *               sin) of its pulse phase shifted into 0..1. This
  *               replaces a luminance bright-pass: the shader knows exactly
  *               what emits, so nothing else (snow, white clouds, sunlit
  *               sand) can bloom by accident. Nothing in the source depends
@@ -16,11 +16,10 @@
  *               horizontal then vertical, twice, ping-ponging two 1/4-res
  *               textures; all four channels.
  *   3. COMPOSITE additive (ONE, ONE) full-screen triangle onto the canvas,
- *               after the scene, depth test off. Colours here: windows x
- *               the warm window light, lava x the lava palette colour x its
- *               pulse. The main pass pulses lava by 0.42 + 0.42 x (0.55 +
+ *               after the scene, depth test off. Colour here: lava x the
+ *               lava palette colour x its pulse. The main pass pulses lava by 0.42 + 0.42 x (0.55 +
  *               0.45 sin(wt + phase)); sin(wt + phase) = sin wt cos phase +
- *               cos wt sin phase is linear in the blurred (G, B, A), so the
+ *               cos wt sin phase is linear in the blurred (R, G, B), so the
  *               halo of every lava tile breathes with its own tile.
  *
  * Fallback: RGBA8 is colour-renderable in every WebGL2 implementation, but if
@@ -118,19 +117,16 @@
       'precision mediump float;',
       'in vec2 vUV;',
       'uniform sampler2D uBloom;',
-      'uniform float uStrength;',
       'uniform float uLavaStrength;',
-      'uniform vec3 uWindowColor;',
       'uniform vec3 uLavaColor;',
       'uniform vec2 uPulse;',            // (sin wt, cos wt)
       'out vec4 outColor;',
       'void main() {',
       '  vec4 s = texture(uBloom, vUV);',
-      '  float lavaCos = 2.0 * s.b - s.g;',  // lava x cos(phase), blurred
-      '  float lavaSin = 2.0 * s.a - s.g;',
-      '  float lava = 0.651 * s.g + 0.189 * (lavaCos * uPulse.x + lavaSin * uPulse.y);',
-      '  outColor = vec4(s.r * uWindowColor * uStrength +',
-      '    max(lava, 0.0) * uLavaColor * uLavaStrength, 1.0);',
+      '  float lavaCos = 2.0 * s.g - s.r;',  // lava x cos(phase), blurred
+      '  float lavaSin = 2.0 * s.b - s.r;',
+      '  float lava = 0.651 * s.r + 0.189 * (lavaCos * uPulse.x + lavaSin * uPulse.y);',
+      '  outColor = vec4(max(lava, 0.0) * uLavaColor * uLavaStrength, 1.0);',
       '}'
     ].join('\n');
     return buildProgram(gl, 'bloom composite', vertexSource, fragmentSource);
@@ -146,9 +142,7 @@
       source: gl.getUniformLocation(blur, 'uSource'),
       step: gl.getUniformLocation(blur, 'uStep'),
       bloom: gl.getUniformLocation(composite, 'uBloom'),
-      strength: gl.getUniformLocation(composite, 'uStrength'),
       lavaStrength: gl.getUniformLocation(composite, 'uLavaStrength'),
-      windowColor: gl.getUniformLocation(composite, 'uWindowColor'),
       lavaColor: gl.getUniformLocation(composite, 'uLavaColor'),
       pulse: gl.getUniformLocation(composite, 'uPulse')
     };
@@ -241,12 +235,11 @@
      * `sourceChanged` false = the caller vouches that the source would come
      * out identical (same camera, size, mesh): the blurred result of the last
      * frame is reused and only the composite runs.
-     * `look`: { strength (windows), lavaStrength, windowColor[3],
-     * lavaColor[3], time (s, for the lava pulse) }. */
+     * `look`: { lavaStrength, lavaColor[3], time (s, for the pulse) }. */
     function render(width, height, look, drawSource, sourceChanged) {
       var fresh;
 
-      if (disabled || (look.strength <= 0.001 && look.lavaStrength <= 0.001)) return false;
+      if (disabled || look.lavaStrength <= 0.001) return false;
       fresh = !targets;
       if (!ensureTargets(width, height)) return false;
       fresh = fresh || targets.fresh;
@@ -291,9 +284,7 @@
       gl.useProgram(composite);
       gl.bindTexture(gl.TEXTURE_2D, targets.b.tex);
       gl.uniform1i(loc.bloom, 0);
-      gl.uniform1f(loc.strength, look.strength);
       gl.uniform1f(loc.lavaStrength, look.lavaStrength);
-      gl.uniform3fv(loc.windowColor, look.windowColor);
       gl.uniform3fv(loc.lavaColor, look.lavaColor);
       // Same angular speed as the terrain shader's lava pulse (uTime * 2.40).
       gl.uniform2f(loc.pulse, Math.sin(look.time * 2.4), Math.cos(look.time * 2.4));

@@ -24,33 +24,17 @@
   var FOAM_REACH = [0.75, 0.5];
   var FOAM_OPACITY = 0.8;
 
-  // How bright a lit hut window is at full night (times the warm window
-  // light colour, added after the night grade).
-  var WINDOW_GLOW = 0.95;
   // Lava at night: its emission is added AFTER the night grade, this much
   // stronger, so it is the brightest light on the night map.
   var LAVA_NIGHT = 1.3;
-  // Bloom source levels (post.js): a hut window face writes BLOOM_SOURCE
-  // into R; a lava face writes LAVA_SOURCE into G and its pulse phase as a
-  // phasor into B/A, so the blurred source stays static (cacheable) while
-  // the composite still pulses it like the main pass. Strengths of the
-  // additive composite at full night. Tuned by eye in headless Edge at
-  // 22:00, seed 1337 (2026-10-05).
-  var BLOOM_SOURCE = 0.55;
-  var BLOOM_STRENGTH = 1.6;
+  // Bloom (post.js), lava only: a lava face writes LAVA_SOURCE into R and
+  // its pulse phase as a phasor into G/B, so the blurred source stays static
+  // (cacheable) while the composite still pulses it like the main pass.
+  // LAVA_BLOOM is the additive composite's strength at full night. Tuned by
+  // eye in headless Edge at 22:00, seed 1337 (2026-10-05).
   var LAVA_SOURCE = 1.0;
   var LAVA_BLOOM = 1.8;
 
-  /* Warm window light, from the biome palette rather than a new colour:
-   * desert sand warmed a quarter toward lava, pushed above 1 so it survives
-   * the night wash (index.html #daynight multiplies the canvas). */
-  function windowLightColor() {
-    var desert = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'desert'; }).color);
-    var lava = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'lava'; }).color);
-    return [0, 1, 2].map(function (k) {
-      return (desert[k] * 0.75 + lava[k] * 0.25) / 255 * 1.3;
-    });
-  }
 
   function wrapYaw(yaw) {
     // A compact 0..359 range keeps camera state and shared links canonical.
@@ -303,11 +287,6 @@
     var shore = [];
     var ao = [];
     var fall = [];
-    // 1 on every vertex of a hut WINDOW face: the only geometry that
-    // lights up at night (--night checks it). Settlement tiles used to carry
-    // it, but there are no houses on them (owner, 2026-10-05).
-    var town = [];
-    var cellTown = 0;
     // Shore foam (per vertex, 0/1): on top faces of sea and lake tiles, 1 at
     // a corner that touches a land tile. Corners are shared by neighbouring
     // water tiles, so the interpolated value runs on across tile seams and
@@ -393,7 +372,6 @@
       // 0/1: a falling-water face swaps its cliff material for an animated
       // cascade in the fragment shader (see makeProgram's vFall handling).
       fall.push(fallFlag ? 1 : 0);
-      town.push(cellTown);
       if (waterTop) {
         // The vertex's grid corner (positions are integers there) and tile.
         var wc = Math.round(z + H / 2) * (W + 1) + Math.round(x + W / 2);
@@ -745,54 +723,7 @@
         addWall(i, x, y, L, 0, 1, 3, material, glow, surface);
       }
     }
-    cellTown = 0;
 
-    /* Huts (src/huts.js): whole voxels, one per tile and level, on the
-     * same grid as the terrain. Only the outer shell is emitted: a face
-     * against another voxel of the hut, against terrain that covers it
-     * entirely, or a bottom resting on the ground is never seen. */
-    var hutColor = SM.Huts ? SM.Huts.materials() : null;
-    var HUT_FACES = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
-    (grid.huts || []).forEach(function (hut) {
-      var vox = hutColor ? SM.Huts.voxels(grid, hut) : [];
-      var filled = {};
-
-      vox.forEach(function (v) { filled[v.x + ',' + v.y + ',' + v.level] = 1; });
-      vox.forEach(function (v) {
-        for (var f = 0; f < 6; f++) {
-          var n = HUT_FACES[f];
-          var nx = v.x + n[0];
-          var ny = v.y + n[2];
-          if (filled[nx + ',' + ny + ',' + (v.level + n[1])]) continue;
-          if (n[1] < 0 && levelAt(v.x, v.y) >= v.level) continue;
-          if (n[1] === 0 && levelAt(nx, ny) >= v.level + 1) continue;
-          addHutFace(v, n, hutColor[v.m]);
-        }
-      });
-    });
-
-    function addHutFace(v, n, c) {
-      // Unit cube centred in its cell and level; (a, b) span the face with
-      // a x b = n, so the corner order below is CCW seen from outside.
-      var cx = v.x - W / 2 + 0.5;
-      var cy = v.level + 0.5;
-      var cz = v.y - H / 2 + 0.5;
-      var a = n[1] !== 0 || n[2] !== 0 ? [1, 0, 0] : [0, 1, 0];
-      var b = [n[1] * a[2] - n[2] * a[1], n[2] * a[0] - n[0] * a[2], n[0] * a[1] - n[1] * a[0]];
-      var corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
-      var verts = [];
-      for (var k = 0; k < 4; k++) {
-        var u = corners[k][0];
-        var w = corners[k][1];
-        verts.push(cx + (n[0] + a[0] * u + b[0] * w) * 0.5,
-          cy + (n[1] + a[1] * u + b[1] * w) * 0.5,
-          cz + (n[2] + a[2] * u + b[2] * w) * 0.5);
-      }
-      // A window voxel's outward face (the only one not covered) glows.
-      cellTown = v.m === 'G' ? 1 : 0;
-      addQuad(verts, n, c, [0, 0, 0, 0], v.x, v.y, 0, [0, 0, 0, 0], 0, [3, 3, 3, 3]);
-      cellTown = 0;
-    }
 
     /* A one-cell charcoal ring follows the nearest map edge. Its exterior walls
      * always reach the base, while changed edge heights expose connecting walls. */
@@ -868,7 +799,6 @@
       shore: new Float32Array(shore),
       ao: new Uint8Array(ao),
       fall: new Uint8Array(fall),
-      town: new Uint8Array(town),
       foam: new Uint8Array(foam),
       wave: new Uint8Array(wave),
       indices: new Uint32Array(indices),
@@ -889,37 +819,6 @@
     };
   }
 
-  /* Same triangles, window ones last (`town` is the light flag; a triangle
-   * is a window one when its first vertex carries it: every vertex of a
-   * face shares it).
-   * Order within each group is kept; with depth testing and no coplanar
-   * overlaps in the terrain, the picture is unchanged. */
-  function settlementLast(indices, town) {
-    var n = indices.length;
-    var out;
-    var head = 0;
-    var tail;
-    var t;
-
-    if (!town) return { indices: indices, townStart: n };
-    out = new Uint32Array(n);
-    for (t = 0; t < n; t += 3) {
-      if (!town[indices[t]]) {
-        out[head++] = indices[t];
-        out[head++] = indices[t + 1];
-        out[head++] = indices[t + 2];
-      }
-    }
-    tail = head;
-    for (t = 0; t < n; t += 3) {
-      if (town[indices[t]]) {
-        out[tail++] = indices[t];
-        out[tail++] = indices[t + 1];
-        out[tail++] = indices[t + 2];
-      }
-    }
-    return { indices: out, townStart: head };
-  }
 
   function mat4Multiply(out, a, b) {
     // Keep the small matrix layer local: file:// mode cannot assume a library.
@@ -1157,18 +1056,17 @@
   // Fixed attribute slots, bound before linking, so the three terrain
   // program variants share one VAO.
   var TERRAIN_ATTRIBS = ['aPosition', 'aNormal', 'aColor', 'aSideDepth', 'aCellUV',
-    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown', 'aFoam', 'aWave'];
+    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aFoam', 'aWave'];
 
   /* `variant`: '' = day (exactly the lighting it always had), 'NIGHT' =
-   * plus the in-shader colour grade and lava shining past it, 'NIGHT
-   * WINDOWS' = that plus the hut window lights (drawn over window triangles
-   * only), 'GLOW' = the bloom source (depth for everything, emitter amounts
-   * from window and lava faces only). Separate COMPILED variants rather than uniform branches: on
+   * plus the in-shader colour grade and lava shining past it, 'GLOW' = the
+   * bloom source (depth for everything, emission from lava faces only).
+   * Separate COMPILED variants rather than uniform branches: on
    * SwiftShader both sides of a branch are executed with lane masks, and the
    * never-taken night code cost ~18 ms per frame by day (measured
    * 2026-10-05). On a GPU it is also simply less code per fragment. */
   function terrainShaderSources(variant) {
-    // Space-separated defines, e.g. 'NIGHT WINDOWS'.
+    // Space-separated defines, e.g. 'NIGHT'.
     var define = (variant || '').split(' ').filter(Boolean).map(function (d) {
       return '#define ' + d + ' 1';
     }).join('\n');
@@ -1185,7 +1083,6 @@
       'in float aShore;',
       'in float aAO;',
       'in float aFall;',
-      'in float aTown;',
       'in float aFoam;',
       // Corner phase, corner amplitude, tile phase, tile amplitude (normalised
       // bytes, waveField in this file).
@@ -1212,10 +1109,7 @@
       '  vCellUV = aCellUV;',
       '  vEmissive = aEmissive;',
       '  vShore = aShore;',
-      '  // The window flag (aTown) rides in the AO varying (+4): it is constant',
-      '  // over a face, so the fragment decodes both exactly, and the day path',
-      '  // interpolates no extra component (SwiftShader pays per component).',
-      '  vAO = aAO + 4.0 * aTown;',
+      '  vAO = aAO;',
       '  vHeight = aPosition.y; // raw voxel level, before uVScale',
       '  vFall = aFall;',
       '  // Falling-water faces have no per-vertex horizontal attribute of their',
@@ -1288,11 +1182,9 @@
       'uniform float uDebugView;',
       // Shore foam colour (snow, from the biome palette).
       'uniform vec3 uFoamColor;',
-      // Night: hut window faces (flag decoded from vAO) light up, lava
-      // shines through the night grade. Fragment-only uniforms (no
-      // cross-stage precision pair).
+      // Night: lava shines through the night grade. Fragment-only uniforms
+      // (no cross-stage precision pair).
       '#ifdef NIGHT',
-      'uniform vec3 uLightColor;',
       'uniform float uNightLight;',
       GRADE_GLSL,
       '#define GRADE(c) grade(c)',
@@ -1302,19 +1194,18 @@
       'out vec4 outColor;',
       '',
       'void main() {',
-      '  float town = step(3.5, vAO);',
-      '  float aoCount = vAO - 4.0 * town;',
+      '  float aoCount = vAO;',
       '#ifdef GLOW',
       '  // Bloom source. Independent of the hour and of time (the composite',
       '  // scales and pulses it), so the blurred source can be reused while',
-      '  // the camera stands still. R: hut windows; G: lava; B/A: lava times',
-      '  // the cos/sin of its pulse phase (shifted to 0..1), the same phase',
-      '  // as the main pass below. Blurring is linear, so the composite can',
-      '  // rebuild the pulsing sum from the blurred channels.',
+      '  // the camera stands still. R: lava; G/B: lava times the cos/sin of',
+      '  // its pulse phase (shifted to 0..1), the same phase as the main pass',
+      '  // below. Blurring is linear, so the composite can rebuild the',
+      '  // pulsing sum from the blurred channels.',
       '  float glowPhase = dot(vCellUV, vec2(113.0, 173.0));',
       '  float lavaGlow = vEmissive * ' + glslFloat(LAVA_SOURCE) + ';',
-      '  outColor = vec4(town * ' + glslFloat(BLOOM_SOURCE) + ', lavaGlow,',
-      '    lavaGlow * (0.5 + 0.5 * cos(glowPhase)), lavaGlow * (0.5 + 0.5 * sin(glowPhase)));',
+      '  outColor = vec4(lavaGlow, lavaGlow * (0.5 + 0.5 * cos(glowPhase)),',
+      '    lavaGlow * (0.5 + 0.5 * sin(glowPhase)), 1.0);',
       '  return;',
       '#endif',
       '  vec3 light = normalize(uSunDirection);',
@@ -1407,9 +1298,8 @@
       '    outColor = vec4(GRADE(dbg), 1.0);',
       '    return;',
       '  }',
-      '  // Graded like the rest of the world; light sources (lava at night,',
-      '  // hut windows) are added after the grade so the night wash cannot',
-      '  // grey them out.',
+      '  // Graded like the rest of the world; at night the lava light is added',
+      '  // after the grade so the night wash cannot grey it out.',
       '#ifdef NIGHT',
       '  vec3 color = GRADE(',
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
@@ -1421,11 +1311,6 @@
       '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
       '      emission + foamColor);',
-      '#endif',
-      '#ifdef WINDOWS',
-      '  // Hut window faces only (this variant only ever draws their',
-      '  // triangles): whole voxel faces of warm light, after the grade.',
-      '  color += uLightColor * (town * uNightLight * ' + glslFloat(WINDOW_GLOW) + ');',
       '#endif',
       '  outColor = vec4(color, 1.0);',
       '}'
@@ -1629,7 +1514,6 @@
     if (!program) return null;
     // Optional: without them the map still renders, without night lights.
     var nightProgram = makeProgram(gl, 'NIGHT');
-    var windowsProgram = makeProgram(gl, 'NIGHT WINDOWS');
     var glowProgram = makeProgram(gl, 'GLOW');
 
     // Every draw call and buffer/texture allocation below goes through this
@@ -1660,7 +1544,6 @@
     var shoreBuffer = gl.createBuffer();
     var aoBuffer = gl.createBuffer();
     var fallBuffer = gl.createBuffer();
-    var townBuffer = gl.createBuffer();
     var foamBuffer = gl.createBuffer();
     var waveBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
@@ -1676,7 +1559,6 @@
     var shore = TERRAIN_ATTRIBS.indexOf('aShore');
     var ambientOcclusion = TERRAIN_ATTRIBS.indexOf('aAO');
     var fall = TERRAIN_ATTRIBS.indexOf('aFall');
-    var townAttr = TERRAIN_ATTRIBS.indexOf('aTown');
     var foamAttr = TERRAIN_ATTRIBS.indexOf('aFoam');
     var waveAttr = TERRAIN_ATTRIBS.indexOf('aWave');
     var foamColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
@@ -1685,10 +1567,9 @@
     // Off (CSS does the grade) until main.js hands one over (setGrade).
     var grade = null;
     var NO_GRADE = { tint: [1, 1, 1], brightness: 1, saturate: 1 };
-    var lightColor = windowLightColor();
     // What the bloom composite needs each night frame (post.js render).
     var bloomLook = {
-      strength: 0, lavaStrength: 0, time: 0, windowColor: lightColor,
+      lavaStrength: 0, time: 0,
       lavaColor: hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'lava'; }).color)
         .map(function (v) { return v / 255; })
     };
@@ -1702,7 +1583,6 @@
         cloudShadow: 'uCloudShadow',
         debugView: 'uDebugView',
         nightLight: 'uNightLight',
-        lightColor: 'uLightColor',
         gradeTint: 'uGradeTint',
         gradeBS: 'uGradeBS',
         gradeOn: 'uGradeOn',
@@ -1723,10 +1603,9 @@
     }
     var dayU = terrainUniforms(program);
     var nightU = terrainUniforms(nightProgram);
-    var windowsU = terrainUniforms(windowsProgram);
     var glowU = terrainUniforms(glowProgram);
     var nightLight = 0;
-    // Optional: without it the window lights still draw, just without glow.
+    // Optional: without it lava still shines, just without glow.
     var bloom = SM.Bloom ? SM.Bloom.create(gl, acct) : null;
     var bloomOn = true;
     // Wind lines (src/render/wind.js): optional like the bloom; the field
@@ -1771,9 +1650,6 @@
     var strength = 0.34;
     var elapsedTime = 0;
     var indexCount = 0;
-    // Settlement triangles are moved to the END of the index buffer at upload
-    // (setMesh), so at night the window variant draws only them.
-    var townIndexStart = 0;
     var clearColor = [0.055, 0.075, 0.11, 1];
     var width = 1;
     var height = 1;
@@ -1825,7 +1701,6 @@
     setupAttrib(shoreBuffer, shore, 1);
     setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
     setupAttrib(fallBuffer, fall, 1, gl.UNSIGNED_BYTE);
-    setupAttrib(townBuffer, townAttr, 1, gl.UNSIGNED_BYTE);
     setupAttrib(foamBuffer, foamAttr, 1, gl.UNSIGNED_BYTE);
     setupAttrib(waveBuffer, waveAttr, 4, gl.UNSIGNED_BYTE, true);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
@@ -2245,21 +2120,16 @@
         mesh.fall || new Uint8Array(mesh.vertexCount),
         gl.STATIC_DRAW
       );
-      gl.bindBuffer(gl.ARRAY_BUFFER, townBuffer);
-      acct.bufferData(gl.ARRAY_BUFFER, townBuffer,
-        mesh.town || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, foamBuffer);
       acct.bufferData(gl.ARRAY_BUFFER, foamBuffer,
         mesh.foam || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, waveBuffer);
       acct.bufferData(gl.ARRAY_BUFFER, waveBuffer,
         mesh.wave || new Uint8Array(mesh.vertexCount * 4), gl.STATIC_DRAW);
-      var ordered = settlementLast(mesh.indices, mesh.town);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, ordered.indices, gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       indexCount = mesh.indices.length;
-      townIndexStart = ordered.townStart;
       gridSize = mesh.gridSize || gridSize;
       meshVersion++;
     }
@@ -2388,16 +2258,10 @@
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
       gl.bindVertexArray(vao);
-      if (nightLight > 0.001 && nightU && windowsU) {
-        // Night: the colour grade in the shader; window lights only on the
-        // hut window triangles at the end of the buffer (one extra draw).
+      if (nightLight > 0.001 && nightU) {
+        // Night: the colour grade in the shader, lava shining past it.
         setTerrainUniforms(nightU);
-        acct.drawElements(gl.TRIANGLES, townIndexStart, gl.UNSIGNED_INT, 0);
-        if (townIndexStart < indexCount) {
-          setTerrainUniforms(windowsU);
-          acct.drawElements(gl.TRIANGLES, indexCount - townIndexStart,
-            gl.UNSIGNED_INT, townIndexStart * 4);
-        }
+        acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       } else {
         setTerrainUniforms(dayU);
         acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
@@ -2425,7 +2289,6 @@
       drawSky();
       // Night only: the bloom passes do not run at all while nightLight is 0.
       if (bloom && glowU && bloomOn && !debugView && nightLight > 0.001) {
-        bloomLook.strength = BLOOM_STRENGTH * nightLight;
         bloomLook.lavaStrength = LAVA_BLOOM * nightLight;
         bloomLook.time = elapsedTime;
         bloom.render(width, height, bloomLook, drawBloomSource, bloomSourceChanged());
@@ -2449,7 +2312,6 @@
       gl.uniform1i(U.cloudLobeCount, debugView ? 0 : cloudLobeCount);
       gl.uniform1f(U.cloudShadow, cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
-      gl.uniform3fv(U.lightColor, lightColor);
       gl.uniform3fv(U.foamColor, foamColor);
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
     }
@@ -2636,7 +2498,6 @@
       gl.deleteBuffer(shoreBuffer);
       gl.deleteBuffer(aoBuffer);
       gl.deleteBuffer(fallBuffer);
-      gl.deleteBuffer(townBuffer);
       gl.deleteBuffer(foamBuffer);
       gl.deleteBuffer(waveBuffer);
       if (bloom) bloom.dispose();
@@ -2650,7 +2511,6 @@
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
       if (nightProgram) gl.deleteProgram(nightProgram);
-      if (windowsProgram) gl.deleteProgram(windowsProgram);
       if (glowProgram) gl.deleteProgram(glowProgram);
       if (sky) {
         gl.deleteBuffer(sky.cloudPos);
@@ -2713,7 +2573,6 @@
   SM.voxelWaveAmplitude = waveAmplitude;
   SM.VOXEL_WAVE_K = WAVE_K;
   SM.mat4Invert = mat4Invert;
-  SM.voxelSettlementLast = settlementLast;
   SM.voxelTerrainShaderSources = terrainShaderSources;
   SM.mat4Multiply = mat4Multiply;
   SM.buildShadowMap = buildShadowMap;

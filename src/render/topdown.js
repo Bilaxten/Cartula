@@ -27,12 +27,6 @@
   function paintTile(ctx, grid, i, ts, hillshade) {
     var w = grid.width, x = i % w, y = (i / w) | 0;
     // Sea: depth ramp + shoreline tint from the one shared definition.
-    // A hut (src/huts.js) reads from above as its roof over its 3x3 tiles.
-    if (SM.Huts && grid.huts && grid.huts.length && SM.Huts.at(grid, x, y)) {
-      ctx.fillStyle = shade(SM.Huts.materials().R, 1);
-      ctx.fillRect(x * ts, y * ts, ts, ts);
-      return;
-    }
     var c = SM.isSea(grid, i) ? SM.seaColor(grid, i) : biomeRgb()[grid.biome[i]];
     ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
     ctx.fillRect(x * ts, y * ts, ts, ts);

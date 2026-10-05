@@ -55,8 +55,6 @@ değil, kurallı:
    etiketlenir (`SM.tagWaterfalls`, `grid.js`; editör her fırça/undo sonrası
    yeniden etiketler)
 9. **yerleşimler** — düz, ılıman, tatlı suya yakın alanlar (topdown'da çizilir)
-10. **kulübeler** (8c, `src/huts.js`) — son kademelerden sonra, iyi yerlere
-    birkaç sabit voxel kulübe (`grid.huts`; ayrıntı aşağıda *Kulübeler*)
 
 `decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket
 pass'lerini açar — **hiçbir renderer bunları çizmiyor**, o yüzden varsayılan
@@ -251,32 +249,30 @@ ayırmayı `src/perf.js`'teki sayaçtan geçirir; `--perf` `src/render/`'da
 sayaçsız bir çağrı bulursa kırmızı. Panel kapalıyken kare başına hiçbir
 şey ölçülmez ya da sayılmaz.
 
-**Gece ışıkları + bloom** (2026-10-05; ikinci tur aynı gün, Uğur: *"bu
+**Gece ışıkları + bloom** (2026-10-05; aynı gün iki tur daha, Uğur: *"bu
 parlamalar ne ve neden lavlar parlamıyor? ... biz ev koymuyoruz ki niye
-parlamalar var?"*): yerleşim tile'larındaki pencere noktaları **kaldırıldı**
-(orada ev yok). Işık artık yalnız **kulübe pencerelerinde**: pencere
-voksellerinin dışa bakan yüzü (`mesh.town` bayrağı yalnız orada, `--night`
-denetler) 17:00-19:00 arası yanar, 5:00-7:00 arası söner (`SM.nightAmount`,
-`time.js`); bütün voxel yüzü sıcak ışık (bölünmez). Renk biyom paletinden
-(çöl kumu, lavla ısıtılmış). **Lav gecenin en güçlü ışığı**: gece varyantında
-lav ışıması gece düzeltmesinden SONRA, 1.3 katı eklenir (eskiden düzeltmeyle
-kararıyordu) ve bloom'a girer. Bloom: arazi 1/4 çözünürlükte "yalnız ışık"
-varyantıyla yeniden çizilir (tam derinlik, tepe arkasındaki ışık gizlenir);
-kaynak renk değil MİKTAR yazar: R pencere, G lav, B/A lav × nabız fazının
-cos/sin'i. İki tur ayrılabilir Gauss (dört kanal), sonra kanvasa toplanarak
-eklenir; birleştirme nabzı sin(wt+φ) = sin wt·cos φ + cos wt·sin φ ile
-bulanık kanallardan yeniden kurar, yani her lav tile'ının halesi kendi
-tile'ıyla atar ama kaynak zamandan bağımsız kalır: kamera durunca bulanık
-sonuç yeniden kullanılır (`--night` 8-bit saklamayla hatayı ölçer: 0.002).
-Gündüz bunların hiçbiri çalışmaz ya da ayrılmaz (gündüz shader'ı
-değişmedi); framebuffer eksikse bloom kendini kapatır, ışıklar kalır.
+parlamalar var?"*, sonra *"hutları beğenmedim kaldıralım"*): geceleyin **yalnız
+lav** ışır. Yerleşim tile'larındaki pencere noktaları kaldırıldı (orada ev yok);
+aynı gün eklenip kaldırılan kulübelerin pencereleriyle birlikte pencere ışığı
+kodu da (`aTown`, pencere varyantı) tamamen gitti. Lav ışıması gece varyantında
+gece düzeltmesinden SONRA, 1.3 katı eklenir (eskiden düzeltmeyle kararıyordu)
+ve bloom'a girer; ışık 17:00-19:00 arası güçlenir, 5:00-7:00 arası söner
+(`SM.nightAmount`, `time.js`). Bloom: arazi 1/4 çözünürlükte "yalnız ışık"
+varyantıyla yeniden çizilir (tam derinlik, tepe arkasındaki lav gizlenir);
+kaynak renk değil MİKTAR yazar: R lav, G/B lav × nabız fazının cos/sin'i. İki
+tur ayrılabilir Gauss, sonra kanvasa toplanarak eklenir; birleştirme nabzı
+sin(wt+φ) = sin wt·cos φ + cos wt·sin φ ile bulanık kanallardan yeniden
+kurar, yani her lav tile'ının halesi kendi tile'ıyla atar ama kaynak
+zamandan bağımsız kalır: kamera durunca bulanık sonuç yeniden kullanılır
+(`--night` 8-bit saklamayla hatayı ölçer: 0.002). Gündüz bunların hiçbiri
+çalışmaz ya da ayrılmaz; framebuffer eksikse bloom kendini kapatır, lav
+ışığı kalır.
 ⚠️ Işıklar yanarken gece renk düzeltmesi CSS'ten (`#daynight` + filtre)
 shader'a geçer (aynı formül, fark ≤4/255): CSS örtüsü WebGL'den SONRA
 uygulandığı için ışıkları gri-kahveye boyuyordu; shader'da ışık
 düzeltmeden sonra eklenir. Gündüz yol CSS'te kalır. Arazi shader'ı üç
-derlenmiş varyant (gündüz / gece / gece+pencere) ve pencere üçgenleri index
-buffer'ın sonunda kendi aralığında: SwiftShader dallanmanın iki tarafını da
-çalıştırdığı için ölü gece kodu gündüz ~18 ms yiyordu.
+derlenmiş varyant (gündüz / gece / bloom kaynağı): SwiftShader dallanmanın
+iki tarafını da çalıştırdığı için ölü gece kodu gündüz ~18 ms yiyordu.
 
 **Kıyı köpüğü** (2026-10-05): deniz ve göl tile'larının üst yüzünde, karaya
 değen köşede 1 olan köşe bayrağı (`mesh.foam`); komşu tile'lar köşeyi
@@ -315,22 +311,6 @@ dönüyordu). `--wind` çizilen çizgilerin en keskin bükümünü ölçer
 — zaman 1/12 s'ye kuantize, çizgi entegrasyon noktaları arasında kesirli
 adımla kayar (önceden baş tam adım atlıyordu: saniyede 4.8); hâlâ zamanın
 saf fonksiyonu, hâlâ "kare kare" bir el animasyonu görünümü.
-
-**Kulübeler** (2026-10-05, Uğur: *"sabit bir hut şeklinde ev yapalım ... minecrafttaki
-witch hut gibi ... voxelleri kullan voxelleri bölme"*): tek, sabit bir model
-(`src/huts.js`): 3×3 tile, 5 kademe, kazıklar üstünde; kat 0 köşe kazıkları,
-1 döşeme, 2 duvarlar (önde kapı, iki yan duvarda birer pencere), 3 çatı, 4 artı
-şeklinde tepe. Her voxel bir harita voxel'i (tile × kademe), bölünmez. Renkler
-paletten: kazık/kapı koyu mesa, tahta mesa, çatı volkanik kaya, cam gündüz derin
-deniz mavisi. Yerleşim üretim hattının 8c pass'i (son kademelerden sonra):
-3×3 kuru, yaşanabilir biyom (çayır, ova, çalılık, orman, bataklık, yağmur
-ormanı, savan, yerleşim), lav yok, ayak izi içinde en çok 1 kademe fark, 5×5
-çevrede en çok 2 (uçurum kenarı değil); 6 tile içinde su olan yer güçlü, yerleşim
-yakını hafif tercih; ~8000 kara tile başına bir kulübe, 3-12 arası, en az 24
-tile aralık; seed'li döndürme (kapı yönü). Kazık kendi zemini bir kademe
-alçaksa bir voxel aşağı uzar. Fırçayla zemini bozulan kulübe çizilmez (havada
-kalmaz). Üstten görünümde ayak izi çatı renginde. Mesh'e kabuk olarak eklenir
-(kulübe başına 160 üçgen); `--huts` denetler.
 
 **Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
 harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,
