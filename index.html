@@ -197,7 +197,15 @@
       </details>
     </div>
 
-    <button id="randomMap" type="button" class="primary" title="New random seed, same settings (R)" data-i18n-title="random.title">
+    <div class="gen-actions">
+    <button id="regenMap" type="button" title="New seed, same settings (R)" data-i18n-title="regen.title">
+      <svg class="regen" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span data-i18n="regen.label">Regenerate</span>
+    </button>
+    <button id="randomMap" type="button" class="primary" title="Random settings and a new seed (Shift+R)" data-i18n-title="random.title">
       <svg class="dice" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>
         <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
@@ -208,6 +216,7 @@
       </svg>
       <span data-i18n="random.label">Random</span>
     </button>
+    </div>
 
     <footer id="tools">
       <span id="stats" data-i18n-js></span>

@@ -110,10 +110,13 @@ karayı eritmez, merkezde toplar (deniz eşiği falloff'u hesaba katar; `--geo`
 P7). *Moisture scale* kaldırıldı (en zayıf etki, %20-25). Temperature /
 Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını söyler.
 
-**Yeni harita:** zar ikonlu *Random* düğmesi (kısayol `R`) — rastgele seed,
-slider ayarları korunur. Ayrı bir "Regenerate" yok: her ayar ve seed alanı
-değişince harita zaten yeniden üretilir; fırça düzenlemelerini geri almak
-Edit → *Reset to generated*.
+**Yeni harita (2026-10-05, Uğur):** iki düğme yan yana.
+- *Regenerate* / *Yeniden üret* (kısayol `R`): yeni rastgele seed, slider ayarları korunur.
+- *Random* / *Rastgele* (kısayol `Shift+R`): rastgele bir dünya tipinden başlar, her üretim
+  slider'ını aralığının en fazla dörtte biri kadar oynatır (uçlardaki %10 dışarıda; deniz
+  seviyesi 0.30–0.62, altında harita %80–90 kara çıkıyordu) ve yeni seed verir. Harita boyutu değişmez.
+
+Fırça düzenlemelerini geri almak Edit → *Reset to generated*.
 
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); başa dönme noktasında opaklık tam 0, gölge de bulutla

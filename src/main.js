@@ -1342,19 +1342,58 @@
   });
   $('sun').addEventListener('change', applyDayNight);
 
-  // One "new map" action: a random seed, the sliders stay as set. There is
-  // no Regenerate button any more -- every setting (and the seed field)
-  // already regenerates on change, and "undo my brush edits" is Edit →
-  // Reset to generated. (Uğur, 2026-09-23: shuffle + Regenerate replaced.)
-  function randomMap() {
-    $('seed').value = Math.floor(Math.random() * 1e6);
-    regenerate();
-    var btn = $('randomMap');
+  // Two "new map" actions (Uğur 2026-10-05; between 2026-09-23 and then there was only one):
+  //   Regenerate -- a new random seed, every slider stays as set (R).
+  //   Random     -- random world settings AND a new seed (Shift+R).
+  // "Undo my brush edits" is still Edit → Reset to generated.
+  function spin(id) {
+    var btn = $(id);
     btn.classList.remove('rolling');
-    void btn.offsetWidth; // restart the dice spin
+    void btn.offsetWidth; // restart the icon spin
     btn.classList.add('rolling');
     setTimeout(function () { btn.classList.remove('rolling'); }, 360);
   }
+
+  function regenMap() {
+    $('seed').value = Math.floor(Math.random() * 1e6);
+    regenerate();
+    spin('regenMap');
+  }
+
+  // Random settings start from a random world type preset (so the result reads as a kind of
+  // world, not noise) and move every generation slider by up to a quarter of its range, kept
+  // out of the outer 10% of each range where maps degenerate (all sea, flat, one-tile rivers).
+  // Map size is not touched: it is a performance choice, not a world property.
+  var RANDOM_BAND = { sea: [0.30, 0.62] };
+
+  function randomSettings() {
+    var types = Object.keys(SM.WorldTypes.TYPES);
+    var base = SM.WorldTypes.values(types[Math.floor(Math.random() * types.length)]);
+    WORLD_KEYS.forEach(function (id) {
+      var input = $(id);
+      var min = parseFloat(input.min), max = parseFloat(input.max), step = parseFloat(input.step) || 0;
+      var span = max - min;
+      var lo = min + span * 0.1, hi = max - span * 0.1;
+      // Sea level gets a tighter band: below ~0.30 a map came out 80-90% land in a headless run of
+      // six random maps (2026-10-05), which reads as one flat continent, not a world.
+      if (RANDOM_BAND[id]) { lo = RANDOM_BAND[id][0]; hi = RANDOM_BAND[id][1]; }
+      var v = base[id] + (Math.random() - 0.5) * span * 0.5;
+      v = Math.max(lo, Math.min(hi, v));
+      if (step) v = min + Math.round((v - min) / step) * step;
+      input.value = +v.toFixed(4);
+      paintRange(input);
+      $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value);
+    });
+    $('worldType').value = matchWorldType();
+  }
+
+  function randomMap() {
+    randomSettings();
+    $('seed').value = Math.floor(Math.random() * 1e6);
+    regenerate();
+    spin('randomMap');
+  }
+  $('regenMap').addEventListener('click', regenMap);
   $('randomMap').addEventListener('click', randomMap);
   $('seed').addEventListener('change', regenerate);
   $('showGrid').addEventListener('change', function () {
@@ -1524,7 +1563,7 @@
       if (key === 'arrowleft') { ev.preventDefault(); showStage(pipeline.index - 1); return; }
       if (key === 'arrowright') { ev.preventDefault(); showStage(pipeline.index + 1); return; }
     }
-    if (key === 'r' && !ev.altKey && !ev.shiftKey) { randomMap(); return; }
+    if (key === 'r' && !ev.altKey) { if (ev.shiftKey) randomMap(); else regenMap(); return; }
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
   });

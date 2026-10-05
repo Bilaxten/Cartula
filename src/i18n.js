@@ -136,8 +136,10 @@
 
       'group.biomes': 'Biomes',
 
+      'regen.label': 'Regenerate',
+      'regen.title': 'New seed, same settings (R)',
       'random.label': 'Random',
-      'random.title': 'New random seed, same settings (R)',
+      'random.title': 'Random settings and a new seed (Shift+R)',
       'export.png': 'Export PNG',
       'export.png.title': 'Download the current view as a PNG',
       'share.label': 'Copy link',
@@ -310,8 +312,10 @@
 
       'group.biomes': 'Biyomlar',
 
+      'regen.label': 'Yeniden üret',
+      'regen.title': 'Yeni tohum, ayarlar aynı kalır (R)',
       'random.label': 'Rastgele',
-      'random.title': 'Yeni rastgele tohum, ayarlar aynı kalır (R)',
+      'random.title': 'Rastgele ayarlar ve yeni tohum (Shift+R)',
       'export.png': 'PNG indir',
       'export.png.title': 'Geçerli görünümü PNG olarak indir',
       'share.label': 'Bağlantıyı kopyala',
