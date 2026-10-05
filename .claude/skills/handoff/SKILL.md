@@ -48,6 +48,11 @@ Bilerek kirli bırakıyorsan bunu **yaz** — yoksa sonraki ajan onu enkaz sanı
 
 ### 4. Kuyruğu ve kalıcı belleği güncelle
 
+> **Bu skill birden fazla repoda kullanılır (2026-10-05).** Aşağıda adı geçen dosyalar
+> (`TODO.md`, `PROJECT_STATE.md`, `docs/DEVLOG.md`, `docs/decisions/`, `docs/research/`) her repoda
+> yoktur. Önce reponun `AGENTS.md`'sine bak: hangi bilgi nerede tutulur orada yazar. Bir dosya bu
+> repoda yoksa **oluşturma**; karşılığı olan dosyaya yaz, karşılığı da yoksa o adımı atla ve bunu söyle.
+
 - `TODO.md` — kuyruk değiştiyse. Biten maddeyi **sil**, işaretleme.
 - `README.md` — yalnızca kalıcı bir gerçek değiştiyse (yeni pass, yeni milestone durumu,
   bozulan şey, yeni tuzak). Mimari ve üretim hattının tek doğru kaynağı orası.
@@ -64,7 +69,7 @@ git commit -m "<mesaj>"
 
 Mesaj **durumu** anlatır, sadece diff'i değil:
 
-- tamamlanmış iş → `feat(combat): ...`, `fix(save): ...`, `chore(workflow): ...`
+- tamamlanmış iş → reponun son commit'lerindeki biçimi izle (`git log --oneline -10`); biçim yoksa `Fix: ...`, `Docs: ...` gibi kısa bir önek
 - bilerek eksik → `wip: <ne çalışıyor> — <ne eksik>`
 
 `wip:` öneki bir sinyaldir; session başlangıcında kesinti tespiti bunu arar.
@@ -111,8 +116,8 @@ Sonra `CURRENT.md` ile karşılaştır:
 | `CURRENT.md`'deki hedef HEAD ile uyuşmuyor | `CURRENT.md` bayat, git haklı |
 | kirli ama `CURRENT.md` "bilerek kirli" diyor | kasıtlı, sebebi yazıyor |
 
-Hâlâ anlaşılmıyorsa diff'i oku ve kodun kendisinden çıkar. Kod zekâsı burada işe yarar:
-değişen sembolleri `search_graph` ile bağlamına oturt.
+Hâlâ anlaşılmıyorsa diff'i oku ve kodun kendisinden çıkar. Değişen sembollerin
+nerede kullanıldığına bak (arama, varsa reponun kod grafiği aracı).
 
 ### 3. Devam et ya da sor
 

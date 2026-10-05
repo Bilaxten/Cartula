@@ -22,6 +22,11 @@ git log --oneline -5
 
 ### 2. Kaydı yaz
 
+> **Bu skill birden fazla repoda kullanılır (2026-10-05).** Aşağıda adı geçen dosyalar
+> (`TODO.md`, `PROJECT_STATE.md`, `docs/DEVLOG.md`, `docs/decisions/`, `docs/research/`) her repoda
+> yoktur. Önce reponun `AGENTS.md`'sine bak: hangi bilgi nerede tutulur orada yazar. Bir dosya bu
+> repoda yoksa **oluşturma**; karşılığı olan dosyaya yaz, karşılığı da yoksa o adımı atla ve bunu söyle.
+
 `docs/DEVLOG.md` içindeki `<!-- NEW-ENTRIES-BELOW -->` işaretini bul, kaydı **hemen
 altına** ekle (en yeni kayıt en üstte olmalı).
 
@@ -31,7 +36,7 @@ altına** ekle (en yeni kayıt en üstte olmalı).
 **Ne yapıldı:** 1-3 cümle.
 **Değişen dosyalar:** yol listesi (git'ten al, elle uydurma)
 **Neden bu yaklaşım:** Hangi alternatif elendi ve niye. Bir kısıt mı vardı,
-performans mı, LÖVE/Lua API sınırı mı?
+performans mı, platform/API sınırı mı?
 **Sonraki adım:** Tek cümle — bir sonraki session buradan başlar.
 ```
 
@@ -55,7 +60,7 @@ DEVLOG'a `- [ ]` maddesi ekleme — kuyruk iki yerde tutulursa ikisi de güvenil
 
 Kayıttaki "neden bu yaklaşım" bölümünde altı ay sonra biri tarafından yeniden
 tartışılacak bir şey varsa, o bir DEVLOG satırı değil bir **ADR**'dir
-(`docs/decisions/`, `AGENTS.md` §8). DEVLOG'da bırakılan karar kaybolur.
+(`docs/decisions/`, ya da reponun `AGENTS.md`'sinin karar kaydı için gösterdiği yer). DEVLOG'da bırakılan karar kaybolur.
 
 ## Kurallar
 
