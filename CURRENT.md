@@ -19,7 +19,8 @@ Uğur beş özelliği onayladı ve her birinin ayrı ayrı yayınlanmasına izin
 değişen her JS/CSS dosyası canlıda bayt bayt doğrulandı (CR atılarak sha256).
 ⚠️ `publish-site.sh`'nin kendi canlı kontrolü yalnız `index.html`'e bakıyor:
 `index.html` değişmeyen bir yayında (`ebf56b9`) "canlı = …" hemen ok dedi,
-oysa `fog.js` canlıda ~15 sn daha eskiydi. JS'i ayrıca kontrol etmek gerek:
+oysa `fog.js` canlıda ~15 sn daha eskiydi; JS'i ayrıca kontrol etmek gerek.
+Özellikler:
 
 1. **Akan nehirler** (`840100e`, `src/render/flow.js`): nehir + basamak
    havuzları + şelale dibi akar; çift fazlı flow map, `RIVER` varyantı,
