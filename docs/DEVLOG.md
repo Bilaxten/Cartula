@@ -1,5 +1,9 @@
 # DEVLOG
 
+## 2026-10-05 — Yeniden adlandırma: StilizedMaps artık Cartula
+
+Proje adı StilizedMaps iken Cartula oldu (kod, belgeler, scriptler). Canlı demo https://bilaxten.art/cartula/ adresine taşınıyor. localStorage anahtarları (`sm-*`) değişmedi.
+
 ## 2026-10-05 — Derin kod incelemesi: bayat yükseklik, export hizası, ters gölge bulgusu
 
 **Ne yapıldı:** Yeni özellik yok; terrain, mesh, export ve gökyüzü kodu

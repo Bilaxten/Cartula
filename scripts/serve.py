@@ -46,7 +46,7 @@ def main():
     handler = functools.partial(NoCacheHandler, directory=ROOT)
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("", port), handler) as httpd:
-        print("StilizedMaps: http://localhost:%d/index.html (cache kapali)" % port)
+        print("Cartula: http://localhost:%d/index.html (cache kapali)" % port)
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

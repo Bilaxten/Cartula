@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionEnd hook — StilizedMaps   (eski adı: devlog-fallback.sh)
+# SessionEnd hook — Cartula   (eski adı: devlog-fallback.sh)
 #
 # Son güvenlik ağı. Terminal aniden kapansa, kullanım limiti çarpsa, süreç çökse bile
 # sonraki ajan bir iz bulsun diye var.

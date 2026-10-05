@@ -1219,7 +1219,7 @@
       var zip = SM.Export.buildUnityBundle(grid, { albedo: pngs[0], biome: pngs[1] });
       var url = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
       var a = document.createElement('a');
-      a.download = 'stilizedmaps-' + (grid.config ? grid.config.seed : 'map') + '-unity.zip';
+      a.download = 'cartula-' + (grid.config ? grid.config.seed : 'map') + '-unity.zip';
       a.href = url;
       a.click();
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
@@ -1254,7 +1254,7 @@
       if (fx.width) octx.drawImage(fx, 0, 0);
     }
     var a = document.createElement('a');
-    a.download = 'stilizedmaps-' + view + '-' + $('seed').value + '.png';
+    a.download = 'cartula-' + view + '-' + $('seed').value + '.png';
     a.href = out.toDataURL('image/png');
     a.click();
   }

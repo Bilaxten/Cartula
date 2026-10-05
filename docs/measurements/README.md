@@ -1,4 +1,4 @@
-# Ölçüm paketi — StilizedMaps (Gerçeklik Borcu P3.5)
+# Ölçüm paketi — Cartula (Gerçeklik Borcu P3.5)
 
 bilaxten.art vaka çalışması için **dürüst görsel + ölçüm paketi**. Sayısal yarısı
 otomatik, görsel yarısı tarayıcıda üretilir (PNG capture + orbit klip headless

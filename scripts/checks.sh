@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# StilizedMaps — bağımlılıksız sağlık kontrolü
+# Cartula — bağımlılıksız sağlık kontrolü
 #
 # Bu projede build adımı, paket yöneticisi ve test koşucusu YOK. Tek dış araç
 # `node` (yalnızca sözdizimi kontrolü için; oyun/site onu çalıştırmaz). Node

@@ -1,4 +1,6 @@
-# StilizedMaps
+# Cartula
+
+Formerly StilizedMaps (renamed 2026-10-05).
 
 Prosedürel, stilize harita üreteci. Dağ / ova / deniz / orman / çöl / tundra
 biyomları noise'dan türetilir; harita hem **üstten** hem **izometrik voxel**
@@ -118,7 +120,7 @@ Edit → *Reset to generated*.
 birlikte solar. Saydam voxel bulut iki geçişle çizilir (önce yalnız derinlik,
 sonra en öndeki yüzey karıştırılarak) — iç kutu yüzleri görünmez. `--sky`.
 
-**Canlı demo:** https://bilaxten.github.io/StilizedMaps/ (GitHub Pages, `master`).
+**Canlı demo:** https://bilaxten.art/cartula/ (GitHub Pages, `master`).
 
 ## Milestone'lar
 

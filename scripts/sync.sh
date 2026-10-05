@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# StilizedMaps — güvenli otomatik senkronizasyon
+# Cartula — güvenli otomatik senkronizasyon
 #
 # Tek iş: uzaktaki değişiklikleri çekmek YALNIZCA hiçbir şey kaybedilemeyecekse.
 #

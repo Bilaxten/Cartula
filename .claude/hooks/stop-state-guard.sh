@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook — StilizedMaps   (eski adı: devlog-guard.sh)
+# Stop hook — Cartula   (eski adı: devlog-guard.sh)
 #
 # Devir güvenliğinin asıl mekanizması. Bu session'da gerçek bir değişiklik yapıldıysa
 # ama kalıcı durum (CURRENT.md) güncellenmediyse, ajanı bir kez geri gönderir.

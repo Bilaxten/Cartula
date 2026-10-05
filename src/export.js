@@ -77,7 +77,7 @@
       }
     }
     return {
-      generator: 'StilizedMaps',
+      generator: 'Cartula',
       format: 1,
       seed: cfg.seed, width: grid.width, height: grid.height,
       heightmap: { file: 'heightmap.r16', resolution: unityResolution(Math.max(grid.width, grid.height)),
@@ -107,7 +107,7 @@
   }
 
   var README_TEXT = [
-    'StilizedMaps export — Unity import',
+    'Cartula export — Unity import',
     '',
     '1. Terrain: GameObject > 3D Object > Terrain. In Terrain Settings set',
     '   Heightmap Resolution to the value in map.json heightmap.resolution,',

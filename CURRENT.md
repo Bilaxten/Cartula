@@ -9,6 +9,8 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
+> 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
+
 ## Bu oturum — derin kod incelemesi (2026-10-04/05, Claude Fable 5.1)
 
 Uğur'un istediği: depoyu derinlemesine kontrol et, doğrulanabileni düzelt.
@@ -97,7 +99,7 @@ Kalan: TODO.md'de bu taramaya ait açık madde yok (ayrı, ad-hoc bir denetimdi)
 ## Önceki görev — portfolyo yol haritası (2026-09-22, Uğur: "önerdiğin neyse yapalım")
 
 Sıra `TODO.md` NOW'da. Durum:
-1. ✅ Canlı demo — https://bilaxten.github.io/StilizedMaps/ (Pages, `master`
+1. ✅ Canlı demo — https://bilaxten.art/cartula/ (Pages, `master`
    kökü, `.nojekyll`). Her push yeniden yayınlar.
 2. ✅ Pipeline adım adım modu (`3ddbae6`) — `SM.generate(cfg, record)`,
    `SM.PIPELINE_STAGES` (10 aşama), `SM.renderStage`; `--geo` P6.

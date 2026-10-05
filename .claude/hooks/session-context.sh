@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook — StilizedMaps
+# SessionStart hook — Cartula
 #
 # İki iş yapar:
 #   1. Session başlangıç işaretçisi bırakır (.claude/.state/session-<id>.start).

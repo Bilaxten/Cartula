@@ -31,6 +31,6 @@ for i,j in cells:
     out.append(poly([l,btm,base(btm),base(l)],shade(col,0.78)))
     out.append(poly([btm,r,base(r),base(btm)],shade(col,0.62)))
     out.append(poly([t,r,btm,l],col))
-svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="StilizedMaps">\n<title>StilizedMaps</title>\n'+'\n'.join(out)+'\n</svg>\n'
+svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Cartula">\n<title>Cartula</title>\n'+'\n'.join(out)+'\n</svg>\n'
 open('assets/logo.svg','w',newline='\n').write(svg)
 print(len(svg))

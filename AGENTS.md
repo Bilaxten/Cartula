@@ -1,4 +1,4 @@
-# AGENTS.md — StilizedMaps Ortak Çalışma Sözleşmesi
+# AGENTS.md — Cartula Ortak Çalışma Sözleşmesi
 
 Bu dosya **modelden bağımsız** tek kaynaktır. Claude Code, Codex CLI ve ileride
 eklenebilecek başka bir ajan aynı kuralları buradan okur. Codex bu dosyayı otomatik
@@ -101,7 +101,7 @@ sayısı kontrolü yapar — su/kıyı davranışını değiştirdiysen bunu da 
 
 ## 5. Git
 
-- Dal: **`master`**. Uzak: `github.com/Bilaxten/StilizedMaps` (**public** — repo
+- Dal: **`master`**. Uzak: `github.com/Bilaxten/Cartula` (**public** — repo
   dışarıdan görünüyor, commit mesajları da portfolyonun parçası, özensiz yazma).
 - Session açılışında `scripts/sync.sh`. Otomatik push YOK — push checkpoint akışının
   parçası (`handoff`).
@@ -125,7 +125,7 @@ Milestone kapandıysa DEVLOG girdisi **zorunlu** — §2 gereği anlatılmayan i
 ## 7. İkinci beyin bağlantısı
 
 Bu depo Uğur'un vault'una (`BilaxtenOS`) bağlı. Vault'taki proje notu:
-`🏰 300-Projects/StilizedMaps/StilizedMaps.md`, thread: `🔮 850-Companion/Threads.md`.
+`🏰 300-Projects/Cartula/Cartula.md`, thread: `🔮 850-Companion/Threads.md`.
 
 **Sınır:** proje gerçeği bu depodadır, vault onu kopyalamaz. Vault yalnızca
 ilişkisel katmanı tutar (bu proje neden var, hangi işe bağlı, hangi karar nerede

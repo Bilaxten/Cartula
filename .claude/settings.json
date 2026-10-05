@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/agent-notify.sh\" \"Claude Code — StilizedMaps\"",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/agent-notify.sh\" \"Claude Code — Cartula\"",
             "timeout": 10
           }
         ]
