@@ -12,6 +12,7 @@
  *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
  *   node tools/headless.js --worldtypes # world type preset validity + effect
  *   node tools/headless.js --i18n       # UI language: tr/en key parity, index.html hooks
+ *   node tools/headless.js --perf       # perf panel: stats math, GL counter, no uncounted draws
  */
 'use strict';
 const fs = require('fs');
@@ -23,7 +24,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'render/topdown.js', 'render/sky.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -1883,7 +1884,109 @@ function runI18nChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--worldtypes') {
+// ---------------------------------------------------------------------------
+// --perf : the performance panel's numbers must be honest. Stats math on known
+// input; the GL counter counts only while enabled; and no render file draws or
+// allocates behind the counter's back (a raw gl.drawElements would silently
+// drop out of "draw calls", a raw gl.bufferData out of "GPU memory").
+// ---------------------------------------------------------------------------
+function runPerfChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+
+  {
+    const st = SM.Perf.createFrameStats(120);
+    st.push(NaN, 2);                 // first frame after idle: no interval
+    st.push(10, 1); st.push(20, 3); st.push(30, 2);
+    const s = st.summary();
+    push('frame stats: avg / worst / fps over drawn intervals, idle gap ignored',
+      s.frames === 4 && s.intervals === 3 && near(s.avgMs, 20) && near(s.worstMs, 30) &&
+      near(s.fps, 50) && near(s.cpuAvgMs, 2) && near(s.cpuWorstMs, 3) && s.gpuAvgMs === null,
+      JSON.stringify(s));
+    for (let i = 0; i < 300; i++) st.push(i < 290 ? 16 : 40, 1);
+    const w = st.summary();
+    push('frame stats: rolling window keeps exactly the last 120 frames',
+      w.frames === 120 && w.intervals === 120 && near(w.worstMs, 40) &&
+      near(w.avgMs, (110 * 16 + 10 * 40) / 120), JSON.stringify(w));
+  }
+
+  {
+    const calls = [];
+    const gl = {
+      TRIANGLES: 4, TRIANGLE_STRIP: 5, TRIANGLE_FAN: 6, LINES: 1, POINTS: 0,
+      drawElements: (...a) => calls.push(['el', ...a]),
+      drawArrays: (...a) => calls.push(['ar', ...a]),
+      bufferData: (...a) => calls.push(['bd', ...a])
+    };
+    const c = SM.Perf.createGLCounter(gl);
+    c.beginFrame();
+    c.drawElements(gl.TRIANGLES, 300, 0, 0);
+    c.endFrame();
+    const hidden = c.lastFrame();
+    c.setEnabled(true);
+    c.beginFrame();
+    c.drawElements(gl.TRIANGLES, 300, 0, 0);
+    c.drawArrays(gl.TRIANGLE_STRIP, 0, 10);
+    c.drawArrays(gl.POINTS, 0, 7);
+    c.endFrame();
+    const f = c.lastFrame();
+    push('GL counter: nothing counted while hidden, every call still reaches GL',
+      hidden.draws === 0 && hidden.tris === 0 && calls.filter(k => k[0] !== 'bd').length === 4,
+      JSON.stringify(hidden));
+    push('GL counter: draw calls and triangles per mode (300 indexed tris -> 100, strip of 10 -> 8, points apart)',
+      f.draws === 3 && f.tris === 108 && f.other === 7, JSON.stringify(f));
+    const b1 = {}, b2 = {}, t1 = {};
+    c.bufferData(34962, b1, new Float32Array(100), 0);
+    c.bufferData(34962, b2, new Uint8Array(10), 0);
+    c.bufferData(34962, b1, new Float32Array(50), 0);   // re-upload replaces
+    c.texture(t1, 64 * 64);
+    let m = c.memory();
+    const okA = m.buffer === 210 && m.texture === 4096 && m.total === 4306;
+    c.forget(b2);
+    m = c.memory();
+    push('GL counter: memory is the sum of live allocations (re-upload replaces, delete forgets)',
+      okA && m.buffer === 200 && m.total === 4296, JSON.stringify(m));
+    push('drawing buffer estimate: 100x50, 4x MSAA = 2 resolved RGBA8 + 4 samples x (colour + depth)',
+      SM.Perf.drawingBufferBytes(100, 50, 4) === 5000 * 8 + 5000 * 4 * 8 &&
+      SM.Perf.drawingBufferBytes(100, 50, 0) === 5000 * 12, '');
+  }
+
+  {
+    const bad = [];
+    const dir = path.join(root, 'render');
+    for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.js'))) {
+      if (f === 'topdown.js') continue;   // Canvas 2D, no GL
+      const lines = fs.readFileSync(path.join(dir, f), 'utf8').split('\n');
+      lines.forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '');
+        if (/\bgl\.(drawElements|drawArrays|drawElementsInstanced|drawArraysInstanced|drawRangeElements|bufferData)\s*\(/.test(code)) {
+          bad.push(`${f}:${i + 1} raw ${code.trim().slice(0, 50)}`);
+        }
+        if (/\bgl\.(texImage2D|texStorage2D|renderbufferStorage(Multisample)?)\s*\(/.test(code)) {
+          const ahead = lines.slice(i, i + 16).join('\n');
+          if (!/acct\.(texture|renderbuffer)\(/.test(ahead)) bad.push(`${f}:${i + 1} allocation without acct.texture/renderbuffer`);
+        }
+      });
+    }
+    push('render/*.js: every draw call and allocation goes through the counter', bad.length === 0, bad.join('; '));
+    const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    push('main.js measures frames only while the panel is open',
+      /if \(perf\.on\) renderMeasured\(now\);\s*else voxelRenderer\.render\(\);/.test(mainJs) &&
+      (mainJs.match(/renderMeasured\(/g) || []).length === 2, '');
+  }
+
+  console.log('performance panel checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--perf') {
+  runPerfChecks();
+} else if (process.argv[2] === '--worldtypes') {
   runWorldTypesChecks();
 } else if (process.argv[2] === '--i18n') {
   runI18nChecks();

@@ -139,6 +139,7 @@
           </label>
           <label class="check" data-i18n="check.grid"><input type="checkbox" id="showGrid"> Grid lines</label>
           <label class="check" data-i18n="check.shade"><input type="checkbox" id="showShade" checked> Hillshade</label>
+          <label class="check" data-i18n="check.perf"><input type="checkbox" id="showPerf"> Performance panel (P)</label>
         </div>
       </details>
 
@@ -262,6 +263,7 @@
     <canvas id="gl" hidden></canvas>
     <canvas id="riverfx"></canvas>
     <div id="daynight"></div>
+    <div id="perfPanel" hidden data-i18n-js aria-live="off"></div>
   </main>
 </div>
 <script>SM.I18N.apply(document);</script>
@@ -272,6 +274,7 @@
 <script src="src/generate.js"></script>
 <script src="src/export.js"></script>
 <script src="src/render/topdown.js"></script>
+<script src="src/perf.js"></script>
 <script src="src/render/sky.js"></script>
 <script src="src/render/voxel3d.js"></script>
 <script src="src/time.js"></script>

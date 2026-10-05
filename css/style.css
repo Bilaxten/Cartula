@@ -564,3 +564,34 @@ body.iso #hover { display: none; }
   border: 1px solid var(--swatch-edge);
   border-radius: 2px;
 }
+
+/* Performance panel (P): a stage chip in the top-right corner, same tokens as
+ * the yaw chip. Numbers are tabular so the columns do not jitter. */
+#perfPanel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  min-width: 228px;
+  max-width: calc(100% - 24px);
+  padding: 8px 11px 9px;
+  border: 1px solid var(--chip-edge);
+  border-radius: var(--radius);
+  background: var(--chip-bg);
+  color: var(--chip-text);
+  font-size: 11px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+#perfPanel[hidden] { display: none; }
+#perfPanel .perf-title {
+  margin-bottom: 3px;
+  color: var(--stage-hint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+#perfPanel .perf-row { display: flex; gap: 10px; }
+#perfPanel .perf-row span:first-child { flex: 0 0 74px; color: var(--stage-hint); }
+#perfPanel .perf-note { margin-top: 3px; color: var(--stage-hint); }

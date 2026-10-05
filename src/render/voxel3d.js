@@ -1172,6 +1172,16 @@
     var program = makeProgram(gl);
     if (!program) return null;
 
+    // Every draw call and buffer/texture allocation below goes through this
+    // counter (src/perf.js), so the performance panel reports what the
+    // renderer actually did. `--perf` fails on a raw gl.draw*/gl.bufferData.
+    var acct = SM.Perf.createGLCounter(gl);
+    // GPU timer (EXT_disjoint_timer_query_webgl2): looked up only when the
+    // panel is first opened; results are read a few frames later so a query
+    // never stalls the pipeline. Absent on many configurations (SwiftShader
+    // included) -- the panel then says so instead of inventing a number.
+    var timer = { ext: undefined, pending: [], results: [] };
+
     // The sky is OPTIONAL: if its program fails to link the terrain must
     // still render. Same contract the renderer follows one level up -- a
     // missing WebGL2 context leaves the 2D path untouched.
@@ -1295,6 +1305,7 @@
       gl.UNSIGNED_BYTE,
       new Uint8Array([0])
     );
+    acct.texture(shadowTexture, 1);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     function resize(cssW, cssH, dpr) {
@@ -1378,7 +1389,7 @@
       uploadSkyAttrib(sky.cloudNormal, 'aNormal', clouds.normals, 3);
       uploadSkyAttrib(sky.cloudIdx, 'aCloudIndex', clouds.cloudIndex, 1);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.cloudIndex);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, clouds.indices, gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, sky.cloudIndex, clouds.indices, gl.STATIC_DRAW);
       sky.cloudCount = clouds.indices.length;
 
       gl.bindVertexArray(sky.birdVao);
@@ -1386,7 +1397,7 @@
       uploadSkyAttrib(sky.birdIdx, 'aCloudIndex', birds.birdIndex, 1);
       uploadSkyAttrib(sky.birdWing, 'aWing', birds.wing, 1);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.birdIndex);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, birds.indices, gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, sky.birdIndex, birds.indices, gl.STATIC_DRAW);
       sky.birdCount = birds.indices.length;
 
       gl.bindVertexArray(null);
@@ -1395,7 +1406,7 @@
     function uploadSkyAttrib(buffer, name, data, size) {
       var location = gl.getAttribLocation(skyProgram, name);
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, buffer, data, gl.STATIC_DRAW);
       // An unused attribute reports -1; binding it would raise a GL error.
       if (location < 0) return;
       gl.enableVertexAttribArray(location);
@@ -1449,13 +1460,13 @@
         // Pass 1 writes depth only, pass 2 colours only the front-most
         // surface (LEQUAL) with blending -- each pixel is blended once.
         gl.colorMask(false, false, false, false);
-        gl.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
+        acct.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
         gl.colorMask(true, true, true, true);
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthFunc(gl.LEQUAL);
         gl.depthMask(false);
-        gl.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
+        acct.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
         gl.depthMask(true);
         gl.depthFunc(gl.LESS);
         gl.disable(gl.BLEND);
@@ -1477,7 +1488,7 @@
         // every wing as it swings through the back-facing side.
         gl.disable(gl.CULL_FACE);
         gl.bindVertexArray(sky.birdVao);
-        gl.drawElements(gl.TRIANGLES, sky.birdCount, gl.UNSIGNED_INT, 0);
+        acct.drawElements(gl.TRIANGLES, sky.birdCount, gl.UNSIGNED_INT, 0);
         gl.enable(gl.CULL_FACE);
       }
       gl.bindVertexArray(null);
@@ -1524,6 +1535,7 @@
         gl.UNSIGNED_BYTE,
         data
       );
+      acct.texture(shadowTexture, mapWidth * mapHeight);
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
@@ -1543,34 +1555,33 @@
       // Bind the VAO during upload so element-buffer ownership stays attached.
       gl.bindVertexArray(vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.positions, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, positionBuffer, mesh.positions, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.normals, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, normalBuffer, mesh.normals, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.colors, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, colorBuffer, mesh.colors, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, sideDepthBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.sideDepth, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, sideDepthBuffer, mesh.sideDepth, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, cellUVBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.cellUV, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, cellUVBuffer, mesh.cellUV, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, emissiveBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.emissive, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, emissiveBuffer, mesh.emissive, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, waterBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.water, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, waterBuffer, mesh.water, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, shoreBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.shore, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, shoreBuffer, mesh.shore, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, aoBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.ao, gl.STATIC_DRAW);
+      acct.bufferData(gl.ARRAY_BUFFER, aoBuffer, mesh.ao, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, fallBuffer);
       // mesh.fall is optional in principle (older callers), but buildVoxelMesh
       // always returns it now -- guard anyway so a hand-built mesh without it
       // does not throw here.
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
+      acct.bufferData(gl.ARRAY_BUFFER, fallBuffer,
         mesh.fall || new Uint8Array(mesh.vertexCount),
         gl.STATIC_DRAW
       );
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-      gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       indexCount = mesh.indices.length;
       gridSize = mesh.gridSize || gridSize;
@@ -1648,6 +1659,15 @@
     }
 
     function render() {
+      if (disposed) return;
+      acct.beginFrame();
+      beginGpuTimer();
+      renderScene();
+      endGpuTimer();
+      acct.endFrame();
+    }
+
+    function renderScene() {
       var yaw;
       var pitch;
       var target;
@@ -1655,7 +1675,6 @@
       var aspect;
       var halfH;
 
-      if (disposed) return;
       // Orbit changes only the view matrix; mesh buffers remain immutable.
       yaw = camera.yaw * Math.PI / 180;
       pitch = camera.pitch * Math.PI / 180;
@@ -1707,7 +1726,7 @@
         showSky && !debugView && cloudNow.length ? cloudLobeCount : 0);
       gl.uniform1f(cloudShadowUniform, cloudShadowStrength);
       gl.bindVertexArray(vao);
-      gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
+      acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
       drawSky();
     }
@@ -1722,6 +1741,65 @@
      *
      * GL reads bottom-up while a canvas is top-down, hence the row flip.
      */
+    /* GPU time of whole frames, only while the panel is open. One query per
+     * frame, at most four in flight; a result is collected once available
+     * and dropped if the GPU reports a disjoint (unreliable) interval. */
+    function beginGpuTimer() {
+      var q;
+
+      if (!acct.isEnabled()) return;
+      if (timer.ext === undefined) {
+        timer.ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') || null;
+      }
+      if (!timer.ext) return;
+      while (timer.pending.length) {
+        q = timer.pending[0];
+        if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
+        if (!gl.getParameter(timer.ext.GPU_DISJOINT_EXT)) {
+          timer.results.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6);
+        }
+        gl.deleteQuery(q);
+        timer.pending.shift();
+      }
+      if (timer.pending.length >= 4) return;
+      timer.active = gl.createQuery();
+      gl.beginQuery(timer.ext.TIME_ELAPSED_EXT, timer.active);
+    }
+
+    function endGpuTimer() {
+      if (!timer.active) return;
+      gl.endQuery(timer.ext.TIME_ELAPSED_EXT);
+      timer.pending.push(timer.active);
+      timer.active = null;
+    }
+
+    function setStatsEnabled(on) {
+      acct.setEnabled(on);
+    }
+
+    // Per-frame path of the panel: only the GPU timer results, nothing that
+    // queries GL state.
+    function drainGpuTimes() {
+      var out = timer.results;
+      timer.results = [];
+      return out;
+    }
+
+    /* Numbers for the performance panel. `gpuMs` drains the timer results
+     * collected since the last call (empty when no timer is available). */
+    function stats() {
+      var gpuMs = timer.results;
+      timer.results = [];
+      return {
+        frame: acct.lastFrame(),
+        memory: acct.memory(),
+        canvasBytes: SM.Perf.drawingBufferBytes(
+          gl.drawingBufferWidth, gl.drawingBufferHeight, gl.getParameter(gl.SAMPLES)),
+        gpuTimer: timer.ext === undefined ? 'unknown' : (timer.ext ? 'yes' : 'no'),
+        gpuMs: gpuMs
+      };
+    }
+
     function capture() {
       var pixels;
       var flipped;
@@ -1763,6 +1841,9 @@
       gl.deleteBuffer(fallBuffer);
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
+      acct.forget(shadowTexture);
+      timer.pending.forEach(function (q) { gl.deleteQuery(q); });
+      timer.pending = [];
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
       if (sky) {
@@ -1801,6 +1882,9 @@
       capture: capture,
       fitCamera: fitCamera,
       render: render,
+      setStatsEnabled: setStatsEnabled,
+      stats: stats,
+      drainGpuTimes: drainGpuTimes,
       dispose: dispose
     };
   }

@@ -85,7 +85,8 @@ else
     # yüzleri (grid.waterfalls → buildVoxelMesh), sessizce taş uçuruma dönmesin.
     # --i18n: arayüz TR + EN (Uğur 2026-10-05); bir dilde eksik anahtar ya da
     # index.html'de çeviri kancası olmayan görünür metin burada kırmızı olur.
-    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n; do
+    # --perf: performans paneli dürüst mü (istatistik, sayaç, sayaçsız çizim yok).
+    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else

@@ -47,6 +47,14 @@
   var voxelRotateLast = 0;          // auto-rotate's own frame timestamp, separate
                                      // from voxelTimeLast so toggling one doesn't
                                      // disturb the other's delta baseline
+  // Performance panel (P). While hidden, nothing here runs per frame: no
+  // timestamps, no counting in the renderer, no panel timer.
+  var perf = {
+    on: false,
+    stats: SM.Perf.createFrameStats(120),
+    lastFrameAt: 0,       // rAF timestamp of the previous drawn frame
+    timer: 0              // panel repaint interval, only while visible
+  };
   var AUTOROTATE_DEG_PER_SEC = 5;   // one full turn every 72s -- "yavaş" per Uğur
   function isoExag() { return parseFloat($('isoexag').value); }
 
@@ -281,9 +289,91 @@
     }
     if (!voxelDirty) return;
     voxelDirty = false;
-    voxelRenderer.render();
+    if (perf.on) renderMeasured(now);
+    else voxelRenderer.render();
     if (voxelSnap || voxelAnimationEnabled() || autoRotateEnabled()) {
       voxelAnim = requestAnimationFrame(renderVoxelFrame);
+    }
+  }
+
+  /* One measured frame. The interval is rAF-to-rAF between two frames that
+   * were both drawn; a gap over 250 ms means rendering was idle (on-demand
+   * mode), which is not a slow frame, so it only restarts the series. */
+  function renderMeasured(now) {
+    var t0 = performance.now();
+    var gap = perf.lastFrameAt ? now - perf.lastFrameAt : NaN;
+    var s;
+
+    voxelRenderer.render();
+    perf.stats.push(gap > 0 && gap < 250 ? gap : NaN, performance.now() - t0);
+    perf.lastFrameAt = now;
+    s = voxelRenderer.drainGpuTimes();
+    for (var g = 0; g < s.length; g++) perf.stats.pushGpu(s[g]);
+  }
+
+  function perfRow(label, value) {
+    var row = document.createElement('div');
+    var a = document.createElement('span');
+    var b = document.createElement('span');
+    row.className = 'perf-row';
+    a.textContent = label;
+    b.textContent = value;
+    row.appendChild(a);
+    row.appendChild(b);
+    return row;
+  }
+
+  function paintPerf() {
+    var el = $('perfPanel');
+    var title = document.createElement('div');
+    var note = document.createElement('div');
+    var rows = [];
+    var sum;
+    var st;
+    var mb = function (n) { return (n / 1048576).toFixed(1); };
+    var ms = function (n) { return n == null ? '–' : n.toFixed(1); };
+    var locale = SM.I18N.lang() === 'tr' ? 'tr-TR' : 'en-US';
+
+    title.className = 'perf-title';
+    title.textContent = T('perf.title');
+    note.className = 'perf-note';
+    if (!isVoxelMode() || !voxelRenderer) {
+      note.textContent = T('perf.isoOnly');
+      el.replaceChildren(title, note);
+      return;
+    }
+    sum = perf.stats.summary();
+    st = voxelRenderer.stats();
+    for (var g = 0; g < st.gpuMs.length; g++) perf.stats.pushGpu(st.gpuMs[g]);
+    rows.push(perfRow(T('perf.frame'), T('perf.frameVal', { avg: ms(sum.avgMs), worst: ms(sum.worstMs) })));
+    rows.push(perfRow(T('perf.fps'), sum.fps == null ? '–' : sum.fps.toFixed(1)));
+    rows.push(perfRow(T('perf.cpu'), T('perf.cpuVal', { avg: ms(sum.cpuAvgMs) })));
+    rows.push(perfRow(T('perf.gpu'), st.gpuTimer === 'no' ? T('perf.gpuNone') :
+      T('perf.gpuVal', { avg: ms(sum.gpuAvgMs) })));
+    rows.push(perfRow(T('perf.draws'), String(st.frame.draws)));
+    rows.push(perfRow(T('perf.tris'), st.frame.tris.toLocaleString(locale)));
+    rows.push(perfRow(T('perf.mem'), T('perf.memVal', { total: mb(st.memory.total + st.canvasBytes) })));
+    rows.push(perfRow('', T('perf.memDetail', {
+      b: mb(st.memory.buffer), t: mb(st.memory.texture + st.memory.renderbuffer), c: mb(st.canvasBytes)
+    })));
+    note.textContent = performance.now() - perf.lastFrameAt > 1000 ?
+      T('perf.idle') : T('perf.window', { n: sum.frames });
+    el.replaceChildren.apply(el, [title].concat(rows, [note]));
+  }
+
+  function setPerfVisible(on) {
+    perf.on = !!on;
+    $('showPerf').checked = perf.on;
+    $('perfPanel').hidden = !perf.on;
+    perf.stats.reset();
+    perf.lastFrameAt = 0;
+    if (voxelRenderer && voxelRenderer.setStatsEnabled) voxelRenderer.setStatsEnabled(perf.on);
+    if (perf.timer) { clearInterval(perf.timer); perf.timer = 0; }
+    if (perf.on) {
+      paintPerf();
+      perf.timer = setInterval(paintPerf, 500);
+      // One frame so draw calls / triangles are known even when idle.
+      requestVoxelRender();
     }
   }
 
@@ -340,6 +430,7 @@
       if (voxelCamera) voxelRenderer.setCamera(voxelCamera);
     }
     if (voxelRenderer.setDebugView) voxelRenderer.setDebugView(parseInt($('debugView').value, 10));
+    if (voxelRenderer.setStatsEnabled) voxelRenderer.setStatsEnabled(perf.on);
     voxelRenderer.setTime(voxelTime);
     map.hidden = true;
     $('riverfx').hidden = true;
@@ -1425,6 +1516,7 @@
     voxelRenderer.setSky(this.checked);
     requestVoxelRender();
   });
+  $('showPerf').addEventListener('change', function () { setPerfVisible(this.checked); });
   $('showAnim').addEventListener('change', function () {
     if (!isVoxelMode()) return;
     voxelTimeLast = 0;
@@ -1615,6 +1707,7 @@
       if (key === 'arrowright') { ev.preventDefault(); showStage(pipeline.index + 1); return; }
     }
     if (key === 'r' && !ev.altKey) { if (ev.shiftKey) randomMap(); else regenMap(); return; }
+    if (key === 'p' && !ev.altKey && !ev.shiftKey) { setPerfVisible(!perf.on); return; }
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
   });
@@ -1646,6 +1739,7 @@
       if (options[i]) options[i].textContent = T('biome.' + b.id);
     });
     hoverEl.hidden = true;
+    if (perf.on) paintPerf();
   }
   SM.I18N.onChange(refreshLangText);
 
