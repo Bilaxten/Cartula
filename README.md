@@ -292,6 +292,18 @@ hizalanmayla ağırlıklı) bükülür, biraz alçağa çekilir, biraz diverjans
 curl noise. Simülasyon değil, vadi rüzgârlarının gözlenen davranışına benzeyen
 bir sezgisel. Çizgiler durumsuz (seed, çizgi, zaman → konum), 64 × 24 nokta,
 kare başına ayırma yok, zeminin en az 0.9 kademe üstünde (`--wind`).
+Uğur'un ikinci turu (2026-10-05): **uzunluk hıza bağlı** — çizgi yolunun
+sabit bir ZAMAN penceresini kaplar, yani uzunluğu = yerel hız × pencere;
+hız alanı 0.32-1.35 (dik yamaç ve rüzgârı söndüren dümen yavaş, vadi tabanı
+ve seed'li geniş esinti bölgeleri hızlı), uzun çizgiler kısaların ~3 katı.
+**Ani dönüş yok** — alan iki kez daha geniş yumuşatılır, yol tile başına en
+çok 14° döner, çizilen noktalar iki kez [1 2 1] ile yumuşatılır; harita
+kenarında yol durur ve çizgi söner (eskiden kenar boyunca kayıp keskin
+dönüyordu). `--wind` çizilen çizgilerin en keskin bükümünü ölçer
+(≤ 18°/tile; önceki kod 1100°/tile üstü veriyordu). **Saniyede 12 güncelleme**
+— zaman 1/12 s'ye kuantize, çizgi entegrasyon noktaları arasında kesirli
+adımla kayar (önceden baş tam adım atlıyordu: saniyede 4.8); hâlâ zamanın
+saf fonksiyonu, hâlâ "kare kare" bir el animasyonu görünümü.
 
 **Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
 harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,

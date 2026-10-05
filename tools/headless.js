@@ -2348,6 +2348,54 @@ function runWindChecks() {
   const spread = Math.max(...angles) - Math.min(...angles);
   push('prevailing direction differs between seeds', spread > 0.3, angles.map(a => a.toFixed(2)).join(', '));
 
+  // Owner 2026-10-05: no sudden turns, length follows speed, a notch more
+  // frames. Measured on the drawn polylines over many frames.
+  for (const seed of [1337, 4242]) {
+    const g = run(seed, 192, 0.38).grid;
+    const f = Wd.field(g, seed);
+    const b = Wd.makeStreakBuffers();
+    const P = Wd.POINTS;
+    let worst = 0;
+    const lens = [], spd = [];
+    for (let fr = 0; fr < 30 * 40; fr++) {
+      Wd.streaksInto(f, fr / 30, Wd.MAX_STREAKS, b);
+      worst = Math.max(worst, Wd.maxTurnPerTile(b));
+      if (fr % 15) continue;
+      for (let k = 0; k < b.count; k++) {
+        if (b.alpha[k] < 0.5) continue;
+        let len = 0, sp = 0;
+        for (let j = 1; j < P; j++) len += Math.hypot(b.x[k * P + j] - b.x[k * P + j - 1], b.y[k * P + j] - b.y[k * P + j - 1]);
+        for (let j = 0; j < P; j++) sp += Wd.sample(f.speed, f, b.x[k * P + j], b.y[k * P + j]) / P;
+        lens.push(len); spd.push(sp);
+      }
+    }
+    const deg = r => (r * 180 / Math.PI).toFixed(1);
+    push(`seed ${seed}: sharpest bend of any drawn streak over 40 s is ${deg(worst)} deg/tile <= ${deg(Wd.TURN_LIMIT)} (no kinks)`,
+      worst > 0 && worst <= Wd.TURN_LIMIT, '');
+    const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+    const ml = mean(lens), ms = mean(spd);
+    let cov = 0, vl = 0, vs = 0;
+    for (let i = 0; i < lens.length; i++) {
+      cov += (lens[i] - ml) * (spd[i] - ms); vl += (lens[i] - ml) ** 2; vs += (spd[i] - ms) ** 2;
+    }
+    const corr = cov / Math.sqrt(vl * vs);
+    const sorted = lens.slice().sort((a, c) => a - c);
+    const p10 = sorted[Math.floor(sorted.length * 0.1)], p90 = sorted[Math.floor(sorted.length * 0.9)];
+    push(`seed ${seed}: streak length follows the local speed (correlation ${corr.toFixed(3)} >= 0.95), ` +
+      `long streaks ${(p90 / p10).toFixed(1)}x the short ones (P90 ${p90.toFixed(1)} / P10 ${p10.toFixed(1)} tiles, >= 2.5x)`,
+      corr >= 0.95 && p90 / p10 >= 2.5, '');
+    // Visible update rate: distinct head positions per second, sampled at 240 Hz.
+    let changes = 0, prev = null;
+    for (let i = 0; i < 240 * 10; i++) {
+      Wd.streaksInto(f, 3 + i / 240, 1, b);
+      const key = b.x[P - 1] + ',' + b.y[P - 1];
+      if (prev !== null && key !== prev) changes++;
+      prev = key;
+    }
+    push(`seed ${seed}: a streak moves on ${(changes / 10).toFixed(1)} times a second (UPDATE_HZ ${Wd.UPDATE_HZ}; was 4.8)`,
+      Math.abs(changes / 10 - Wd.UPDATE_HZ) <= 0.5, '');
+  }
+
   // The per-frame path (streaksInto, ribbons) must not allocate.
   const src = fs.readFileSync(path.join(root, 'render', 'wind.js'), 'utf8');
   const body = name => {

@@ -26,9 +26,27 @@
  * Streaks are stateless: streak k's position is a pure function of
  * (seed, k, time). Each lives a few seconds; its spawn point for every
  * "generation" comes from a hash, and its path is the field integrated from
- * there (fixed half-tile steps), so a frame never depends on frame timing
- * and a screenshot at time t is reproducible. A bounded number of streaks
- * (MAX_STREAKS) x points keeps the per-frame work and upload fixed.
+ * there, so a frame never depends on frame timing and a screenshot at time
+ * t is reproducible. A bounded number of streaks (MAX_STREAKS) x points
+ * keeps the per-frame work and upload fixed.
+ *
+ * Owner's notes (2026-10-05, after seeing it on his PC):
+ *   - "hızlıysa daha uzun çizgilerle, yavaşsa kısa": a streak covers a fixed
+ *     TIME window of its path (POINTS - 1 steps of STEP / SPEED seconds), so
+ *     its length is the local speed times that window. The speed field
+ *     spans SPEED_MIN..SPEED_MAX (slow on steep slopes and where the
+ *     steering cancels the wind, fast along valley floors), so a fast
+ *     streak is about four times as long as a slow one;
+ *   - "ani dönüşler yapmasın, bir flow içinde": the field is blurred wider,
+ *     the integration turns at most MAX_TURN radians per tile travelled
+ *     (`--wind` measures the drawn polylines against TURN_LIMIT), and the
+ *     drawn points are smoothed twice with a [1 2 1] filter;
+ *   - "animasyon hızını bir tık arttır (frame sayısı)": the head used to
+ *     jump one whole integration step at a time (SPEED / STEP = 4.8
+ *     updates a second). Time is now quantised to UPDATE_HZ (12) and the
+ *     polyline is interpolated between integration points, so every
+ *     streak glides on twelve times a second, all in step -- still a
+ *     stepped, hand-animated look, still a pure function of time.
  *
  * Everything above is DOM- and GL-free (checked by `--wind` in
  * tools/headless.js); only `createLayer` touches WebGL.
@@ -39,7 +57,18 @@
   var MAX_STREAKS = 64;
   var POINTS = 24;              // per streak, head included (~12 tiles)
   var STEP = 0.5;               // tiles between integration steps / points
-  var SPEED = 2.4;              // tiles per second at full speed
+  var SPEED = 2.4;              // tiles per second at speed 1
+  // Speed field range (multiplies SPEED and the streak length).
+  var SPEED_MIN = 0.32;
+  var SPEED_MAX = 1.35;
+  var SPEED_MEDIAN = 0.72;
+  // Curvature cap of the integrated path, radians per tile travelled, and
+  // the bound `--wind` checks the DRAWN polylines against (a little above
+  // the cap: interpolation and smoothing never add curvature, but the
+  // measure divides by a mean segment length).
+  var MAX_TURN = 14 * Math.PI / 180;
+  var TURN_LIMIT = 18 * Math.PI / 180;
+  var UPDATE_HZ = 12;           // visible updates per second
   var LIFT = 1.4;               // levels above the smoothed ground
   var WIDTH = 0.3;              // ribbon width in tiles, at its widest
   var MIN_PIXELS = 2.2;         // ...but never thinner than this on screen
@@ -111,6 +140,9 @@
     var w0y = Math.sin(angle);
     var noise = SM.makeNoise2D ? SM.makeNoise2D(s) : function () { return 0; };
     var NOISE_SCALE = 0.035;
+    // Gust zones: +-GUST of the speed, features ~80 tiles across.
+    var GUST = 0.45;
+    var GUST_SCALE = 0.012;
     // Curl-noise share against |w0| = 1, after normalising by the mean curl
     // magnitude of this map (simplex gradients average ~3 per noise unit;
     // unnormalised, the noise drowned the prevailing wind -- seen 2026-10-05).
@@ -125,6 +157,8 @@
 
     for (i = 0; i < n; i++) level[i] = Math.max(0, grid.level[i]);
     h = boxBlur(boxBlur(level, W, H, 3), W, H, 3);
+    // The ground around a cell, wider: a valley floor sits below it.
+    var wide = boxBlur(boxBlur(h, W, H, 8), W, H, 8);
 
     // Ride height: the highest level in the 3x3 around a cell, lightly
     // smoothed, so a streak glides over ridges instead of cutting into them.
@@ -205,13 +239,27 @@
         u[i] = vx;
         v[i] = vy;
         // Where the steering cancels most of the wind, the air slows down
-        // rather than picking an arbitrary normalised direction at speed.
+        // rather than picking an arbitrary normalised direction at speed;
+        // steep slopes slow it, a valley floor (lower than the ground
+        // around it) channels and speeds it up, and broad seeded gust
+        // zones make whole stretches of open land faster or calmer.
+        var valley = Math.max(0, Math.min(1, (wide[i] - h[i]) / 2.5));
+        var gust = 1 + GUST * noise(x * GUST_SCALE + 31.7, y * GUST_SCALE - 17.3);
         speed[i] = Math.max(0.3, Math.min(1, Math.sqrt(vx * vx + vy * vy))) *
-          (1 - 0.35 * steep);
+          (1 - 0.5 * steep) * (1 + 0.8 * valley) * gust;
       }
     }
-    u = boxBlur(u, W, H, 1);
-    v = boxBlur(v, W, H, 1);
+    // Wider than the steering itself, twice: neighbouring streaks then run
+    // roughly parallel and a path has no single-cell kinks to follow.
+    u = boxBlur(boxBlur(u, W, H, 2), W, H, 2);
+    v = boxBlur(boxBlur(v, W, H, 2), W, H, 2);
+    speed = boxBlur(speed, W, H, 2);
+    // The median cell blows at SPEED_MEDIAN, whatever the relief of the map.
+    var sorted = Array.prototype.slice.call(speed).sort(function (a, b) { return a - b; });
+    var median = sorted[sorted.length >> 1] || 1;
+    for (i = 0; i < n; i++) {
+      speed[i] = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speed[i] / median * SPEED_MEDIAN));
+    }
     for (i = 0; i < n; i++) {
       var len = Math.sqrt(u[i] * u[i] + v[i] * v[i]) || 1;
       u[i] /= len;
@@ -252,9 +300,27 @@
       y: new Float32Array(MAX_STREAKS * POINTS),
       ground: new Float32Array(MAX_STREAKS * POINTS),
       alpha: new Float32Array(MAX_STREAKS),
-      ringX: new Float32Array(POINTS),
-      ringY: new Float32Array(POINTS)
+      // The last POINTS + 1 path points (one more than drawn: the drawn
+      // polyline sits a fraction of a step along them), and smoothing
+      // scratch.
+      ringX: new Float32Array(POINTS + 1),
+      ringY: new Float32Array(POINTS + 1),
+      tmpX: new Float32Array(POINTS),
+      tmpY: new Float32Array(POINTS)
     };
+  }
+
+  // One [1 2 1] / 4 pass over streak `base`'s points, end points kept.
+  function smoothPass(out, base) {
+    var j;
+    for (j = 0; j < POINTS; j++) {
+      out.tmpX[j] = out.x[base + j];
+      out.tmpY[j] = out.y[base + j];
+    }
+    for (j = 1; j < POINTS - 1; j++) {
+      out.x[base + j] = (out.tmpX[j - 1] + 2 * out.tmpX[j] + out.tmpX[j + 1]) * 0.25;
+      out.y[base + j] = (out.tmpY[j - 1] + 2 * out.tmpY[j] + out.tmpY[j + 1]) * 0.25;
+    }
   }
 
   /* All streaks at time t as polylines in grid space, into `out`:
@@ -262,9 +328,13 @@
    * out.alpha[k] is the life fade (0..1). Pure function of (field, t). */
   function streaksInto(f, t, count, out) {
     var n = Math.min(MAX_STREAKS, Math.max(0, count | 0));
+    var R = POINTS + 1;
     var k;
     var j;
 
+    // Every streak sees the same quantised clock: the whole layer moves on
+    // UPDATE_HZ times a second, in step.
+    t = Math.floor(t * UPDATE_HZ + 1e-6) / UPDATE_HZ;
     for (k = 0; k < n; k++) {
       var life = 4.5 + 2.5 * hash(f.seed, k, 101);
       var clock = t + life * hash(f.seed, k, 202);
@@ -272,42 +342,104 @@
       var age = clock - gen * life;
       var px = 1 + hash(f.seed, k * 977 + gen, 303) * (f.width - 2);
       var py = 1 + hash(f.seed, k * 977 + gen, 404) * (f.height - 2);
-      // Pre-rolled by its own length: a streak fades in already whole
-      // instead of growing out of its spawn point.
-      var steps = Math.floor(age * SPEED / STEP) + POINTS - 1;
+      // How far along its path the tail is, in (fractional) steps. Pre-
+      // rolled by its own length: a streak fades in already whole instead
+      // of growing out of its spawn point.
+      var along = age * SPEED / STEP;
+      var tail = Math.floor(along);
+      var frac = along - tail;
+      var steps = tail + POINTS;
       var written = 1;
       var base = k * POINTS;
+      var hx = sample(f.u, f, px, py);
+      var hy = sample(f.v, f, px, py);
+      var hl = Math.sqrt(hx * hx + hy * hy) || 1;
+      var stopped = false;
 
-      // The last POINTS positions of the path, in a ring.
+      hx /= hl;
+      hy /= hl;
+
+      // The last POINTS + 1 positions of the path, in a ring.
       out.ringX[0] = px;
       out.ringY[0] = py;
       for (j = 0; j < steps; j++) {
-        // Midpoint (RK2) step of STEP tiles, scaled by the local speed.
-        var sp = sample(f.speed, f, px, py) * STEP;
-        var mx = px + sample(f.u, f, px, py) * sp * 0.5;
-        var my = py + sample(f.v, f, px, py) * sp * 0.5;
-        px += sample(f.u, f, mx, my) * sp;
-        py += sample(f.v, f, mx, my) * sp;
-        px = Math.max(0.5, Math.min(f.width - 0.5, px));
-        py = Math.max(0.5, Math.min(f.height - 0.5, py));
-        out.ringX[written % POINTS] = px;
-        out.ringY[written % POINTS] = py;
+        if (!stopped) {
+          // Midpoint (RK2) step of STEP time units: STEP x local speed tiles.
+          var sp = sample(f.speed, f, px, py) * STEP;
+          var mx = px + hx * sp * 0.5;
+          var my = py + hy * sp * 0.5;
+          var dx = sample(f.u, f, mx, my);
+          var dy = sample(f.v, f, mx, my);
+          // Turn toward the field, but never more than MAX_TURN per tile:
+          // no kinks, whatever the field does under it.
+          var turn = Math.atan2(hx * dy - hy * dx, hx * dx + hy * dy);
+          var cap = MAX_TURN * sp;
+          turn = turn > cap ? cap : (turn < -cap ? -cap : turn);
+          var c = Math.cos(turn);
+          var s = Math.sin(turn);
+          var nhx = hx * c - hy * s;
+          hy = hx * s + hy * c;
+          hx = nhx;
+          var nx = px + hx * sp;
+          var ny = py + hy * sp;
+          // At the map border the path ends (no sliding along the edge,
+          // which was a sharp turn); the streak fades out there.
+          if (nx < 0.5 || ny < 0.5 || nx > f.width - 0.5 || ny > f.height - 0.5) stopped = true;
+          else {
+            px = nx;
+            py = ny;
+          }
+        }
+        out.ringX[written % R] = px;
+        out.ringY[written % R] = py;
         written++;
       }
-      // Unroll oldest -> newest; a young streak repeats its spawn point
-      // (zero-length segments are invisible).
+      // Unroll oldest -> newest, each point `frac` of the way to the next
+      // path point: the streak glides along its path between steps.
       for (j = 0; j < POINTS; j++) {
-        var src = written <= POINTS ? Math.max(0, j - (POINTS - written)) :
-          (written + j) % POINTS;
-        out.x[base + j] = out.ringX[src];
-        out.y[base + j] = out.ringY[src];
-        out.ground[base + j] = sample(f.ground, f, out.ringX[src], out.ringY[src]);
+        var a = (written + j) % R;
+        var b = (written + j + 1) % R;
+        out.x[base + j] = out.ringX[a] + (out.ringX[b] - out.ringX[a]) * frac;
+        out.y[base + j] = out.ringY[a] + (out.ringY[b] - out.ringY[a]) * frac;
       }
-      // Fade in over the first second, out over the last 1.5 s.
-      out.alpha[k] = smoothstep(0, 1, age) * smoothstep(life, life - 1.5, age);
+      smoothPass(out, base);
+      smoothPass(out, base);
+      for (j = 0; j < POINTS; j++) {
+        out.ground[base + j] = sample(f.ground, f, out.x[base + j], out.y[base + j]);
+      }
+      // Fade in over the first second, out over the last 1.5 s, and out
+      // as the head nears the map border.
+      var hxp = out.x[base + POINTS - 1];
+      var hyp = out.y[base + POINTS - 1];
+      var edge = Math.min(hxp, hyp, f.width - hxp, f.height - hyp);
+      out.alpha[k] = smoothstep(0, 1, age) * smoothstep(life, life - 1.5, age) *
+        smoothstep(0.5, 4, edge);
     }
     out.count = n;
     return out;
+  }
+
+  /* Sharpest bend of drawn streaks, radians per tile: for every pair of
+   * consecutive segments longer than `minLen` tiles, the angle between
+   * them over their mean length. `--wind` checks it against TURN_LIMIT. */
+  function maxTurnPerTile(s, minLen) {
+    var worst = 0;
+    var lim = minLen == null ? 0.02 : minLen;
+    for (var k = 0; k < s.count; k++) {
+      var base = k * POINTS;
+      for (var j = 1; j < POINTS - 1; j++) {
+        var ax = s.x[base + j] - s.x[base + j - 1];
+        var ay = s.y[base + j] - s.y[base + j - 1];
+        var bx = s.x[base + j + 1] - s.x[base + j];
+        var by = s.y[base + j + 1] - s.y[base + j];
+        var la = Math.sqrt(ax * ax + ay * ay);
+        var lb = Math.sqrt(bx * bx + by * by);
+        if (la < lim || lb < lim) continue;
+        var ang = Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by));
+        worst = Math.max(worst, ang / ((la + lb) * 0.5));
+      }
+    }
+    return worst;
   }
 
   /* Ribbon vertices for `streaksInto` output, into `buf` (Float32Array of
@@ -496,8 +628,16 @@
     makeStreakBuffers: makeStreakBuffers,
     ribbons: ribbons,
     sample: sample,
+    maxTurnPerTile: maxTurnPerTile,
     createLayer: createLayer,
     MAX_STREAKS: MAX_STREAKS,
+    STEP: STEP,
+    SPEED: SPEED,
+    SPEED_MIN: SPEED_MIN,
+    SPEED_MAX: SPEED_MAX,
+    MAX_TURN: MAX_TURN,
+    TURN_LIMIT: TURN_LIMIT,
+    UPDATE_HZ: UPDATE_HZ,
     POINTS: POINTS,
     LIFT: LIFT,
     FLOATS: FLOATS
