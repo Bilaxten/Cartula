@@ -1726,6 +1726,89 @@
     if (isVoxelMode()) resizeVoxel();
     else if (grid) applyCam();
   });
+
+  // --- side panel: ☰ collapses / expands it (Uğur 2026-10-05) ---
+  // State lives on <html data-panel>, set before first paint by the inline
+  // script in index.html (saved choice in `sm-panel`, else collapsed on a
+  // phone-sized screen). Same media query there and in style.css.
+  var COMPACT_QUERY = '(max-width: 700px), (max-height: 500px)';
+  var compactMq = window.matchMedia ? window.matchMedia(COMPACT_QUERY) : null;
+  var panelToggle = $('panelToggle');
+  function isCompact() { return !!(compactMq && compactMq.matches); }
+  function panelOpen() { return document.documentElement.getAttribute('data-panel') !== 'collapsed'; }
+  function syncPanelToggle() {
+    var open = panelOpen();
+    panelToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    panelToggle.setAttribute('aria-label', T(open ? 'panel.close' : 'panel.open'));
+    panelToggle.title = T(open ? 'panel.close' : 'panel.open');
+  }
+  function setPanel(open, save) {
+    var focusInPanel = $('panel').contains(document.activeElement);
+    document.documentElement.setAttribute('data-panel', open ? 'expanded' : 'collapsed');
+    syncPanelToggle();
+    if (save) {
+      try { localStorage.setItem('sm-panel', open ? 'open' : 'closed'); } catch (e) {}
+    }
+    // Focus must not stay on a control that is about to be hidden.
+    if (!open && focusInPanel) panelToggle.focus();
+  }
+  panelToggle.addEventListener('click', function () { setPanel(!panelOpen(), true); });
+  syncPanelToggle();
+
+  /* Page pinch-zoom (allowed on the panel, for accessibility) scales and
+   * shifts position: fixed elements with the layout viewport. The ☰ button is
+   * screen UI, so it is moved back by the visual viewport's offset and scaled
+   * by 1 / scale: same place, same size on screen. */
+  function placePanelToggle() {
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var s = vv.scale || 1;
+    if (Math.abs(s - 1) < 1e-3 && !vv.offsetLeft && !vv.offsetTop) {
+      panelToggle.style.transform = '';
+      return;
+    }
+    var cs = getComputedStyle(panelToggle);
+    var left = parseFloat(cs.left) || 0, top = parseFloat(cs.top) || 0;
+    panelToggle.style.transform = 'translate(' +
+      (vv.offsetLeft - left * (1 - 1 / s)) + 'px,' +
+      (vv.offsetTop - top * (1 - 1 / s)) + 'px) scale(' + (1 / s) + ')';
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', placePanelToggle);
+    window.visualViewport.addEventListener('scroll', placePanelToggle);
+  }
+
+  /* The stage changes size when the panel slides (every frame of the
+   * 0.2 s transition), on a window resize and when a phone's address bar
+   * moves. The map keeps its centre and its on-screen scale: the top-down
+   * camera shifts by half the change; the isometric camera's zoom is the
+   * ortho half-WIDTH in world units, so it scales with the width. The WebGL
+   * frame is resized AND drawn right here, inside the ResizeObserver
+   * callback (after layout, before paint): resizing a canvas clears it, and
+   * waiting for the next animation frame would show one blank or stretched
+   * frame. */
+  var stageSize = { w: stage.clientWidth, h: stage.clientHeight };
+  function onStageResize() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    var ow = stageSize.w, oh = stageSize.h;
+    if (w === ow && h === oh) return;
+    stageSize = { w: w, h: h };
+    if (!w || !h) return;
+    if (content && ow && oh) {
+      cam.x += (w - ow) / 2;
+      cam.y += (h - oh) / 2;
+      applyCam();
+    }
+    if (isVoxelMode() && voxelRenderer) {
+      if (voxelCamera && ow) {
+        voxelCamera.zoom = Math.max(1, Math.min(1000, voxelCamera.zoom * w / ow));
+        voxelRenderer.setCamera(voxelCamera);
+      }
+      voxelRenderer.resize(w, h, window.devicePixelRatio || 1);
+      voxelRenderer.render();
+    }
+  }
+  if (window.ResizeObserver) new ResizeObserver(onStageResize).observe(stage);
   window.addEventListener('pagehide', function () {
     if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
     if (voxelRenderer) {
@@ -1842,6 +1925,7 @@
       if (options[i]) options[i].textContent = T('biome.' + b.id);
     });
     hoverEl.hidden = true;
+    syncPanelToggle();
     if (perf.on) paintPerf();
   }
   SM.I18N.onChange(refreshLangText);

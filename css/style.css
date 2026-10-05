@@ -88,22 +88,93 @@ body {
   flex-direction: column;
   background: var(--panel);
   border-right: 1px solid var(--line);
+  transition: margin-left 0.2s ease, visibility 0s linear 0s;
+}
+/* Collapsed (☰, main.js setPanel): the panel slides out to the left and the
+ * map takes the freed width. visibility flips after the slide, so nothing in
+ * the hidden panel stays focusable. */
+:root[data-panel="collapsed"] #panel {
+  margin-left: -312px;
+  visibility: hidden;
+  transition: margin-left 0.2s ease, visibility 0s linear 0.2s;
 }
 
+/* Header: the first column is room for the ☰ button, which is position:
+ * fixed (it stays put when the panel collapses), so it is not a grid item.
+ * The tagline runs under the title and the buttons. */
 #brand {
-  display: flex;
+  display: grid;
+  grid-template-columns: 34px 34px minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    "menu logo title lang stage theme"
+    ".    .    tag   tag  tag   tag";
   align-items: center;
-  gap: 11px;
-  padding: 18px 19px 16px;
+  column-gap: 9px;
+  row-gap: 1px;
+  padding: 18px 19px 18px 15px;
   border-bottom: 1px solid var(--line-soft);
 }
+#brand > div { display: contents; }
 #brand .mark {
+  grid-area: logo;
   width: 34px;
   height: 34px;
-  flex: none;
-  margin: -3px -2px -3px -4px;
 }
-#brand > div { flex: 1; min-width: 0; }
+#brand h1 { grid-area: title; }
+#brand .tag { grid-area: tag; }
+#brand .lang-switch { grid-area: lang; }
+#brand #stageToggle { grid-area: stage; }
+#brand #themeToggle { grid-area: theme; }
+
+/* ☰: the same element in both states, fixed at the panel's top-left corner.
+ * Open: a header icon button like its neighbours. Collapsed: the accent
+ * button (same token as Random and the active view tab), semi-transparent
+ * until hovered, focused or touched. It is screen UI, not part of the map:
+ * map zoom and pan never touch it, and main.js (placePanelToggle) undoes a
+ * page pinch-zoom so it keeps its size and place on a phone. */
+#panelToggle {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 18px);
+  left: calc(env(safe-area-inset-left, 0px) + 15px);
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  touch-action: none;
+  transform-origin: 0 0;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease,
+    opacity 0.2s ease, box-shadow 0.15s ease;
+}
+#panelToggle:hover { background: var(--panel-2); border-color: var(--edge-hover); color: var(--text); }
+#panelToggle:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+:root[data-panel="collapsed"] #panelToggle {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  opacity: 0.55;
+  box-shadow: 0 2px 8px var(--card-shadow);
+}
+:root[data-panel="collapsed"] #panelToggle:hover,
+:root[data-panel="collapsed"] #panelToggle:focus-visible,
+:root[data-panel="collapsed"] #panelToggle:active {
+  background: var(--accent-press);
+  border-color: var(--accent-press);
+  opacity: 1;
+}
+:root[data-panel="collapsed"] #panelToggle:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 8px var(--card-shadow);
+}
+@media (prefers-reduced-motion: reduce) {
+  #panel, #panelToggle { transition: none; }
+}
 #panel #themeToggle,
 #panel #stageToggle {
   display: grid;
@@ -176,7 +247,7 @@ body {
   line-height: 1.25;
   letter-spacing: -0.015em;
 }
-#brand .tag { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+#brand .tag { margin: 0; color: var(--muted); font-size: 11px; }
 
 .seg {
   display: flex;
@@ -604,6 +675,8 @@ body.iso #hover { display: none; }
   backdrop-filter: blur(3px);
 }
 #hover[hidden] { display: none; }
+/* Panel collapsed: the ☰ button sits over the map's top-left corner. */
+:root[data-panel="collapsed"] #hover { left: calc(env(safe-area-inset-left, 0px) + 62px); }
 #hover .sw {
   width: 10px;
   height: 10px;

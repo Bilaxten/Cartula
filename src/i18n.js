@@ -183,6 +183,8 @@
       'yaw.auto': 'Auto-rotate',
       'yaw.center.title': 'Center view: frame the whole map again (angle kept)',
       'yaw.center.aria': 'Center view',
+      'panel.open': 'Open panel',
+      'panel.close': 'Close panel',
 
       'biome.deep_water': 'Deep sea',
       'biome.shallow_water': 'Shallow sea',
@@ -381,6 +383,8 @@
       'yaw.auto': 'Kendiliğinden döndür',
       'yaw.center.title': 'Görünümü ortala: haritanın tamamı yeniden kadraja girer (açı korunur)',
       'yaw.center.aria': 'Görünümü ortala',
+      'panel.open': 'Paneli aç',
+      'panel.close': 'Paneli kapat',
 
       'biome.deep_water': 'Derin deniz',
       'biome.shallow_water': 'Sığ deniz',

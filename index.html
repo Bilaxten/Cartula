@@ -22,6 +22,15 @@
     var s = null;
     try { s = localStorage.getItem('sm-stage'); } catch (e) {}
     document.documentElement.setAttribute('data-stage', s === 'dark' || s === 'light' ? s : t);
+    // Side panel open or collapsed (the ☰ button, src/main.js setPanel):
+    // the saved choice, else collapsed on a phone-sized screen (map first)
+    // and open everywhere else. COMPACT_QUERY in main.js and the compact
+    // block in style.css use the same media query.
+    var p = null;
+    try { p = localStorage.getItem('sm-panel'); } catch (e) {}
+    var compact = !!(window.matchMedia && window.matchMedia('(max-width: 700px), (max-height: 500px)').matches);
+    document.documentElement.setAttribute('data-panel',
+      p === 'open' ? 'expanded' : p === 'closed' ? 'collapsed' : (compact ? 'collapsed' : 'expanded'));
   })();
 </script>
 <!-- UI language (TR / EN): sets <html lang> before first paint. -->
@@ -30,6 +39,13 @@
 </head>
 <body>
 <div id="app">
+  <!-- One ☰ button for both states, fixed at the panel's top-left corner:
+       in the header while the panel is open, a semi-transparent accent
+       button over the map while it is collapsed. Its aria-label and
+       aria-expanded are written by main.js (setPanel). -->
+  <button type="button" id="panelToggle" aria-controls="panel" aria-expanded="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>
+  </button>
   <aside id="panel">
     <header id="brand">
       <img class="mark" src="assets/logo.svg" alt="" width="34" height="34">

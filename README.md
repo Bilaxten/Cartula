@@ -133,6 +133,21 @@ Alttaki açı çipinde, slider'ın solundaki **ortala** düğmesi kaydırmayı v
 yakınlaşmayı sıfırlar: harita yeni üretilmiş gibi bütünüyle kadraja girer
 (`fitCamera`, gökyüzü dahil), açı (yaw ve eğim) korunur (2026-10-05).
 
+**Yan panel ☰ ile küçülür** (Uğur 2026-10-05). Panelin sol üst köşesindeki ☰
+düğmesi paneli kapatır ve açar; kapalıyken ekranda yalnız o kalır: aynı yerde,
+aynı boyutta, yarı saydam (0.55) turuncu (`--accent`, Rastgele düğmesinin
+rengi), üstüne gelince / odakta / dokununca tam opak. Harita yakınlaşsa ya da
+kaysa da yerinden oynamaz (haritanın değil ekranın parçası); telefonda sayfa
+iki parmakla büyütülse bile `visualViewport` ile geri ölçeklenir. Durum
+`<html data-panel>`'de, ilk boyamadan önce `index.html`'deki satır içi betik
+koyar: kayıtlı seçim (`localStorage` `sm-panel`), yoksa telefon boyutunda
+kapalı, diğer her yerde açık. Geçiş 0.2 sn (`prefers-reduced-motion`'da yok),
+kapalı panel `visibility: hidden` (sekme sırasından çıkar). Gerçek `<button>`,
+`aria-expanded` + `aria-controls`, TR/EN etiket (*Paneli aç / kapat*). Panel
+kayarken harita ortasını ve ekrandaki ölçeğini korur; WebGL karesi
+`ResizeObserver` içinde aynı karede yeniden boyutlanıp çizilir (boş ya da
+gerilmiş kare yok). `node tools/headless.js --layout`.
+
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
 çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,

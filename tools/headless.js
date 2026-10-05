@@ -16,6 +16,7 @@
  *   node tools/headless.js --night      # night lights: settlement-only flag, night curve, grade
  *   node tools/headless.js --wind       # wind lines: terrain-steered field, bounded stateless streaks
  *   node tools/headless.js --weather    # rain/snow: biome rules, bounded, deterministic per seed
+ *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
 const fs = require('fs');
@@ -2371,6 +2372,109 @@ function runWindChecks() {
 // biomes, nothing over desert/mesa/lava, rain elsewhere inside a zone;
 // bounded count; zones and particles deterministic per seed.
 // ---------------------------------------------------------------------------
+/* --layout: side panel, phone layout, touch navigation (2026-10-05).
+ * The app's layout is CSS and its gestures are DOM events, so most of this
+ * reads the sources; what is pure math (pinch / two-finger pan) is run. The
+ * browser itself is checked in headless Edge with device emulation and CDP
+ * touch events (CURRENT.md). */
+function cssRules(css, selRe) {
+  // Every rule whose selector matches selRe -> { sel, body, media }. Rules
+  // inside @media blocks are returned too, with the media text in `media`.
+  const out = [];
+  const strip = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const walk = (text, media) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i);
+      if (open < 0) break;
+      const head = text.slice(i, open).trim();
+      let depth = 1, j = open + 1;
+      while (j < text.length && depth) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+        j++;
+      }
+      const body = text.slice(open + 1, j - 1);
+      if (head.startsWith('@media')) walk(body, head);
+      else if (selRe.test(head)) out.push({ sel: head, body, media: media || '' });
+      i = j;
+    }
+  };
+  walk(strip, '');
+  return out;
+}
+
+function runLayoutChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const repo = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(repo, 'css', 'style.css'), 'utf8');
+  const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+  const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
+  const COMPACT = '(max-width: 700px), (max-height: 500px)';
+
+  // 1) Panel toggle: a real button, before the panel, wired to it.
+  {
+    const btn = html.match(/<button\b[^>]*\bid="panelToggle"[^>]*>/);
+    const b = btn ? btn[0] : '';
+    push('☰ is a <button type="button" id="panelToggle" aria-controls="panel" aria-expanded>, before <aside id="panel">',
+      !!btn && /type="button"/.test(b) && /aria-controls="panel"/.test(b) && /aria-expanded=/.test(b) &&
+      html.indexOf(b) < html.indexOf('<aside id="panel">'), b);
+    push('setPanel writes aria-expanded and a TR/EN aria-label (panel.open / panel.close in both languages), again on a language switch',
+      /setAttribute\('aria-expanded'/.test(main) && /T\(open \? 'panel\.close' : 'panel\.open'\)/.test(main) &&
+      !!(en['panel.open'] && en['panel.close'] && tr['panel.open'] && tr['panel.close']) &&
+      /syncPanelToggle\(\);\s*if \(perf\.on\) paintPerf\(\);/.test(main), '');
+  }
+  // 2) First state before paint: saved choice (try/catch), else collapsed on a phone.
+  {
+    const head = (html.match(/<head>[\s\S]*<\/head>/) || [''])[0];
+    push('the <head> script reads sm-panel inside try/catch and starts collapsed on a compact screen with nothing saved',
+      /try \{ p = localStorage\.getItem\('sm-panel'\); \} catch \(e\) \{\}/.test(head) &&
+      head.includes("matchMedia('" + COMPACT + "')") &&
+      /\(compact \? 'collapsed' : 'expanded'\)/.test(head), '');
+    push('main.js saves the choice inside try/catch and uses the same compact media query',
+      /try \{ localStorage\.setItem\('sm-panel'/.test(main) && main.includes("COMPACT_QUERY = '" + COMPACT + "'"), '');
+  }
+  // 3) Collapsed look: accent token, semi-transparent, full on hover/focus/touch.
+  {
+    const col = cssRules(css, /^:root\[data-panel="collapsed"\] #panelToggle$/);
+    const act = cssRules(css, /:root\[data-panel="collapsed"\] #panelToggle:hover/);
+    const op = col.length ? parseFloat((col[0].body.match(/opacity:\s*([\d.]+)/) || [])[1]) : NaN;
+    push('collapsed ☰ is the accent button (var(--accent), no new colour), opacity 0.4-0.7, opacity 1 on hover/focus/active',
+      col.length === 1 && /background:\s*var\(--accent\)/.test(col[0].body) && op >= 0.4 && op <= 0.7 &&
+      act.length === 1 && /:focus-visible/.test(act[0].sel) && /:active/.test(act[0].sel) &&
+      /opacity:\s*1\b/.test(act[0].body), 'opacity ' + op);
+    const fab = cssRules(css, /^#panelToggle$/);
+    push('☰ is position: fixed with a fixed px size and no CSS transform of its own (not part of the map)',
+      fab.length >= 1 && fab.every(r => !/(^|[;\s])transform:/.test(r.body)) &&
+      /position:\s*fixed/.test(fab[0].body) && /width:\s*\d+px/.test(fab[0].body) && /height:\s*\d+px/.test(fab[0].body), '');
+    push('page pinch-zoom is undone for the ☰ (visualViewport offset and 1 / scale)',
+      /visualViewport\.addEventListener\('resize', placePanelToggle\)/.test(main) && /scale\(' \+ \(1 \/ s\)/.test(main), '');
+  }
+  // 4) Collapsed panel leaves the tab order; short transition; reduced motion.
+  {
+    const hid = cssRules(css, /^:root\[data-panel="collapsed"\] #panel$/).filter(r => !r.media);
+    const durs = hid.length ? (hid[0].body.match(/[\d.]+s\b/g) || []).map(parseFloat) : [];
+    push('collapsed panel is visibility: hidden after a slide of at most 0.25 s',
+      hid.length === 1 && /visibility:\s*hidden/.test(hid[0].body) && durs.length > 0 && Math.max(...durs) <= 0.25,
+      durs.join(','));
+    const rm = cssRules(css, /#panel\b/).filter(r => /prefers-reduced-motion: reduce/.test(r.media));
+    push('prefers-reduced-motion turns the panel transition off', rm.some(r => /transition:\s*none/.test(r.body)), '');
+  }
+  // 5) The WebGL frame follows the stage size in the same frame.
+  push('a ResizeObserver resizes AND draws the isometric frame (no blank / stretched frame while the panel slides)',
+    /new ResizeObserver\(onStageResize\)\.observe\(stage\)/.test(main) &&
+    /voxelRenderer\.resize\(w, h, window\.devicePixelRatio \|\| 1\);\s*voxelRenderer\.render\(\);/.test(main), '');
+
+  console.log('layout checks (panel, phone, touch):');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 function runWeatherChecks() {
   const results = [];
   const push = (name, ok, detail) => results.push([name, ok, detail || '']);
@@ -2426,7 +2530,9 @@ function runWeatherChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--weather') {
+if (process.argv[2] === '--layout') {
+  runLayoutChecks();
+} else if (process.argv[2] === '--weather') {
   runWeatherChecks();
 } else if (process.argv[2] === '--wind') {
   runWindChecks();
