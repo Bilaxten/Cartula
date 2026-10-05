@@ -251,23 +251,32 @@ ayırmayı `src/perf.js`'teki sayaçtan geçirir; `--perf` `src/render/`'da
 sayaçsız bir çağrı bulursa kırmızı. Panel kapalıyken kare başına hiçbir
 şey ölçülmez ya da sayılmaz.
 
-**Gece ışıkları + bloom** (2026-10-05): yalnız yerleşim voksellerinde
-(`mesh.town`, `--night` denetler) 17:00-19:00 arası yanan, 5:00-7:00 arası
-sönen sıcak pencereler (`SM.nightAmount`, `time.js`); çatıda 3×3, duvarda
-sıra sıra, bloklu; piksel altına inince ortalamasına söner (pırıldamaz).
-Renk biyom paletinden (çöl kumu, lavla ısıtılmış). Bloom: arazi 1/4
-çözünürlükte "yalnız ışık" shader varyantıyla yeniden çizilir (tam derinlik,
-tepe arkasındaki kasaba gizlenir), iki tur ayrılabilir Gauss, kanvasa
-toplanarak eklenir; kamera durunca bulanık sonuç yeniden kullanılır.
-Gündüz bunların hiçbiri çalışmaz ya da ayrılmaz; framebuffer eksikse bloom
-kendini kapatır, ışıklar kalır. ⚠️ Işıklar yanarken gece renk düzeltmesi
-CSS'ten (`#daynight` + filtre) shader'a geçer (aynı formül, fark ≤4/255):
-CSS örtüsü WebGL'den SONRA uygulandığı için ışıkları gri-kahveye
-boyuyordu; shader'da ışık düzeltmeden sonra eklenir. Gündüz yol CSS'te
-kalır. Arazi shader'ı üç derlenmiş varyant (gündüz / gece / gece+pencere)
-ve yerleşim üçgenleri index buffer'ın sonunda kendi aralığında: SwiftShader
-dallanmanın iki tarafını da çalıştırdığı için ölü gece kodu gündüz ~18 ms
-yiyordu.
+**Gece ışıkları + bloom** (2026-10-05; ikinci tur aynı gün, Uğur: *"bu
+parlamalar ne ve neden lavlar parlamıyor? ... biz ev koymuyoruz ki niye
+parlamalar var?"*): yerleşim tile'larındaki pencere noktaları **kaldırıldı**
+(orada ev yok). Işık artık yalnız **kulübe pencerelerinde**: pencere
+voksellerinin dışa bakan yüzü (`mesh.town` bayrağı yalnız orada, `--night`
+denetler) 17:00-19:00 arası yanar, 5:00-7:00 arası söner (`SM.nightAmount`,
+`time.js`); bütün voxel yüzü sıcak ışık (bölünmez). Renk biyom paletinden
+(çöl kumu, lavla ısıtılmış). **Lav gecenin en güçlü ışığı**: gece varyantında
+lav ışıması gece düzeltmesinden SONRA, 1.3 katı eklenir (eskiden düzeltmeyle
+kararıyordu) ve bloom'a girer. Bloom: arazi 1/4 çözünürlükte "yalnız ışık"
+varyantıyla yeniden çizilir (tam derinlik, tepe arkasındaki ışık gizlenir);
+kaynak renk değil MİKTAR yazar: R pencere, G lav, B/A lav × nabız fazının
+cos/sin'i. İki tur ayrılabilir Gauss (dört kanal), sonra kanvasa toplanarak
+eklenir; birleştirme nabzı sin(wt+φ) = sin wt·cos φ + cos wt·sin φ ile
+bulanık kanallardan yeniden kurar, yani her lav tile'ının halesi kendi
+tile'ıyla atar ama kaynak zamandan bağımsız kalır: kamera durunca bulanık
+sonuç yeniden kullanılır (`--night` 8-bit saklamayla hatayı ölçer: 0.002).
+Gündüz bunların hiçbiri çalışmaz ya da ayrılmaz (gündüz shader'ı
+değişmedi); framebuffer eksikse bloom kendini kapatır, ışıklar kalır.
+⚠️ Işıklar yanarken gece renk düzeltmesi CSS'ten (`#daynight` + filtre)
+shader'a geçer (aynı formül, fark ≤4/255): CSS örtüsü WebGL'den SONRA
+uygulandığı için ışıkları gri-kahveye boyuyordu; shader'da ışık
+düzeltmeden sonra eklenir. Gündüz yol CSS'te kalır. Arazi shader'ı üç
+derlenmiş varyant (gündüz / gece / gece+pencere) ve pencere üçgenleri index
+buffer'ın sonunda kendi aralığında: SwiftShader dallanmanın iki tarafını da
+çalıştırdığı için ölü gece kodu gündüz ~18 ms yiyordu.
 
 **Kıyı köpüğü** (2026-10-05): deniz ve göl tile'larının üst yüzünde, karaya
 değen köşede 1 olan köşe bayrağı (`mesh.foam`); komşu tile'lar köşeyi

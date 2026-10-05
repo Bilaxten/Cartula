@@ -2128,33 +2128,44 @@ function runNightChecks() {
   const push = (name, ok, detail) => results.push([name, ok, detail || '']);
   const TOWN = SM.BIOME_LIST.findIndex(b => b.id === 'town');
 
+  // Night lights since 2026-10-05 (owner: "biz ev koymuyoruz ki niye
+  // parlamalar var?"): only hut WINDOW faces carry the light flag -- no
+  // settlement tile does -- and the bloom source holds hut windows and lava.
   for (const seed of [1337, 4242, 90210]) {
     const g = run(seed, 128, 0.38).grid;
     const mesh = SM.buildVoxelMesh(g);
-    let flagged = 0, wrong = 0, missing = 0;
     const W = g.width, H = g.height;
+    // Independent model of a window face: the outward face of a G voxel.
+    const windowCells = new Map();
+    for (const h of g.huts) {
+      for (const v of SM.Huts.voxels(g, h)) if (v.m === 'G') windowCells.set(v.x + ',' + v.y, v.level);
+    }
+    let flagged = 0, wrong = 0, onTown = 0, lavaV = 0, lavaWrong = 0;
     for (let v = 0; v < mesh.vertexCount; v++) {
       const x = Math.floor(mesh.cellUV[v * 2] * W);
       const y = Math.floor(mesh.cellUV[v * 2 + 1] * H);
       const i = y * W + x;
-      // Plinth/base vertices clamp their cellUV to an edge cell: identify them
-      // by position outside the grid footprint.
-      const px = mesh.positions[v * 3], pz = mesh.positions[v * 3 + 2];
-      const inside = px >= -W / 2 && px <= W / 2 && pz >= -H / 2 && pz <= H / 2 &&
-        mesh.positions[v * 3 + 1] > -((g.config && g.config.waterDepth) || 3) - 1;
-      const isTownCell = g.biome[i] === TOWN && !g.water[i];
       if (mesh.town[v]) {
         flagged++;
-        if (!isTownCell || !inside) wrong++;
-      } else if (isTownCell && inside && mesh.normals[v * 3 + 1] === 1 &&
-                 Math.abs(mesh.positions[v * 3 + 1] - g.level[i]) < 1e-6 &&
-                 px > x - W / 2 - 1e-6 && px < x - W / 2 + 1 + 1e-6 &&
-                 pz > y - H / 2 - 1e-6 && pz < y - H / 2 + 1 + 1e-6) {
-        missing++;   // a settlement cell's own top face without the flag
+        const lvl = windowCells.get(x + ',' + y);
+        const py = mesh.positions[v * 3 + 1];
+        if (lvl == null || py < lvl - 1e-6 || py > lvl + 1 + 1e-6 || mesh.normals[v * 3 + 1] !== 0) wrong++;
+        if (g.biome[i] === TOWN && lvl == null) onTown++;
+      }
+      if (mesh.emissive[v] > 0) {
+        lavaV++;
+        if (!g.lava[i] || mesh.town[v]) lavaWrong++;
       }
     }
+    const windows = g.huts.filter(h => SM.Huts.voxels(g, h).length).length * 2;
     const towns = g.biome.filter((b, i) => b === TOWN && !g.water[i]).length;
-    // The renderer draws settlement triangles in their own range at night:
+    push(`seed ${seed}: the light flag sits only on hut window faces (${flagged} vertices = ${windows} windows x 4), ` +
+      `none on the ${towns} settlement tiles`,
+      flagged === windows * 4 && windows >= 6 && wrong === 0 && onTown === 0 && mesh.town.length === mesh.vertexCount,
+      `wrong ${wrong}, on town ${onTown}`);
+    push(`seed ${seed}: bloom source inputs: lava faces carry emission (${lavaV} vertices), only on lava, never a window`,
+      lavaWrong === 0 && (lavaV > 0 || !g.lava.some(Boolean)), `wrong ${lavaWrong}`);
+    // The renderer draws window triangles in their own range at night:
     // the reordered buffer must hold exactly the same triangles.
     const ord = SM.voxelSettlementLast(mesh.indices, mesh.town);
     const key = (arr, t) => arr[t] + ',' + arr[t + 1] + ',' + arr[t + 2];
@@ -2164,13 +2175,38 @@ function runNightChecks() {
     for (let t = 0; t < ord.indices.length; t += 3) {
       if (!!mesh.town[ord.indices[t]] !== (t >= ord.townStart)) { split = false; break; }
     }
-    push(`seed ${seed}: settlement-last index order keeps every triangle, splits exactly at the boundary`,
+    push(`seed ${seed}: window-last index order keeps every triangle, splits exactly at the boundary (${(ord.indices.length - ord.townStart) / 3} window triangles)`,
       split && ord.indices.length === mesh.indices.length && ord.townStart % 3 === 0 &&
       before.sort().join(';') === after.sort().join(';'), '');
-    push(`seed ${seed}: light flag only on settlement voxels (${flagged} vertices, ${towns} town cells), every town top flagged`,
-      towns > 0 && flagged >= towns * 4 && wrong === 0 && missing === 0 &&
-      mesh.town.length === mesh.vertexCount,
-      `wrong ${wrong}, missing ${missing}`);
+  }
+
+  {
+    // The lava halo pulses from a static (cacheable) blurred source: the
+    // composite rebuilds the average pulse of the tiles under a pixel from
+    // the blurred (G, B, A) phasor channels. Model it with 8-bit storage.
+    const q8 = v => Math.round(Math.max(0, Math.min(1, v)) * 255) / 255;
+    let worst = 0;
+    let rs = 11;
+    const rnd = () => { rs = (rs * 1103515245 + 12345) % 2147483648; return rs / 2147483648; };
+    for (let trial = 0; trial < 200; trial++) {
+      const tiles = [];
+      const n = 1 + Math.floor(rnd() * 12);
+      for (let k = 0; k < n; k++) tiles.push({ w: rnd() < 0.3 ? 0 : rnd(), phase: rnd() * 300 });
+      const sw = tiles.reduce((s, t) => s + 1, 0);
+      const G = q8(tiles.reduce((s, t) => s + t.w, 0) / sw);
+      const B = q8(tiles.reduce((s, t) => s + t.w * (0.5 + 0.5 * Math.cos(t.phase)), 0) / sw);
+      const A = q8(tiles.reduce((s, t) => s + t.w * (0.5 + 0.5 * Math.sin(t.phase)), 0) / sw);
+      for (const time of [0, 0.7, 3.3, 41.9]) {
+        const w = time * 2.4;
+        const want = tiles.reduce((s, t) => s + t.w * (0.42 + 0.42 * (0.55 + 0.45 * Math.sin(w + t.phase))), 0) / sw;
+        const got = Math.max(0, 0.651 * G + 0.189 * ((2 * B - G) * Math.sin(w) + (2 * A - G) * Math.cos(w)));
+        worst = Math.max(worst, Math.abs(got - want));
+      }
+    }
+    const post = fs.readFileSync(path.join(root, 'render', 'post.js'), 'utf8');
+    push(`lava halo: the composite rebuilds the per-tile pulse from the blurred phasor channels (worst error ${worst.toFixed(4)} with 8-bit storage)`,
+      worst < 0.01 && /0\.651 \* s\.g \+ 0\.189 \* \(lavaCos \* uPulse\.x \+ lavaSin \* uPulse\.y\)/.test(post) &&
+      /Math\.sin\(look\.time \* 2\.4\), Math\.cos\(look\.time \* 2\.4\)/.test(post) && /outColor = c;/.test(post), '');
   }
 
   {
@@ -2223,13 +2259,14 @@ function runNightChecks() {
   {
     const src = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
     const lightLines = src.split('\n').filter(l => /uLightColor \*/.test(l));
-    push('terrain shader: window light colour is only ever multiplied by the settlement flag',
-      lightLines.length === 2 && lightLines.every(l => /\(town \*/.test(l)) &&
-      /vAO = aAO \+ 4\.0 \* aTown;/.test(src) && /float town = step\(3\.5, vAO\);/.test(src),
+    push('terrain shader: the window light colour is only ever multiplied by the window flag',
+      lightLines.length === 1 && lightLines.every(l => /\(town \*/.test(l)) &&
+      /vAO = aAO \+ 4\.0 \* aTown;/.test(src) && /float town = step\(3\.5, vAO\);/.test(src) &&
+      /cellTown = v\.m === 'G' \? 1 : 0;/.test(src) && !/cellTown = grid\.biome/.test(src),
       lightLines.join(' | '));
-    push('bloom and the window pattern run only at night, only on settlement faces, never in debug views',
+    push('bloom runs only at night and never in debug views; lava pulses in the composite, not the source',
       /if \(bloom && glowU && bloomOn && !debugView && nightLight > 0\.001\)/.test(src) &&
-      /if \(uNightLight > 0\.0 && town > 0\.5\) \{/.test(src), '');
+      /bloomLook\.lavaStrength = LAVA_BLOOM \* nightLight;/.test(src), '');
   }
 
   {
@@ -2251,13 +2288,14 @@ function runNightChecks() {
     };
     const frag = v => pre(SM.voxelTerrainShaderSources(v).fragment, new Set(v.split(' ').filter(Boolean)));
     const day = frag(''), night = frag('NIGHT'), windows = frag('NIGHT WINDOWS'), glow = frag('GLOW');
-    const nightOnly = ['windowLight(', 'uInvLevelVP', 'grade(', 'uNightLight', 'uLightColor'];
+    const nightOnly = ['grade(', 'uNightLight', 'uLightColor'];
     const leaked = nightOnly.filter(k => day.includes(k));
-    push('day terrain shader compiles none of the night code; the window code only in NIGHT WINDOWS; glow returns before lighting',
+    push('day terrain shader compiles none of the night code; lava goes past the grade only at night; the window light only in NIGHT WINDOWS; glow returns before lighting with windows in R and lava in G/B/A',
       leaked.length === 0 && nightOnly.every(k => windows.includes(k)) &&
-      night.includes('grade(') && !night.includes('windowLight(') &&
-      /outColor = vec4\(uLightColor \* \(town \*[^;]*;[\s\S]{0,20}return;/.test(glow) &&
-      !glow.includes('windowLight('),
+      night.includes('grade(') && /emission \* \(uNightLight \*/.test(night) && !/emission \* \(uNightLight/.test(day) &&
+      !night.includes('uLightColor *') && windows.includes('uLightColor * (town') &&
+      /outColor = vec4\(town \* [\d.]+, lavaGlow,[^;]*;[\s\S]{0,20}return;/.test(glow) &&
+      !glow.includes('uLightColor') && !glow.includes('windowLight('),
       leaked.join(', '));
   }
 
