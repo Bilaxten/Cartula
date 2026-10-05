@@ -117,6 +117,28 @@ body {
 #panel #themeToggle:hover,
 #panel #stageToggle:hover { color: var(--text); }
 #panel #stageToggle { margin-right: -5px; }
+/* TR / EN, same look as the rest of bilaxten.art (one localStorage key,
+ * `bx-lang`): 11px / 600 / 0.08em, inactive muted, active in the text colour. */
+.lang-switch { display: inline-flex; align-items: center; flex: none; margin-right: -4px; }
+#panel .lang-switch button {
+  padding: 4px 3px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+#panel .lang-switch button + button::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--thumb-edge);
+  font-weight: 400;
+}
+#panel .lang-switch button:hover { background: none; color: var(--accent); }
+#panel .lang-switch button[aria-pressed="true"] { color: var(--text); }
 #themeToggle .moon { display: none; }
 :root[data-theme="dark"] #themeToggle .sun { display: none; }
 :root[data-theme="dark"] #themeToggle .moon { display: block; }

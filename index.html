@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cartula</title>
+<title data-i18n="app.title">Cartula</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>
   // Theme before first paint (no light flash): saved choice, else the OS.
@@ -21,6 +21,8 @@
     document.documentElement.setAttribute('data-stage', s === 'dark' || s === 'light' ? s : t);
   })();
 </script>
+<!-- UI language (TR / EN): sets <html lang> before first paint. -->
+<script src="src/i18n.js"></script>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -29,169 +31,173 @@
     <header id="brand">
       <img class="mark" src="assets/logo.svg" alt="" width="34" height="34">
       <div>
-        <h1>Cartula</h1>
-        <p class="tag">procedural stylized world generator</p>
+        <h1 translate="no">Cartula</h1>
+        <p class="tag" data-i18n="brand.tag">procedural stylized world generator</p>
       </div>
-      <button type="button" id="stageToggle" title="Map background: light / dark (independent of the theme)" aria-label="Toggle map background">
+      <span class="lang-switch" role="group" aria-label="Dil / Language" translate="no">
+        <button type="button" data-set-lang="tr" aria-pressed="false">TR</button>
+        <button type="button" data-set-lang="en" aria-pressed="false">EN</button>
+      </span>
+      <button type="button" id="stageToggle" title="Map background: light / dark (independent of the theme)" aria-label="Toggle map background" data-i18n-title="stage.toggle.title" data-i18n-aria-label="stage.toggle.aria">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M20.5 3.5 3.5 20.5h14a3 3 0 0 0 3-3z" fill="currentColor" stroke="none"/></svg>
       </button>
-      <button type="button" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <button type="button" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode" data-i18n-title="theme.toggle" data-i18n-aria-label="theme.toggle">
         <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
     </header>
 
     <div class="seg" role="tablist">
-      <button id="viewTop" type="button" class="active" role="tab">Top-down</button>
-      <button id="viewIso" type="button" role="tab">Isometric</button>
+      <button id="viewTop" type="button" class="active" role="tab" data-i18n="view.top">Top-down</button>
+      <button id="viewIso" type="button" role="tab" data-i18n="view.iso">Isometric</button>
     </div>
 
     <div class="scroll">
       <details class="group" open>
-        <summary>World</summary>
+        <summary data-i18n="group.world">World</summary>
         <div class="body">
-          <label for="worldType">World type</label>
-          <select id="worldType" title="Sets every generation slider at once. Moving a slider switches this to Custom.">
-            <option value="continents">Continents (default)</option>
-            <option value="island">Single island</option>
-            <option value="frozen">Frozen</option>
-            <option value="arid">Arid</option>
-            <option value="tropical">Tropical</option>
-            <option value="custom" disabled>Custom</option>
+          <label for="worldType" data-i18n="worldType.label">World type</label>
+          <select id="worldType" title="Sets every generation slider at once. Moving a slider switches this to Custom." data-i18n-title="worldType.title">
+            <option value="continents" data-i18n="wt.continents">Continents (default)</option>
+            <option value="island" data-i18n="wt.island">Single island</option>
+            <option value="frozen" data-i18n="wt.frozen">Frozen</option>
+            <option value="arid" data-i18n="wt.arid">Arid</option>
+            <option value="tropical" data-i18n="wt.tropical">Tropical</option>
+            <option value="custom" disabled data-i18n="wt.custom">Custom</option>
           </select>
 
-          <label for="seed">Seed</label>
+          <label for="seed" data-i18n="seed.label">Seed</label>
           <input type="number" id="seed" value="1337">
 
-          <label for="size">Map size <span id="sizeVal">192²</span></label>
+          <label for="size" data-i18n="size.label">Map size <span id="sizeVal">192²</span></label>
           <input type="range" id="size" min="128" max="448" step="32" value="192">
         </div>
       </details>
 
       <details class="group" open>
-        <summary>Elevation</summary>
+        <summary data-i18n="group.elevation">Elevation</summary>
         <div class="body">
-          <label for="sea" title="How much of the world is sea. The value shows the land share of the generated map.">Sea level <span id="seaVal">—</span></label>
+          <label for="sea" data-i18n="sea.label" data-i18n-title="sea.title" title="How much of the world is sea. The value shows the land share of the generated map.">Sea level <span id="seaVal" data-i18n-js>—</span></label>
           <input type="range" id="sea" min="0.15" max="0.70" step="0.01" value="0.38">
 
-          <label for="rugged" title="Blend of sharp ridged mountains into the rolling base terrain.">Ruggedness <span id="ruggedVal">0.35</span></label>
+          <label for="rugged" data-i18n="rugged.label" data-i18n-title="rugged.title" title="Blend of sharp ridged mountains into the rolling base terrain.">Ruggedness <span id="ruggedVal">0.35</span></label>
           <input type="range" id="rugged" min="0" max="1" step="0.05" value="0.35">
 
-          <label for="warp" title="Domain warp: bends coastlines and ranges into organic shapes.">Coast warp <span id="warpVal">0.18</span></label>
+          <label for="warp" data-i18n="warp.label" data-i18n-title="warp.title" title="Domain warp: bends coastlines and ranges into organic shapes.">Coast warp <span id="warpVal">0.18</span></label>
           <input type="range" id="warp" min="0" max="0.5" step="0.02" value="0.18">
 
-          <label for="escale" title="Noise frequency. Lower = fewer, larger landmasses; higher = many small features.">Feature scale <span id="escaleVal">2.5</span></label>
+          <label for="escale" data-i18n="escale.label" data-i18n-title="escale.title" title="Noise frequency. Lower = fewer, larger landmasses; higher = many small features.">Feature scale <span id="escaleVal">2.5</span></label>
           <input type="range" id="escale" min="1" max="6" step="0.1" value="2.5">
 
-          <label for="octaves" title="Noise octaves: fine surface detail on top of the large shapes.">Detail <span id="octavesVal">5</span></label>
+          <label for="octaves" data-i18n="octaves.label" data-i18n-title="octaves.title" title="Noise octaves: fine surface detail on top of the large shapes.">Detail <span id="octavesVal">5</span></label>
           <input type="range" id="octaves" min="2" max="7" step="1" value="5">
 
-          <label for="island" title="Gathers the land into one central mass with open sea around it. Sea level still sets how much land there is.">Island <span id="islandVal">off</span></label>
+          <label for="island" data-i18n="island.label" data-i18n-title="island.title" title="Gathers the land into one central mass with open sea around it. Sea level still sets how much land there is.">Island <span id="islandVal" data-i18n-js>off</span></label>
           <input type="range" id="island" min="0" max="1" step="0.05" value="0">
         </div>
       </details>
 
       <details class="group" open>
-        <summary>Climate</summary>
+        <summary data-i18n="group.climate">Climate</summary>
         <div class="body">
-          <label for="tbias" title="Shifts the whole climate colder (tundra, taiga, snow) or hotter (savanna, desert, jungle).">Temperature <span id="tbiasVal">Temperate</span></label>
+          <label for="tbias" data-i18n="tbias.label" data-i18n-title="tbias.title" title="Shifts the whole climate colder (tundra, taiga, snow) or hotter (savanna, desert, jungle).">Temperature <span id="tbiasVal" data-i18n-js>Temperate</span></label>
           <input type="range" id="tbias" min="-0.3" max="0.3" step="0.02" value="0">
 
-          <label for="mbias" title="Shifts rainfall: drier (shrubland, desert) or wetter (forest, marsh, jungle).">Rainfall <span id="mbiasVal">Normal</span></label>
+          <label for="mbias" data-i18n="mbias.label" data-i18n-title="mbias.title" title="Shifts rainfall: drier (shrubland, desert) or wetter (forest, marsh, jungle).">Rainfall <span id="mbiasVal" data-i18n-js>Normal</span></label>
           <input type="range" id="mbias" min="-0.3" max="0.3" step="0.02" value="0">
 
-          <label for="rivers" title="How many river sources are traced from the summits.">Rivers <span id="riversVal">Normal</span></label>
+          <label for="rivers" data-i18n="rivers.label" data-i18n-title="rivers.title" title="How many river sources are traced from the summits.">Rivers <span id="riversVal" data-i18n-js>Normal</span></label>
           <input type="range" id="rivers" min="0" max="2" step="0.25" value="1">
         </div>
       </details>
 
       <details class="group" open>
-        <summary>View</summary>
+        <summary data-i18n="group.view">View</summary>
         <div class="body">
-          <label for="isoexag">Height exaggeration (iso) <span id="isoexagVal">1.6</span></label>
+          <label for="isoexag" data-i18n="isoexag.label">Height exaggeration (iso) <span id="isoexagVal">1.6</span></label>
           <input type="range" id="isoexag" min="0.6" max="3" step="0.1" value="1.6">
 
-          <label for="sun">Time of day <span id="sunVal">14:00</span></label>
+          <label for="sun" data-i18n="sun.label">Time of day <span id="sunVal">14:00</span></label>
           <input type="range" id="sun" min="6" max="29.5" step="0.5" value="14">
 
-          <label for="debugView" id="debugViewLabel">Render debug view</label>
+          <label for="debugView" id="debugViewLabel" data-i18n="debug.label">Render debug view</label>
           <select id="debugView">
-            <option value="0">Lit (normal)</option>
-            <option value="1">Ambient occlusion</option>
-            <option value="2">Normals</option>
-            <option value="3">Height (voxel level)</option>
-            <option value="4">Albedo (unlit)</option>
-            <option value="5">Sun shadow</option>
-            <option value="6">Waterfall faces</option>
+            <option value="0" data-i18n="debug.lit">Lit (normal)</option>
+            <option value="1" data-i18n="debug.ao">Ambient occlusion</option>
+            <option value="2" data-i18n="debug.normals">Normals</option>
+            <option value="3" data-i18n="debug.height">Height (voxel level)</option>
+            <option value="4" data-i18n="debug.albedo">Albedo (unlit)</option>
+            <option value="5" data-i18n="debug.shadow">Sun shadow</option>
+            <option value="6" data-i18n="debug.falls">Waterfall faces</option>
           </select>
 
-          <label class="check" id="cloudControl">
+          <label class="check" id="cloudControl" data-i18n="check.clouds">
             <input type="checkbox" id="showClouds" checked> Clouds &amp; birds
           </label>
-          <label class="check">
+          <label class="check" data-i18n="check.anim">
             <input type="checkbox" id="showAnim" checked> Terrain animation
           </label>
-          <label class="check"><input type="checkbox" id="showGrid"> Grid lines</label>
-          <label class="check"><input type="checkbox" id="showShade" checked> Hillshade</label>
+          <label class="check" data-i18n="check.grid"><input type="checkbox" id="showGrid"> Grid lines</label>
+          <label class="check" data-i18n="check.shade"><input type="checkbox" id="showShade" checked> Hillshade</label>
         </div>
       </details>
 
       <details class="group" id="pipelineGroup" open>
-        <summary>Pipeline</summary>
+        <summary data-i18n="group.pipeline">Pipeline</summary>
         <div class="body">
-          <button id="pipelineToggle" type="button" aria-pressed="false">Step through generation</button>
+          <button id="pipelineToggle" type="button" aria-pressed="false" data-i18n-js>Step through generation</button>
           <div id="stageControls" hidden>
-            <p id="stageLabel" class="stage-label"></p>
-            <input type="range" id="stageSlider" min="0" max="9" step="1" value="9" aria-label="Generation stage">
+            <p id="stageLabel" class="stage-label" data-i18n-js></p>
+            <input type="range" id="stageSlider" min="0" max="9" step="1" value="9" aria-label="Generation stage" data-i18n-aria-label="pipeline.slider">
             <div class="edit-actions">
-              <button id="stagePrev" type="button">&#9664; Prev</button>
-              <button id="stageNext" type="button">Next &#9654;</button>
+              <button id="stagePrev" type="button" data-i18n="pipeline.prev">&#9664; Prev</button>
+              <button id="stageNext" type="button" data-i18n="pipeline.next">Next &#9654;</button>
             </div>
-            <p id="stageDesc" class="edit-note"></p>
+            <p id="stageDesc" class="edit-note" data-i18n-js></p>
           </div>
         </div>
       </details>
 
       <details class="group" id="editGroup" open>
-        <summary>Edit</summary>
+        <summary data-i18n="group.edit">Edit</summary>
         <div class="body">
-          <label for="editTool">Tool</label>
+          <label for="editTool" data-i18n="edit.tool">Tool</label>
           <select id="editTool">
-            <option value="pan">Pan</option>
-            <option value="raise">Raise</option>
-            <option value="lower">Lower</option>
-            <option value="smooth">Smooth</option>
-            <option value="water">Water</option>
-            <option value="land">Land</option>
-            <option value="river">Draw river</option>
-            <option value="biome">Paint biome</option>
+            <option value="pan" data-i18n="tool.pan">Pan</option>
+            <option value="raise" data-i18n="tool.raise">Raise</option>
+            <option value="lower" data-i18n="tool.lower">Lower</option>
+            <option value="smooth" data-i18n="tool.smooth">Smooth</option>
+            <option value="water" data-i18n="tool.water">Water</option>
+            <option value="land" data-i18n="tool.land">Land</option>
+            <option value="river" data-i18n="tool.river">Draw river</option>
+            <option value="biome" data-i18n="tool.biome">Paint biome</option>
           </select>
 
-          <label for="brushSize">Brush size <span id="brushSizeVal">4</span></label>
+          <label for="brushSize" data-i18n="edit.brushSize">Brush size <span id="brushSizeVal">4</span></label>
           <input type="range" id="brushSize" min="1" max="12" step="1" value="4">
 
-          <label for="brushStrength">Strength <span id="brushStrengthVal">0.5</span></label>
+          <label for="brushStrength" data-i18n="edit.strength">Strength <span id="brushStrengthVal">0.5</span></label>
           <input type="range" id="brushStrength" min="0.1" max="1" step="0.1" value="0.5">
 
-          <label for="editBiome">Biome</label>
-          <select id="editBiome"></select>
+          <label for="editBiome" data-i18n="edit.biome">Biome</label>
+          <select id="editBiome" data-i18n-js></select>
 
           <div class="edit-actions">
-            <button id="editUndo" type="button" disabled>Undo</button>
-            <button id="editRedo" type="button" disabled>Redo</button>
-            <button id="editReset" type="button">Reset to generated</button>
+            <button id="editUndo" type="button" disabled data-i18n="edit.undo">Undo</button>
+            <button id="editRedo" type="button" disabled data-i18n="edit.redo">Redo</button>
+            <button id="editReset" type="button" data-i18n="edit.reset">Reset to generated</button>
           </div>
-          <p class="edit-note">Brushes work in top-down view.</p>
+          <p class="edit-note" data-i18n="edit.note">Brushes work in top-down view.</p>
         </div>
       </details>
 
       <details class="group" id="legendGroup" open>
-        <summary>Biomes</summary>
-        <div class="body" id="legend"></div>
+        <summary data-i18n="group.biomes">Biomes</summary>
+        <div class="body" id="legend" data-i18n-js></div>
       </details>
     </div>
 
-    <button id="randomMap" type="button" class="primary" title="New random seed, same settings (R)">
+    <button id="randomMap" type="button" class="primary" title="New random seed, same settings (R)" data-i18n-title="random.title">
       <svg class="dice" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>
         <circle cx="8" cy="8" r="1.6" fill="currentColor"/>
@@ -200,30 +206,30 @@
         <circle cx="8" cy="16" r="1.6" fill="currentColor"/>
         <circle cx="16" cy="16" r="1.6" fill="currentColor"/>
       </svg>
-      <span>Random</span>
+      <span data-i18n="random.label">Random</span>
     </button>
 
     <footer id="tools">
-      <span id="stats"></span>
+      <span id="stats" data-i18n-js></span>
       <div class="toolrow">
-        <button id="exportPng" type="button" title="Download the current view as a PNG">Export PNG</button>
-        <button id="shareLink" type="button" title="Copy a link that reproduces this map">Copy link</button>
+        <button id="exportPng" type="button" title="Download the current view as a PNG" data-i18n="export.png" data-i18n-title="export.png.title">Export PNG</button>
+        <button id="shareLink" type="button" title="Copy a link that reproduces this map" data-i18n="share.label" data-i18n-title="share.title">Copy link</button>
       </div>
       <div class="toolrow">
-        <button id="exportUnity" type="button" title="Heightmap (16-bit RAW), albedo, biome mask and map.json as one .zip — Unity Terrain ready">Export for Unity (.zip)</button>
+        <button id="exportUnity" type="button" title="Heightmap (16-bit RAW), albedo, biome mask and map.json as one .zip — Unity Terrain ready" data-i18n="export.unity" data-i18n-title="export.unity.title">Export for Unity (.zip)</button>
       </div>
     </footer>
   </aside>
 
   <main id="stage">
-    <div id="hover"></div>
+    <div id="hover" data-i18n-js></div>
     <div id="brushCursor" hidden></div>
-    <div id="isohint">drag to pan &middot; scroll to zoom</div>
+    <div id="isohint" data-i18n-js>drag to pan &middot; scroll to zoom</div>
     <div id="yawControl" hidden>
       <input type="range" id="rotSlider" min="0" max="360" step="1" value="45"
-        aria-label="Camera yaw">
+        aria-label="Camera yaw" data-i18n-aria-label="yaw.slider">
       <span id="rotVal">045°</span>
-      <button id="autoRotateBtn" type="button" aria-pressed="false" title="Auto-rotate">
+      <button id="autoRotateBtn" type="button" aria-pressed="false" title="Auto-rotate" data-i18n-title="yaw.auto">
         <svg viewBox="0 0 16 16" aria-hidden="true">
           <path d="M13.2 8A5.2 5.2 0 1 1 10.6 3.4" fill="none" stroke="currentColor"
             stroke-width="1.6" stroke-linecap="round"/>
@@ -238,6 +244,7 @@
     <div id="daynight"></div>
   </main>
 </div>
+<script>SM.I18N.apply(document);</script>
 
 <script src="src/noise.js"></script>
 <script src="src/biome.js"></script>

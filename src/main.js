@@ -7,6 +7,9 @@
 
 
   var $ = function (id) { return document.getElementById(id); };
+  // UI strings (TR / EN) come from src/i18n.js; `T` and not `t` because `t`
+  // is a common local name here (transforms, times).
+  var T = SM.I18N.t;
   var map = $('map');
   var glCanvas = $('gl');
   var stage = $('stage');
@@ -22,7 +25,8 @@
   var undoStack = [], redoStack = [];
   var editedSinceRender = false;
   var editRenderTimer = 0;
-  var statsBase = '';
+  var lastStats = null;             // numbers of the last generation, for renderStats
+  var isoHintKey = 'hint.top';      // what #isohint says, re-read on a language change
 
   var TOP_TILE = 9;
 
@@ -58,15 +62,15 @@
     warp: { label: 'warpVal', fmt: function (v) { return (+v).toFixed(2); } },
     escale: { label: 'escaleVal', fmt: function (v) { return (+v).toFixed(1); } },
     octaves: { label: 'octavesVal', fmt: function (v) { return v; } },
-    island: { label: 'islandVal', fmt: function (v) { return +v === 0 ? 'off' : (+v).toFixed(2); } },
+    island: { label: 'islandVal', fmt: function (v) { return +v === 0 ? T('island.off') : (+v).toFixed(2); } },
     tbias: { label: 'tbiasVal', fmt: function (v) {
-      v = +v; return v <= -0.2 ? 'Frozen' : v <= -0.08 ? 'Cold' : v < 0.08 ? 'Temperate' : v < 0.2 ? 'Warm' : 'Hot';
+      v = +v; return T(v <= -0.2 ? 'tbias.frozen' : v <= -0.08 ? 'tbias.cold' : v < 0.08 ? 'tbias.temperate' : v < 0.2 ? 'tbias.warm' : 'tbias.hot');
     } },
     mbias: { label: 'mbiasVal', fmt: function (v) {
-      v = +v; return v <= -0.2 ? 'Arid' : v <= -0.08 ? 'Dry' : v < 0.08 ? 'Normal' : v < 0.2 ? 'Wet' : 'Very wet';
+      v = +v; return T(v <= -0.2 ? 'mbias.arid' : v <= -0.08 ? 'mbias.dry' : v < 0.08 ? 'mbias.normal' : v < 0.2 ? 'mbias.wet' : 'mbias.veryWet');
     } },
     rivers: { label: 'riversVal', fmt: function (v) {
-      v = +v; return v === 0 ? 'None' : v < 1 ? 'Few' : v === 1 ? 'Normal' : v < 2 ? 'More' : 'Many';
+      v = +v; return T(v === 0 ? 'rivers.none' : v < 1 ? 'rivers.few' : v === 1 ? 'rivers.normal' : v < 2 ? 'rivers.more' : 'rivers.many');
     } },
     brushSize: { label: 'brushSizeVal', fmt: function (v) { return v; } },
     brushStrength: { label: 'brushStrengthVal', fmt: function (v) { return (+v).toFixed(1); } },
@@ -194,6 +198,11 @@
     requestVoxelRender();
   }
 
+  function setIsoHint(key) {
+    isoHintKey = key;
+    $('isohint').textContent = T(key);
+  }
+
   function stopVoxel() {
     if (voxelAnim) { cancelAnimationFrame(voxelAnim); voxelAnim = 0; }
     voxelDirty = false;
@@ -206,7 +215,7 @@
     $('yawControl').hidden = true;
     $('cloudControl').hidden = false;
     $('showClouds').disabled = false;
-    $('isohint').textContent = 'drag to pan \u00b7 scroll to zoom';
+    setIsoHint('hint.top');
     updateRotationLabel();
   }
 
@@ -343,8 +352,7 @@
     $('showClouds').disabled = false;
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     glCanvas.hidden = false;
-    $('isohint').textContent =
-      'drag to orbit \u00b7 shift+drag to pan \u00b7 scroll to zoom \u00b7 Q/E snap';
+    setIsoHint('hint.iso');
     resizeVoxel();
     updateRotationLabel();
     return true;
@@ -468,7 +476,7 @@
     };
     $('stageSlider').max = String(stages.length - 1);
     $('stageControls').hidden = false;
-    $('pipelineToggle').textContent = 'Exit step-through';
+    $('pipelineToggle').textContent = T('pipeline.exit');
     $('pipelineToggle').setAttribute('aria-pressed', 'true');
     hoverEl.hidden = true;
     hideBrushCursor();
@@ -479,7 +487,7 @@
     if (!pipeline) return;
     pipeline = null;
     $('stageControls').hidden = true;
-    $('pipelineToggle').textContent = 'Step through generation';
+    $('pipelineToggle').textContent = T('pipeline.enter');
     $('pipelineToggle').setAttribute('aria-pressed', 'false');
     if (!skipRefresh) refresh(false);
   }
@@ -501,10 +509,19 @@
     applyCam();
     $('stageSlider').value = String(k);
     paintRange($('stageSlider'));
-    $('stageLabel').textContent = (k + 1) + ' / ' + stages.length + ' \u00b7 ' + st.label;
-    $('stageDesc').textContent = st.desc;
+    updateStageText();
     $('stagePrev').disabled = k === 0;
     $('stageNext').disabled = k === stages.length - 1;
+  }
+
+  // Stage texts come from the dictionary by stage id (`label` / `desc` in
+  // generate.js stay the English source); split out so a language change
+  // can rewrite them without re-rendering the stage.
+  function updateStageText() {
+    if (!pipeline) return;
+    var stages = SM.PIPELINE_STAGES, k = pipeline.index, st = stages[k];
+    $('stageLabel').textContent = (k + 1) + ' / ' + stages.length + ' \u00b7 ' + T('stage.' + st.id + '.label');
+    $('stageDesc').textContent = T('stage.' + st.id + '.desc');
   }
 
   function drawContent() {
@@ -541,7 +558,7 @@
       $('viewTop').classList.add('active');
       $('viewIso').classList.remove('active');
       $('viewIso').disabled = true;
-      $('viewIso').title = 'Bu tarayıcıda WebGL2 yok';
+      $('viewIso').title = T('view.noWebgl');
       document.body.classList.remove('iso');
     }
     stopVoxel();
@@ -567,11 +584,8 @@
     refresh(true, true);
 
     var s = SM.summarize(grid);
-    $('seaVal').textContent = s.landPct + '% land';
-    statsBase =
-      cfg.width + '×' + cfg.height + ' · ' +
-      dt.toFixed(1) + ' ms · land ' + s.landPct + '%';
-    $('stats').textContent = statsBase;
+    lastStats = { w: cfg.width, h: cfg.height, ms: dt.toFixed(1), landPct: s.landPct, editedLandPct: null };
+    renderStats();
   }
 
   function rotateView(dir) {
@@ -606,7 +620,7 @@
       sw.className = 'sw';
       sw.style.background = b.color;
       row.appendChild(sw);
-      row.appendChild(document.createTextNode(b.label));
+      row.appendChild(document.createTextNode(T('biome.' + b.id)));
       el.appendChild(row);
     });
   }
@@ -617,7 +631,7 @@
     SM.BIOME_LIST.forEach(function (b, i) {
       var option = document.createElement('option');
       option.value = i;
-      option.textContent = b.label;
+      option.textContent = T('biome.' + b.id);
       select.appendChild(option);
     });
     select.value = SM.BIOME_IDX.grassland;
@@ -681,12 +695,23 @@
   }
 
   function updateEditedStats() {
-    if (!undoStack.length) { $('stats').textContent = statsBase; return; }
+    if (!lastStats) return;
     // Show the REAL land fraction after brush edits, not the pristine generate
-    // value baked into statsBase.
-    var s = SM.summarize(grid);
-    $('stats').textContent =
-      statsBase.replace(/land \d+%/, 'land ' + s.landPct + '%') + ' · edited';
+    // value of the last generation.
+    lastStats.editedLandPct = undoStack.length ? SM.summarize(grid).landPct : null;
+    renderStats();
+  }
+
+  // Sea level value + footer stats from the stored numbers, so a language
+  // change can rewrite them without regenerating.
+  function renderStats() {
+    if (!lastStats) return;
+    var edited = lastStats.editedLandPct != null;
+    $('seaVal').textContent = T('sea.value', { pct: lastStats.landPct });
+    $('stats').textContent = T('stats.base', {
+      w: lastStats.w, h: lastStats.h, ms: lastStats.ms,
+      pct: edited ? lastStats.editedLandPct : lastStats.landPct
+    }) + (edited ? ' \u00b7 ' + T('stats.edited') : '');
   }
 
   function makeEditRecord() {
@@ -966,9 +991,9 @@
     hoverEl.hidden = false;
     hoverEl.innerHTML =
       '<span class="sw" style="background:' + b.color + '"></span>' +
-      b.label + ' · (' + tx + ', ' + ty + ')' +
+      T('biome.' + b.id) + ' · (' + tx + ', ' + ty + ')' +
       ' · ' + (m >= 0 ? '+' : '') + m + ' m' +
-      ' · moist ' + grid.moisture[i].toFixed(2) +
+      ' · ' + T('hover.moist') + ' ' + grid.moisture[i].toFixed(2) +
       ' · ' + Math.round(-8 + grid.temperature[i] * 42) + '°C';
   }
 
@@ -1176,13 +1201,15 @@
       q.set('zoom', voxelCamera.zoom.toFixed(2));
     }
     var url = location.origin + location.pathname + '?' + q.toString();
-    var btn = $('shareLink'), old = btn.textContent;
+    var btn = $('shareLink');
+    // Restored from the dictionary, not a saved copy: the language may change
+    // during the 1.4 s.
     function done(txt) { btn.textContent = txt; btn.classList.add('ok');
-      setTimeout(function () { btn.textContent = old; btn.classList.remove('ok'); }, 1400); }
+      setTimeout(function () { btn.textContent = T('share.label'); btn.classList.remove('ok'); }, 1400); }
     // The link carries the generation SETTINGS + camera, not the brush edits —
     // opening it regenerates the pristine map. Say so instead of pretending.
-    var okText = undoStack.length ? 'Copied (settings only)' : 'Copied';
-    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done(okText); }, function () { done('Copy failed'); });
+    var okText = T(undoStack.length ? 'share.copiedSettings' : 'share.copied');
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(function () { done(okText); }, function () { done(T('share.failed')); });
     else done('—');
   }
 
@@ -1458,7 +1485,7 @@
       try { voxelRenderer.dispose(); } catch (err) { /* lost context */ }
       voxelRenderer = null;
     }
-    if (isVoxelMode()) $('isohint').textContent = 'GPU context lost · waiting for the browser to restore it';
+    if (isVoxelMode()) setIsoHint('hint.contextLost');
   });
   glCanvas.addEventListener('webglcontextrestored', function () {
     voxelContextLost = false;
@@ -1503,7 +1530,30 @@
   });
   stage.addEventListener('wheel', onWheel, { passive: false });
 
+  // Language switch (TR / EN, src/i18n.js): `SM.I18N.apply` has already
+  // rewritten every hooked element; this rewrites what main.js writes itself.
+  // Nothing is regenerated or re-rendered -- only text changes.
+  function refreshLangText() {
+    Object.keys(SLIDERS).forEach(function (id) {
+      if (id !== 'sea') $(SLIDERS[id].label).textContent = SLIDERS[id].fmt($(id).value);
+    });
+    renderStats();
+    $('isohint').textContent = T(isoHintKey);
+    $('pipelineToggle').textContent = T(pipeline ? 'pipeline.exit' : 'pipeline.enter');
+    updateStageText();
+    if ($('viewIso').disabled) $('viewIso').title = T('view.noWebgl');
+    var legendRows = $('legend').children, options = $('editBiome').options;
+    SM.BIOME_LIST.forEach(function (b, i) {
+      if (legendRows[i]) legendRows[i].lastChild.nodeValue = T('biome.' + b.id);
+      if (options[i]) options[i].textContent = T('biome.' + b.id);
+    });
+    hoverEl.hidden = true;
+  }
+  SM.I18N.onChange(refreshLangText);
+
   hoverEl.hidden = true;
+  setIsoHint(isoHintKey);
+  $('pipelineToggle').textContent = T('pipeline.enter');
   applyQueryString();
   Object.keys(SLIDERS).forEach(function (id) {
     var input = $(id);
