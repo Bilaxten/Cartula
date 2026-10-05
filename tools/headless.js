@@ -14,6 +14,7 @@
  *   node tools/headless.js --i18n       # UI language: tr/en key parity, index.html hooks
  *   node tools/headless.js --perf       # perf panel: stats math, GL counter, no uncounted draws
  *   node tools/headless.js --night      # night lights: settlement-only flag, night curve, grade
+ *   node tools/headless.js --wind       # wind lines: terrain-steered field, bounded stateless streaks
  */
 'use strict';
 const fs = require('fs');
@@ -25,7 +26,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -1016,7 +1017,7 @@ function runShaderChecks() {
   // fragmentSource array of quoted GLSL lines. Every GL file in src/render
   // is read (post.js has its own programs since 2026-10-05).
   const pairs = [];
-  for (const f of ['voxel3d.js', 'post.js']) {
+  for (const f of ['voxel3d.js', 'post.js', 'wind.js']) {
     const file = fs.readFileSync(path.join(root, 'render', f), 'utf8');
     // `makeProgram` only compiles; the terrain GLSL lives in
     // `terrainShaderSources(variant)`, so that body is read under its name.
@@ -1052,7 +1053,7 @@ function runShaderChecks() {
 
   results.push(['at least four programs were inspected (terrain, sky, bloom blur, composite)', pairs.length >= 4, []]);
 
-  console.log('shader declaration lint (src/render/voxel3d.js, post.js):');
+  console.log('shader declaration lint (src/render/voxel3d.js, post.js, wind.js):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
     for (const line of detail) console.log(`         ${line}`);
@@ -2172,7 +2173,110 @@ function runNightChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--perf') {
+// ---------------------------------------------------------------------------
+// --wind : wind lines (src/render/wind.js). The field must actually respond to
+// the terrain (less climbing, more valley-following than the plain prevailing
+// wind), be deterministic per seed, and the streaks must stay bounded,
+// in-bounds, above the ground, stateless in time and allocation-free.
+// ---------------------------------------------------------------------------
+function runWindChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const Wd = SM.Wind;
+  const angles = [];
+
+  for (const seed of [1337, 4242, 90210]) {
+    const g = run(seed, 128, 0.38).grid;
+    const f = Wd.field(g, seed);
+    const f2 = Wd.field(g, seed);
+    const W = g.width, H = g.height, n = W * H;
+    angles.push(Math.atan2(f.prevailing[1], f.prevailing[0]));
+    let finite = true, unit = true;
+    for (let i = 0; i < n; i++) {
+      if (!Number.isFinite(f.u[i]) || !Number.isFinite(f.v[i])) finite = false;
+      if (Math.abs(Math.hypot(f.u[i], f.v[i]) - 1) > 1e-4) unit = false;
+    }
+    push(`seed ${seed}: field finite, unit length, deterministic`,
+      finite && unit && typedEqual(f.u, f2.u) && typedEqual(f.v, f2.v) && typedEqual(f.ground, f2.ground), '');
+
+    // Terrain response on steep cells of the smoothed terrain.
+    const [w0x, w0y] = f.prevailing;
+    let steep = 0, climbW0 = 0, climbF = 0, alongW0 = 0, alongF = 0, aligned = 0;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      const gx = (f.smooth[i + 1] - f.smooth[i - 1]) / 2, gy = (f.smooth[i + W] - f.smooth[i - W]) / 2;
+      const gl = Math.hypot(gx, gy);
+      if (gl < 0.25) continue;
+      steep++;
+      const nx = gx / gl, ny = gy / gl;
+      climbW0 += Math.max(0, w0x * nx + w0y * ny);
+      climbF += Math.max(0, f.u[i] * nx + f.v[i] * ny);
+      const tx = -ny, ty = nx;
+      if (Math.abs(tx * w0x + ty * w0y) > 0.5) {
+        aligned++;
+        alongW0 += Math.abs(tx * w0x + ty * w0y);
+        alongF += Math.abs(tx * f.u[i] + ty * f.v[i]);
+      }
+    }
+    push(`seed ${seed}: on ${steep} steep cells the flow climbs <= 60% of what the prevailing wind would ` +
+      `(${(climbF / climbW0 * 100).toFixed(0)}%) and follows valley axes more closely ` +
+      `(${(alongF / aligned).toFixed(2)} vs ${(alongW0 / aligned).toFixed(2)})`,
+      steep > 50 && climbF <= 0.6 * climbW0 && alongF > alongW0, '');
+
+    // Streaks.
+    const b = Wd.makeStreakBuffers();
+    const b2 = Wd.makeStreakBuffers();
+    const P = Wd.POINTS;
+    let inside = true, above = true, alphaOk = true;
+    for (const t of [0, 3.7, 12.25, 600]) {
+      Wd.streaksInto(f, t, 1000, b);
+      for (let k = 0; k < b.count; k++) {
+        if (!(b.alpha[k] >= 0 && b.alpha[k] <= 1)) alphaOk = false;
+        for (let j = 0; j < P; j++) {
+          const q = k * P + j, px = b.x[q], py = b.y[q];
+          if (!(px >= 0 && py >= 0 && px <= W && py <= H)) { inside = false; continue; }
+          const cell = Math.min(H - 1, Math.floor(py)) * W + Math.min(W - 1, Math.floor(px));
+          if (b.ground[q] + Wd.LIFT < Math.max(0, g.level[cell]) + 0.9) above = false;
+        }
+      }
+    }
+    Wd.streaksInto(f, 7.5, 64, b);
+    Wd.streaksInto(f, 99, 64, b2);
+    Wd.streaksInto(f, 7.5, 64, b2);
+    const buf = new Float32Array(Wd.MAX_STREAKS * P * 2 * Wd.FLOATS);
+    const verts = Wd.ribbons(f, b, buf);
+    push(`seed ${seed}: streaks bounded (${b.count} <= ${Wd.MAX_STREAKS}), inside the map, ` +
+      `at least 0.9 levels above the ground, alpha 0..1, stateless in time`,
+      b.count === Wd.MAX_STREAKS && inside && above && alphaOk &&
+      typedEqual(b.x, b2.x) && typedEqual(b.y, b2.y) && typedEqual(b.alpha, b2.alpha) &&
+      verts === b.count * P * 2 && Array.prototype.every.call(buf.subarray(0, verts * Wd.FLOATS), Number.isFinite),
+      `inside ${inside}, above ${above}, alpha ${alphaOk}`);
+  }
+  const spread = Math.max(...angles) - Math.min(...angles);
+  push('prevailing direction differs between seeds', spread > 0.3, angles.map(a => a.toFixed(2)).join(', '));
+
+  // The per-frame path (streaksInto, ribbons) must not allocate.
+  const src = fs.readFileSync(path.join(root, 'render', 'wind.js'), 'utf8');
+  const body = name => {
+    const at = src.indexOf('function ' + name + '(');
+    const next = src.indexOf('\n  function ', at + 10);
+    return src.slice(at, next < 0 ? undefined : next);
+  };
+  const perFrame = body('streaksInto') + body('ribbons') + body('sample');
+  push('per-frame path allocates nothing (no new / [] / {} / push in streaksInto, ribbons, sample)',
+    !/\bnew\s|\[\s*\]|\.push\(|=\s*\{/.test(perFrame), '');
+
+  console.log('wind lines checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--wind') {
+  runWindChecks();
+} else if (process.argv[2] === '--perf') {
   runPerfChecks();
 } else if (process.argv[2] === '--night') {
   runNightChecks();

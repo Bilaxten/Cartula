@@ -30,7 +30,9 @@
 
   var DOWNSAMPLE = 4;
 
-  function buildProgram(gl, name, vertexSource, fragmentSource) {
+  // Shared by the effect layers (bloom here, wind.js). `attribs`, if given,
+  // fixes attribute slots in order before linking.
+  function buildProgram(gl, name, vertexSource, fragmentSource, attribs) {
     var shaders = [
       [gl.VERTEX_SHADER, vertexSource],
       [gl.FRAGMENT_SHADER, fragmentSource]
@@ -56,6 +58,7 @@
     program = gl.createProgram();
     gl.attachShader(program, shaders[0]);
     gl.attachShader(program, shaders[1]);
+    (attribs || []).forEach(function (a, slot) { gl.bindAttribLocation(program, slot, a); });
     gl.linkProgram(program);
     gl.deleteShader(shaders[0]);
     gl.deleteShader(shaders[1]);
@@ -296,4 +299,5 @@
   }
 
   SM.Bloom = { create: create, DOWNSAMPLE: DOWNSAMPLE };
+  SM.buildGLProgram = buildProgram;
 })(window.SM = window.SM || {});

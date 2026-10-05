@@ -1570,6 +1570,19 @@
     // Optional: without it the window lights still draw, just without glow.
     var bloom = SM.Bloom ? SM.Bloom.create(gl, acct) : null;
     var bloomOn = true;
+    // Wind lines (src/render/wind.js): optional like the bloom; the field
+    // arrives from main.js per map (setWindField).
+    var wind = SM.Wind ? SM.Wind.createLayer(gl, acct, GRADE_GLSL) : null;
+    var showWind = true;
+    // Light enough to read over grass by day and over the graded map at
+    // night: the snow entry of the biome palette.
+    var windColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
+      .map(function (v) { return v / 255; });
+    var WIND_OPACITY = 0.75;
+    var windDraw = {
+      combined: null, vScale: 1, time: 0, eye: viewDir, color: windColor,
+      opacity: WIND_OPACITY, setGrade: null
+    };
     // What the bloom source depends on: view-projection, height scale, the
     // mesh and the canvas size. Unchanged -> post.js reuses last frame's blur.
     var bloomKey = new Float32Array(20);
@@ -2117,6 +2130,16 @@
         acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       }
       gl.bindVertexArray(null);
+      // Wind lines: after the terrain (depth-tested against it, so a ridge
+      // hides them), before the sky (clouds pass over them).
+      if (wind && showWind && !debugView) {
+        windDraw.combined = combined;
+        windDraw.vScale = vScale;
+        windDraw.time = elapsedTime;
+        windDraw.pixelWorld = 2 * camera.zoom / width;
+        windDraw.setGrade = setGradeUniforms;
+        wind.draw(windDraw);
+      }
       drawSky();
       // Night only: the bloom passes do not run at all while nightLight is 0.
       if (bloom && glowU && bloomOn && !debugView && nightLight > 0.001) {
@@ -2178,6 +2201,14 @@
         changed = true;
       }
       return changed;
+    }
+
+    function setWindField(f) {
+      if (wind) wind.setField(f);
+    }
+
+    function setWind(on) {
+      showWind = on !== false;
     }
 
     // Measurement / comparison hook: lights stay, only the glow is skipped.
@@ -2311,6 +2342,7 @@
       gl.deleteBuffer(townBuffer);
       gl.deleteBuffer(foamBuffer);
       if (bloom) bloom.dispose();
+      if (wind) wind.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
@@ -2353,6 +2385,8 @@
       setTime: setTime,
       setGrade: setGrade,
       setBloom: setBloom,
+      setWindField: setWindField,
+      setWind: setWind,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,

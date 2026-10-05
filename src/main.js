@@ -474,6 +474,7 @@
     $('cloudControl').hidden = false;
     $('showClouds').disabled = false;
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+    if (voxelRenderer.setWind) voxelRenderer.setWind($('showWind').checked);
     glCanvas.hidden = false;
     setIsoHint('hint.iso');
     applyDayNight();
@@ -494,6 +495,11 @@
     if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
     voxelMesh = SM.buildVoxelMesh(grid);
     voxelRenderer.setVerticalScale(isoExag());
+    // The wind field follows the terrain, so it is rebuilt with the mesh
+    // (new map or brush edit). A few ms at 192².
+    if (SM.Wind && voxelRenderer.setWindField) {
+      voxelRenderer.setWindField(SM.Wind.field(grid, grid.config && grid.config.seed));
+    }
     updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);
     // Terrain edits can alter height, but only a new grid or XZ footprint
@@ -1550,6 +1556,11 @@
     requestVoxelRender();
   });
   $('showPerf').addEventListener('change', function () { setPerfVisible(this.checked); });
+  $('showWind').addEventListener('change', function () {
+    if (!isVoxelMode() || !voxelRenderer || !voxelRenderer.setWind) return;
+    voxelRenderer.setWind(this.checked);
+    requestVoxelRender();
+  });
   $('showAnim').addEventListener('change', function () {
     if (!isVoxelMode()) return;
     voxelTimeLast = 0;
