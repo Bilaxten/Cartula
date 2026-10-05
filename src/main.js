@@ -76,17 +76,19 @@
     sun: { label: 'sunVal', fmt: SM.formatClock }
   };
 
-  // Time of day -> shadow direction for the iso bake, plus a colour wash and a
-  // canvas filter for the live look. Daylight is 6:00-18:00; outside that the
-  // sun is below the horizon (night).
+  // Time of day -> sun for the voxel view, plus a colour wash and a canvas
+  // filter for the live look. Daylight is 6:00-18:00; outside that the sun is
+  // below the horizon (night). `iso.dx/dy` is the horizontal direction the
+  // light TRAVELS (x east, y south): the lit faces, the cast shadow and the
+  // cloud shadow all read it that way (voxel3d.js `setSun`/`buildShadowMap`).
   function sunModel(hour) {
     hour = ((+hour % 24) + 24) % 24;
     var day = (hour - 6) / 12;                    // 0 sunrise .. 1 sunset
     var up = day > 0 && day < 1;
     var elev = up ? Math.sin(day * Math.PI) : 0;  // 0 horizon .. 1 noon
     var iso = {
-      dx: up ? Math.cos(day * Math.PI) : -0.6,    // light swings east -> west
-      dy: -0.35 - 0.45 * elev,                    // always a bit from the north
+      dx: up ? Math.cos(day * Math.PI) : -0.6,    // travels east in the morning, west by evening
+      dy: -0.35 - 0.45 * elev,                    // always travelling north (lit from the south)
       rise: 0.22 + 1.15 * elev,                   // low sun -> long shadows
       strength: up ? (0.16 + 0.26 * elev) : 0.05
     };

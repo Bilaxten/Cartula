@@ -167,7 +167,23 @@ function runShadowChecks() {
   const deterministic = typedEqual(a, b);
   const flatClear = Array.prototype.every.call(a, v => v === 0);
   const castShadow = Array.prototype.some.call(cast, v => v > 0);
+  // Direction. `sun.dx = 1` is light travelling east: the renderer lights the
+  // WEST faces (setSun hands Lambert the vector towards the light, -dx), so
+  // the column's shadow must lie EAST of it, and a cloud's shadow must slide
+  // east too. Before 2026-10-05 the shadow map marched the other way and the
+  // terrain shadow fell under the lit face, against the cloud shadows.
+  let east = 0, west = 0;
+  for (let i = 0; i < cast.length; i++) {
+    if (!cast[i]) continue;
+    if (i % high.width > 4) east++; else west++;
+  }
+  const bounds = { minX: -4.5, maxX: 4.5, minY: 0, maxY: 8, minZ: -4.5, maxZ: 4.5 };
+  const towardsLight = [-sun.dx, 0.5, -sun.dy];
+  const cloud = SM.Sky.cloudShadowUniforms(
+    [{ x: 0, y: 4, z: 0, radius: 1 }], bounds, towardsLight);
+  const downLight = east > 0 && west === 0 && cloud[0] > 0.5;
   return [
+    ['cast shadow falls down-light, the same way as the cloud shadow', downLight],
     ['shadow map type, length, and range', typeAndLength && range],
     ['shadow determinism', deterministic],
     ['flat grid has no cast shadow', flatClear],

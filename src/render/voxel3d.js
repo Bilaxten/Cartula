@@ -57,7 +57,13 @@
   }
 
   function buildShadowMap(grid, sun) {
-    // This mirrors the iso pre-pass so both projections agree on cast shade.
+    // `sun.dx/dy` is the horizontal direction the light TRAVELS (grid x east,
+    // y south). The renderer's `setSun` lights faces from (-dx, -dy) and the
+    // cloud shadow slides along (+dx, +dy), so the occluder of a shaded cell
+    // lies UP-light, at s - (dx, dy) * step. Until 2026-10-05 this marched
+    // s + (dx, dy) * step (a port of the deleted canvas iso pre-pass, which
+    // read the vector the other way), so cast shadows fell on the SAME side
+    // as the lit walls and opposite to the cloud shadows.
     var W = grid.width;
     var H = grid.height;
     var level = grid.level;
@@ -85,8 +91,8 @@
         base = level[si];
         for (var st = 1; st <= SUN_STEPS; st++) {
           var ol = levelAt(
-            Math.round(sx + SUN_DX * st),
-            Math.round(sy + SUN_DY * st)
+            Math.round(sx - SUN_DX * st),
+            Math.round(sy - SUN_DY * st)
           );
           var over = ol - (base + SUN_RISE * st);
 
@@ -1416,7 +1422,9 @@
     function setSun(nextSun) {
       var s = nextSun || {};
 
-      // Iso uses incoming ray direction; WebGL lighting needs the opposite.
+      // `dx/dy` is the direction the light travels; Lambert needs the vector
+      // TOWARDS the light, hence the flip. `buildShadowMap` and
+      // `SM.Sky.cloudShadowUniforms` follow the same convention.
       sun[0] = -(+s.dx || 0);
       sun[1] = Math.max(0.12, +s.rise || 0.12);
       sun[2] = -(+s.dy || 0);
