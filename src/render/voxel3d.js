@@ -12,8 +12,13 @@
    * surface reaches this far below it (a skirt), so the surface can never
    * drop out from under a neighbour and open a see-through slit -- the slit
    * showed the clear colour as a black sliver at cliff bases (2026-10-05).
-   * The vertex shader and the --mesh harness read this same number. */
-  var WAVE_DIP = 0.072;
+   * The vertex shader and the --mesh harness read this same number.
+   * 0.072 until 2026-10-05, when the owner found the waves hard to read. */
+  var WAVE_DIP = 0.15;
+  // Brightness swing of a water tile between trough and crest (+-). Each
+  // tile takes ONE value, from the wave at its centre, so the swell reads as
+  // calm stepped bands of whole tiles rolling across the water.
+  var WAVE_SHADE = 0.07;
 
   function wrapYaw(yaw) {
     // A compact 0..359 range keeps camera state and shared links canonical.
@@ -800,6 +805,8 @@
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
+      // Vertex-only (no cross-stage precision pair to keep in step).
+      'uniform vec2 uGridSize;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -810,6 +817,7 @@
       'out float vHeight;',
       'out float vFall;',
       'out float vFallCoord;',
+      'out float vWaveShade;',
       '',
       'void main() {',
       '  vNormal = aNormal;',
@@ -837,6 +845,12 @@
       '  float wave = -' + glslFloat(WAVE_DIP) + ' * aWater *',
       '    (0.5 - 0.5 * sin(uTime * 1.40 + aPosition.x * 0.72 +',
       '    aPosition.z * 0.48));',
+      '  // Per-tile shade: the same wave sampled at the TILE CENTRE (aCellUV',
+      '  // is shared by the four corners of a tile, so the value is flat across',
+      '  // it). Crest tiles lighten, trough tiles darken; top faces only.',
+      '  vec2 tile = aCellUV * uGridSize - 0.5 * uGridSize;',
+      '  vWaveShade = aWater * step(0.5, aNormal.y) *',
+      '    sin(uTime * 1.40 + tile.x * 0.72 + tile.y * 0.48);',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
       '    (aPosition.y + wave) * uVScale,',
@@ -858,6 +872,7 @@
       'in float vHeight;',
       'in float vFall;',
       'in float vFallCoord;',
+      'in float vWaveShade;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -956,7 +971,8 @@
       '    return;',
       '  }',
       '  outColor = vec4(',
-      '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor +',
+      '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
+      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
       '      emission + foamColor,',
       '    1.0',
       '  );',
@@ -1188,6 +1204,7 @@
     var fall = gl.getAttribLocation(program, 'aFall');
     var viewProjection = gl.getUniformLocation(program, 'uViewProjection');
     var verticalScale = gl.getUniformLocation(program, 'uVScale');
+    var gridSizeUniform = gl.getUniformLocation(program, 'uGridSize');
     var sunDirection = gl.getUniformLocation(program, 'uSunDirection');
     var sunStrength = gl.getUniformLocation(program, 'uSunStrength');
     var time = gl.getUniformLocation(program, 'uTime');
@@ -1198,6 +1215,7 @@
     var camera = { yaw: 35, pitch: 42, zoom: 10, tx: 0, ty: 0, tz: 0 };
     var fit = { distance: 100, near: 0.1, far: 300 };
     var vScale = 1.6;
+    var gridSize = [1, 1];
     var sun = [0.5, 1.0, 0.74];
     var strength = 0.34;
     var elapsedTime = 0;
@@ -1541,6 +1559,7 @@
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       indexCount = mesh.indices.length;
+      gridSize = mesh.gridSize || gridSize;
     }
 
     function maxVerticalExtent(horizontalRadius, verticalHalf) {
@@ -1657,6 +1676,7 @@
       gl.useProgram(program);
       gl.uniformMatrix4fv(viewProjection, false, combined);
       gl.uniform1f(verticalScale, vScale);
+      gl.uniform2f(gridSizeUniform, gridSize[0], gridSize[1]);
       gl.uniform3fv(sunDirection, sun);
       gl.uniform1f(sunStrength, strength);
       gl.uniform1f(debugViewUniform, debugView);
