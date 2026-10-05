@@ -155,10 +155,14 @@
       'hover.moist': 'moist',
 
       'hint.top': 'drag / space+drag to pan · scroll to zoom',
-      'hint.iso': 'drag to orbit · space/shift+drag to pan · scroll to zoom · Q/E snap',
+      // \u00a0 keeps each hint segment whole: the isometric hint wraps only
+      // at a '·' before it reaches the yaw chip (style.css body.iso #isohint).
+      'hint.iso': 'drag\u00a0to\u00a0orbit · space/shift+drag\u00a0to\u00a0pan · scroll\u00a0to\u00a0zoom · Q/E\u00a0snap',
       'hint.contextLost': 'GPU context lost · waiting for the browser to restore it',
       'yaw.slider': 'Camera yaw',
       'yaw.auto': 'Auto-rotate',
+      'yaw.center.title': 'Center view: frame the whole map again (angle kept)',
+      'yaw.center.aria': 'Center view',
 
       'biome.deep_water': 'Deep sea',
       'biome.shallow_water': 'Shallow sea',
@@ -331,10 +335,12 @@
       'hover.moist': 'nem',
 
       'hint.top': 'sürükle / boşluk+sürükle: kaydır · tekerlek: yakınlaş',
-      'hint.iso': 'sürükle: döndür · boşluk/shift+sürükle: kaydır · tekerlek: yakınlaş · Q/E: 90°',
+      'hint.iso': 'sürükle:\u00a0döndür · boşluk/shift+sürükle:\u00a0kaydır · tekerlek:\u00a0yakınlaş · Q/E:\u00a090°',
       'hint.contextLost': 'GPU bağlamı kayboldu · tarayıcının geri getirmesi bekleniyor',
       'yaw.slider': 'Kamera dönüş açısı',
       'yaw.auto': 'Kendiliğinden döndür',
+      'yaw.center.title': 'Görünümü ortala: haritanın tamamı yeniden kadraja girer (açı korunur)',
+      'yaw.center.aria': 'Görünümü ortala',
 
       'biome.deep_water': 'Derin deniz',
       'biome.shallow_water': 'Sığ deniz',

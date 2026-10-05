@@ -470,7 +470,7 @@ details.group .body { padding: 2px 18px 18px; }
 /* In the isometric view the yaw chip sits bottom-centre on the same line:
  * the hint wraps upward before it reaches the chip (half its width + gaps)
  * instead of running under it. */
-body.iso #isohint { max-width: max(120px, calc(50% - 160px)); }
+body.iso #isohint { max-width: max(120px, calc(50% - 172px)); }
 
 #yawControl {
   position: absolute;
@@ -480,7 +480,7 @@ body.iso #isohint { max-width: max(120px, calc(50% - 160px)); }
   display: flex;
   align-items: center;
   gap: 10px;
-  width: min(260px, calc(100% - 42px));
+  width: min(292px, calc(100% - 42px));
   padding: 7px 11px;
   border: 1px solid var(--chip-edge);
   border-radius: 999px;
@@ -495,7 +495,9 @@ body.iso #isohint { max-width: max(120px, calc(50% - 160px)); }
 #yawControl input[type=range] { flex: 1; min-width: 0; }
 #yawControl span { min-width: 31px; text-align: right; }
 
-#autoRotateBtn {
+/* The two icon buttons of the yaw chip: center view (left of the slider)
+ * and auto-rotate (right). Same chip button, only auto-rotate toggles. */
+#autoRotateBtn, #centerViewBtn {
   flex: 0 0 auto;
   width: 22px;
   height: 22px;
@@ -509,8 +511,9 @@ body.iso #isohint { max-width: max(120px, calc(50% - 160px)); }
   color: var(--chip-btn-text);
   cursor: pointer;
 }
-#autoRotateBtn svg { width: 13px; height: 13px; }
-#autoRotateBtn:hover { border-color: var(--accent); color: var(--chip-text); }
+#autoRotateBtn svg, #centerViewBtn svg { width: 13px; height: 13px; }
+#autoRotateBtn:hover, #centerViewBtn:hover { border-color: var(--accent); color: var(--chip-text); }
+#centerViewBtn:active { background: var(--accent-soft); color: var(--accent); }
 #autoRotateBtn[aria-pressed="true"] {
   border-color: var(--accent);
   background: var(--accent-soft);

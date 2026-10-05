@@ -1435,6 +1435,24 @@
       voxelAnim = 0;
     }
   });
+  // Center view (Uğur 2026-10-05): the same fit a new map gets
+  // (renderer.fitCamera, which frames the terrain AND the sky for every yaw
+  // and pitch), so pan and zoom go back to the whole map. Yaw and pitch stay
+  // where the user left them; a running Q/E snap or auto-rotate carries on.
+  function centerVoxelView() {
+    var fit;
+    if (!isVoxelMode() || !voxelRenderer || !voxelCamera || !voxelMesh) return;
+    fit = voxelRenderer.fitCamera(voxelMesh.bounds);
+    setVoxelCamera({
+      yaw: voxelCamera.yaw,
+      pitch: voxelCamera.pitch,
+      zoom: fit.zoom,
+      tx: fit.tx,
+      ty: fit.ty,
+      tz: fit.tz
+    });
+  }
+  $('centerViewBtn').addEventListener('click', centerVoxelView);
   $('autoRotateBtn').addEventListener('click', function () {
     if (!isVoxelMode()) return;
     setAutoRotate(!autoRotating);

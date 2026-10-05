@@ -129,6 +129,9 @@ sürükle = kaydır (*Pan* aracı); **Boşluk+sürükle her araçta kaydırır**
 seçiliyken bile (2026-10-05). Boşluk basılıyken imleç el (grab / grabbing),
 sayfa kaymaz, odaktaki düğme ya da kutucuk basılmaz; metin/sayı alanında ve
 açılır listede Boşluk kendi işini yapar.
+Alttaki açı çipinde, slider'ın solundaki **ortala** düğmesi kaydırmayı ve
+yakınlaşmayı sıfırlar: harita yeni üretilmiş gibi bütünüyle kadraja girer
+(`fitCamera`, gökyüzü dahil), açı (yaw ve eğim) korunur (2026-10-05).
 
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); başa dönme noktasında opaklık tam 0, gölge de bulutla

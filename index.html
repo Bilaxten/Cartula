@@ -238,6 +238,14 @@
     <div id="brushCursor" hidden></div>
     <div id="isohint" data-i18n-js>drag to pan &middot; scroll to zoom</div>
     <div id="yawControl" hidden>
+      <button id="centerViewBtn" type="button" title="Center view: frame the whole map again (angle kept)"
+        aria-label="Center view" data-i18n-title="yaw.center.title" data-i18n-aria-label="yaw.center.aria">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="8" cy="8" r="1.7" fill="currentColor"/>
+        </svg>
+      </button>
       <input type="range" id="rotSlider" min="0" max="360" step="1" value="45"
         aria-label="Camera yaw" data-i18n-aria-label="yaw.slider">
       <span id="rotVal">045°</span>
