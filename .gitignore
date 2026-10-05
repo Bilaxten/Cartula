@@ -7,6 +7,6 @@ desktop.ini
 .idea/
 dist/
 
-# Claude Code — makineye özel, commit edilmez
+# Ajan aracı — makineye özel, commit edilmez
 .claude/.state/
 .claude/settings.local.json

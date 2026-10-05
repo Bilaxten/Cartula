@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Codex ve Claude Code için ortak masaüstü bildirimi. macOS'ta Notification
+# Kodlama ajanları için ortak masaüstü bildirimi. macOS'ta Notification
 # Center, Windows'ta PowerShell toast kullanır; Windows'ta Git Bash zaten proje
 # önkoşulu olduğu için iki ajan da aynı çağrıyı yapabilir.
 

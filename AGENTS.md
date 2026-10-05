@@ -1,8 +1,7 @@
 # AGENTS.md — Cartula Ortak Çalışma Sözleşmesi
 
-Bu dosya **modelden bağımsız** tek kaynaktır. Claude Code, Codex CLI ve ileride
-eklenebilecek başka bir ajan aynı kuralları buradan okur. Codex bu dosyayı otomatik
-yükler; Claude `CLAUDE.md` üzerinden içeri alır.
+Bu dosya **modelden bağımsız** tek kaynaktır. Kullanılan her kodlama ajanı aynı kuralları
+buradan okur; araca özgü adaptör dosyaları yalnızca bunu içeri alır.
 
 > **Codex notu:** Codex `@import` takip etmez. Bu yüzden AGENTS.md kendi kendine
 > yeterlidir — hiçbir kural "şu dosyaya bak" diye devredilmez.
