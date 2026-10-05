@@ -19,6 +19,11 @@
   // tile takes ONE value, from the wave at its centre, so the swell reads as
   // calm stepped bands of whole tiles rolling across the water.
   var WAVE_SHADE = 0.07;
+  // Shore foam: corner-value threshold at the wave trough and at the crest
+  // (lower = reaches further from the shore), and how opaque it is.
+  var FOAM_REACH = [0.75, 0.5];
+  var FOAM_OPACITY = 0.8;
+
   // Mean of the window pattern (makeProgram windowLight): 45% of windows lit
   // x pane area 0.56 x 0.5 x mean intensity 0.875.
   var WINDOW_MEAN = 0.45 * 0.56 * 0.5 * 0.875;
@@ -173,6 +178,15 @@
     // only geometry that may carry night window lights (--mesh checks it).
     var town = [];
     var cellTown = 0;
+    // Shore foam (per vertex, 0/1): on top faces of sea and lake tiles, 1 at
+    // a corner that touches a land tile. Corners are shared by neighbouring
+    // water tiles, so the interpolated value runs on across tile seams and
+    // the foam line stays continuous. Rivers get none (a one-tile river
+    // touches land at every corner and would turn white bank to bank).
+    var foam = [];
+    var quadFoam = null;            // set by addTop for one quad, else null
+    var NO_FOAM = [0, 0, 0, 0];
+    var LAKE = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'lake'; });
     var TOWN = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'town'; });
     var indices = [];
     var minX = Infinity;
@@ -270,7 +284,9 @@
       fallFlag
     ) {
       var base = pos.length / 3;
+      var f = quadFoam || NO_FOAM;
 
+      foam.push(f[0], f[1], f[2], f[3]);
       // Duplicating the four vertices lets adjacent faces retain hard normals.
       // waterTop is per vertex (a wall rides the surface only at its rim).
       addVertex(
@@ -411,8 +427,26 @@
       };
     }
 
+    function landAt(x, y) {
+      return x >= 0 && y >= 0 && x < W && y < H && !grid.water[y * W + x];
+    }
+
+    // A grid corner (cx, cy) touches land when any of its four tiles is land.
+    function cornerFoam(cx, cy) {
+      return landAt(cx - 1, cy - 1) || landAt(cx, cy - 1) ||
+        landAt(cx - 1, cy) || landAt(cx, cy) ? 1 : 0;
+    }
+
     function addTop(x, y, L, c, glow, waterTop, shoreWeight) {
       var x0 = x - W / 2;
+      var i = y * W + x;
+
+      // Same corner order as the quad below: NW, SW, SE, NE.
+      quadFoam = waterTop && x >= 0 && y >= 0 && x < W && y < H &&
+        (SM.isSea(grid, i) || grid.biome[i] === LAKE) ? [
+          cornerFoam(x, y), cornerFoam(x, y + 1),
+          cornerFoam(x + 1, y + 1), cornerFoam(x + 1, y)
+        ] : null;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
       var z1 = z0 + 1;
@@ -430,6 +464,7 @@
         shoreWeight,
         topAO(x, y, L)
       );
+      quadFoam = null;
     }
 
     /* `surface` 1: this is a water tile's own wall, so its upper edge rides
@@ -645,6 +680,7 @@
       ao: new Uint8Array(ao),
       fall: new Uint8Array(fall),
       town: new Uint8Array(town),
+      foam: new Uint8Array(foam),
       indices: new Uint32Array(indices),
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
@@ -930,7 +966,7 @@
   // Fixed attribute slots, bound before linking, so the three terrain
   // program variants share one VAO.
   var TERRAIN_ATTRIBS = ['aPosition', 'aNormal', 'aColor', 'aSideDepth', 'aCellUV',
-    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown'];
+    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown', 'aFoam'];
 
   /* `variant`: '' = day (exactly the lighting it always had), 'NIGHT' =
    * plus the in-shader colour grade, 'NIGHT WINDOWS' = that plus the
@@ -959,6 +995,7 @@
       'in float aAO;',
       'in float aFall;',
       'in float aTown;',
+      'in float aFoam;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
@@ -993,7 +1030,11 @@
       '  // own; the wall already varies in exactly one of x/z (the other is the',
       '  // wall plane, held constant), so their sum is a free per-vertex coordinate',
       '  // along the face width, used only to offset the streak pattern below.',
-      '  vFallCoord = aPosition.x + aPosition.z;',
+      '  // vFallCoord carries TWO things, never on the same face: on a',
+      '  // waterfall wall the face-width coordinate below, on a water top the',
+      '  // shore-foam corner value (aFoam), interpolated across the tile. Sharing',
+      '  // one varying keeps the shore foam free for every other fragment.',
+      '  vFallCoord = aFall > 0.5 ? aPosition.x + aPosition.z : aFoam;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
       '  // The surface only DIPS, from its rest level (crest) down to',
@@ -1052,6 +1093,8 @@
       // declared in both stages must match precision exactly or the program
       // silently fails to link (uTime, uMode) -- one stage, no risk.
       'uniform float uDebugView;',
+      // Shore foam colour (snow, from the biome palette).
+      'uniform vec3 uFoamColor;',
       // Night window lights on settlement faces (flag decoded from vAO), 0 by
       // day. The window pattern needs the fragment's position inside its
       // tile; rather than interpolating it for every fragment of the map, it
@@ -1169,6 +1212,16 @@
       '  vec3 fallColor = mix(vColor, vec3(0.80, 0.90, 0.94),',
       '    0.30 + 0.45 * fallStreak);',
       '  vec3 baseColor = mix(vColor, fallColor, vFall);',
+      '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
+      '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
+      '  // line is blocky like the voxels; its reach follows the SAME per-tile',
+      '  // wave value as the crest shading (vWaveShade, +1 at the crest), so',
+      '  // foam runs further out as a crest arrives and draws back in the',
+      '  // trough. The threshold moves slowly with the wave: no flicker.',
+      '  float shoreFoam = topFace * (1.0 - vFall) * step(',
+      '    mix(' + glslFloat(FOAM_REACH[0]) + ', ' + glslFloat(FOAM_REACH[1]) + ', 0.5 + 0.5 * vWaveShade),',
+      '    floor(vFallCoord * 4.0 + 0.5) / 4.0);',
+      '  baseColor = mix(baseColor, uFoamColor, ' + glslFloat(FOAM_OPACITY) + ' * shoreFoam);',
       '  // Cloud shadow: soft-edged ellipses (one per cloud lobe) sliding over',
       '  // the map; overlapping lobes of one cloud merge with max(). Side faces',
       '  // take less of it, the same split the sun shadow uses -- a wall in',
@@ -1449,6 +1502,7 @@
     var aoBuffer = gl.createBuffer();
     var fallBuffer = gl.createBuffer();
     var townBuffer = gl.createBuffer();
+    var foamBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
@@ -1463,6 +1517,9 @@
     var ambientOcclusion = TERRAIN_ATTRIBS.indexOf('aAO');
     var fall = TERRAIN_ATTRIBS.indexOf('aFall');
     var townAttr = TERRAIN_ATTRIBS.indexOf('aTown');
+    var foamAttr = TERRAIN_ATTRIBS.indexOf('aFoam');
+    var foamColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
+      .map(function (v) { return v / 255; });
     var levelVP = new Float32Array(16);
     var invLevelVP = new Float32Array(16);
     var viewDir = [0, 1, 0];          // towards the camera, set per frame
@@ -1491,6 +1548,7 @@
         gradeOn: 'uGradeOn',
         viewProjection: 'uViewProjection',
         verticalScale: 'uVScale',
+        foamColor: 'uFoamColor',
         gridSize: 'uGridSize',
         sunDirection: 'uSunDirection',
         sunStrength: 'uSunStrength',
@@ -1582,6 +1640,7 @@
     setupAttrib(aoBuffer, ambientOcclusion, 1, gl.UNSIGNED_BYTE);
     setupAttrib(fallBuffer, fall, 1, gl.UNSIGNED_BYTE);
     setupAttrib(townBuffer, townAttr, 1, gl.UNSIGNED_BYTE);
+    setupAttrib(foamBuffer, foamAttr, 1, gl.UNSIGNED_BYTE);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -1906,6 +1965,9 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, townBuffer);
       acct.bufferData(gl.ARRAY_BUFFER, townBuffer,
         mesh.town || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, foamBuffer);
+      acct.bufferData(gl.ARRAY_BUFFER, foamBuffer,
+        mesh.foam || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
       var ordered = settlementLast(mesh.indices, mesh.town);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, ordered.indices, gl.STATIC_DRAW);
@@ -2082,6 +2144,7 @@
       gl.uniform1f(U.cloudShadow, cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
       gl.uniform3fv(U.lightColor, lightColor);
+      gl.uniform3fv(U.foamColor, foamColor);
       if (nightLight > 0.001) {
         // (x, raw level, z) -> clip is view-projection after the vertex
         // shader's Y scale; its inverse brings a fragment back to cells.
@@ -2246,6 +2309,7 @@
       gl.deleteBuffer(aoBuffer);
       gl.deleteBuffer(fallBuffer);
       gl.deleteBuffer(townBuffer);
+      gl.deleteBuffer(foamBuffer);
       if (bloom) bloom.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);

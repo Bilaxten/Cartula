@@ -389,6 +389,34 @@ function runMeshChecks() {
     SM.formatClock(26) === '02:00' &&
     SM.formatClock(29.5) === '05:30';
   const shadowChecks = runShadowChecks();
+  // Shore foam: only on top faces of sea / lake tiles, and there exactly at
+  // the corners that touch a land tile; never on rivers, walls or land.
+  const foamCheck = (() => {
+    const W = a.width, H = a.height;
+    const LAKE = SM.BIOME_LIST.findIndex(b => b.id === 'lake');
+    const land = (x, y) => x >= 0 && y >= 0 && x < W && y < H && !a.water[y * W + x];
+    let flagged = 0, bad = 0, missed = 0;
+    if (!mesh.foam || mesh.foam.length !== mesh.vertexCount) return { ok: false, flagged, bad: -1, missed };
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      const px = mesh.positions[v * 3], py = mesh.positions[v * 3 + 1], pz = mesh.positions[v * 3 + 2];
+      const top = mesh.normals[v * 3 + 1] === 1;
+      // A face is 4 consecutive vertices; its centre names its cell (a
+      // plinth-ring top shares edge positions with the edge tiles).
+      const q = v - (v % 4);
+      let mx = 0, mz = 0;
+      for (let k = 0; k < 4; k++) { mx += mesh.positions[(q + k) * 3] / 4; mz += mesh.positions[(q + k) * 3 + 2] / 4; }
+      const x = Math.floor(mx + W / 2), y = Math.floor(mz + H / 2);
+      const i = y * W + x;
+      const ownTop = top && x >= 0 && y >= 0 && x < W && y < H && py === a.level[i];
+      const foamTile = ownTop && a.water[i] && (SM.isSea(a, i) || a.biome[i] === LAKE);
+      const cx = Math.round(px + W / 2), cy = Math.round(pz + H / 2);
+      const want = foamTile && (land(cx - 1, cy - 1) || land(cx, cy - 1) || land(cx - 1, cy) || land(cx, cy)) ? 1 : 0;
+      if (mesh.foam[v]) flagged++;
+      if (mesh.foam[v] && !want) bad++;
+      if (!mesh.foam[v] && want) missed++;
+    }
+    return { ok: flagged > 0 && bad === 0 && missed === 0, flagged, bad, missed };
+  })();
   const quads = mesh.triangleCount / 2;
   const perCell = quads / (a.width * a.height);
   const results = [
@@ -401,6 +429,8 @@ function runMeshChecks() {
     [`wave trough never opens a slit (${skirts.edges} water edges, ` +
       `${skirts.holes} holes, ${skirts.rims} bare rims)`, skirts.ok],
     ['shore length and range', shoreRange],
+    [`shore foam only at sea/lake top corners touching land (${foamCheck.flagged} vertices, ` +
+      `${foamCheck.bad} wrong, ${foamCheck.missed} missed)`, foamCheck.ok],
     ['shore determinism', shoreDeterministic],
     ['AO type, length, integer range', aoRange],
     ['AO determinism', aoDeterministic],
