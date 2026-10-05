@@ -1239,7 +1239,11 @@
     var w = grid.width, h = grid.height;
     var albedo = pngBytes(w, h, function (ctx) {
       var big = document.createElement('canvas');
-      SM.renderTopDown(big, grid, { tile: 1, grid: false, shade: $('showShade').checked });
+      // Albedo means unlit colour: no hillshade (a Unity terrain is lit by
+      // the engine) and no settlement icons (3 px symbols over 1 px cells;
+      // the towns are in map.json and in biome.png). It used to follow the
+      // Hillshade checkbox and always drew the icons.
+      SM.renderTopDown(big, grid, { tile: 1, grid: false, shade: false, markers: false });
       ctx.drawImage(big, 0, 0);
     });
     var biome = pngBytes(w, h, function (ctx) {

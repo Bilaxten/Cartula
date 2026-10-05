@@ -19,7 +19,9 @@
   }
 
   function renderTopDown(canvas, grid, opts) {
-    var o = Object.assign({ tile: 10, grid: false, shade: true }, opts || {});
+    // `markers: false` leaves out the settlement icons (the Unity albedo wants
+    // colour per cell, not symbols drawn over it).
+    var o = Object.assign({ tile: 10, grid: false, shade: true, markers: true }, opts || {});
     var w = grid.width, h = grid.height, ts = o.tile;
 
     canvas.width = w * ts;
@@ -71,7 +73,7 @@
 
     // Compact house markers remain legible even when the town biome footprint
     // is only a few cells wide.
-    var settlements = grid.settlements || [];
+    var settlements = o.markers ? (grid.settlements || []) : [];
     for (var si = 0; si < settlements.length; si++) {
       var st = settlements[si];
       var sc = Math.max(3, Math.min(ts * 0.85, ts * (0.42 + st.size * 0.10)));
