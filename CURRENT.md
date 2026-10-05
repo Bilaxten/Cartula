@@ -5,13 +5,95 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-05
+**Güncellendi:** 2026-10-06
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — kulübeler kalktı, rüzgâr kenara kadar, bulut tipleri (2026-10-05)
+## Bu oturum — beş harita özelliği, her biri canlıda (2026-10-06)
+
+Uğur beş özelliği onayladı ve her birinin ayrı ayrı yayınlanmasına izin verdi
+(ana oturum üzerinden). Sırayla, her biri kendi commit'i, push'landı,
+`checks.sh` temiz, `publish-site.sh` ile bilaxten.art/cartula'ya çıktı ve
+değişen her JS/CSS dosyası canlıda bayt bayt doğrulandı (CR atılarak sha256).
+⚠️ `publish-site.sh`'nin kendi canlı kontrolü yalnız `index.html`'e bakıyor:
+`index.html` değişmeyen bir yayında (`ebf56b9`) "canlı = …" hemen ok dedi,
+oysa `fog.js` canlıda ~15 sn daha eskiydi. JS'i ayrıca kontrol etmek gerek:
+
+1. **Akan nehirler** (`840100e`, `src/render/flow.js`): nehir + basamak
+   havuzları + şelale dibi akar; çift fazlı flow map, `RIVER` varyantı,
+   akan üst yüzler indeks tamponunun sonunda. `--flow`.
+2. **Volkan dumanı** (`f81bb03`, `src/render/smoke.js`): kraterden 18 voxel
+   küp, rüzgâr alanıyla bükülüyor, gece alttan lav ışığı. `--smoke`.
+3. **Vadi sisi** (`ebd782e`, `src/render/fog.js`): sabah vadilerde, öğleden
+   sonra yok, akşam hafif; `FOG` varyantı yalnız sis varken. `--fog`.
+   Sonra `ebf56b9`: 22:00-2:30 sissiz (gece görünmüyordu, ~5 ms yiyordu).
+4. **Şimşek** (`ab243ce`, `src/render/lightning.js`): yalnız yağmur bulutu,
+   dakikada en çok 5, saniyede en çok 2 parlama, bloklu yıldırım. `--lightning`.
+5. **Mevsim** (`e9efaaf`, `src/render/season.js`, panelde *Season / Mevsim*):
+   sonbahar ormanı, kışın kar çizgisi iner + soğuk tatlı su donar; yalnız
+   görünüm, harita ve seed değişmez. `--season`.
+
+Ayrıntı ve gerekçe: `README.md` → Mimari (her özelliğin paragrafı),
+`docs/DEVLOG.md` 2026-10-06.
+
+**Kararlar (Uğur değiştirmek isteyebilir) — "X yaptım, alternatif Y":**
+- Nehir: akış geometriden, tek seviyeli tatlı su gövdesi başına; basamak
+  havuzları (`lake` etiketli) da akıyor — alternatif: yalnız `river` biyomu
+  (denedim: 320²'de yalnız ~150 tile, havuz zincirleri durgun kalıyordu).
+- Nehir: büyük gölde yalnız giriş/çıkışa 3 tile yakın akıntı, ortası durgun —
+  alternatif: göller tamamen durgun.
+- Nehir deseni: benek çeyrek tile blok, yol tam bloklara yuvarlanıyor
+  (kare kare kayıyor) — alternatif: akıcı kayma (benekler blok kenarında
+  ince şeritlere bölünüyordu, gördüm).
+- Duman: küp küçülerek dağılıyor, solarak değil — alternatif: alfa ile solma
+  (sıralama gerekir, bulutların ön-geçiş hilesi bozulur).
+- Duman: her zaman açık (lav varsa), ayrı anahtar yok — alternatif: *Clouds &
+  birds* anahtarına bağlamak.
+- Sis: tile başına bütün sütun aynı — alternatif: vertex yüksekliğine göre
+  (denedim: her kıyı yarında beyaz perde).
+- Sis eğrisi: 6-8 tam, 11'de biter, 16:30-19:30 arası 0.3'e çıkar, 22:00'de
+  biter, 2:30'dan şafağa yükselir — alternatif: gece boyunca hafif sis
+  (görünmüyordu, ~5 ms yiyordu; ilk sürüm `ebd782e` öyleydi).
+- Şimşek: yerel ışık + bütün haritaya hafif ışık (arazi shader'ında tek
+  uniform) — alternatif: yalnız genel parlama (CSS/grade ile, sıfır shader
+  maliyeti ama yönsüz).
+- Şimşek: yıldırım bulutun ARKASINDA çiziliyor (saydam bulut onu %42'ye
+  kısıyor, gündüz zor görünüyor) — alternatif: bulutun üstüne çizmek
+  (sırtların arkasından görünürdü).
+- Şimşek: `prefers-reduced-motion`'da ışık parlaması yok, yıldırım var.
+- Mevsim: kışın yaprak döken orman çıplak (`bare` tonuna) — alternatif:
+  kışın yeşile dönmesi (istenmemişti; çıplak bırakmak benim kararım).
+- Mevsim: lav karlanmaz; kar yalnız karada; donmuş suyun dalga ÇUKURU
+  sürüyor (yalnız gölge/köpük/akış duruyor).
+- Mevsim: üstten görünüm de mevsimi gösteriyor (slider bırakılınca ~150 ms
+  yeniden çizim); Unity albedo mevsimsiz.
+- Mevsim: kış yağışı değiştirmiyor (yağmur bulutu karlı arazide hâlâ
+  yağmur yağdırabilir) — yapılmadı.
+
+**Ölçüm (headless Edge, SwiftShader, 1400×900 pencere, seed 1337, 320²,
+`render()` + 1 px readPixels, 3×30 kare medyanı; gürültü ±5-10 ms):**
+taban `855fd07` ile son hâl (beşi birden) dönüşümlü, 2 tur (gece 3):
+- 07:00 (sis açık): ~96 → ~102 ms (+6);
+- 14:00 (yaz, sis yok): ~97 → ~100-103 ms (+3-6, gürültü sınırında);
+- 22:00 (gece; 22:00-2:30 sissiz): ~112 → ~116 ms (+4);
+- 14:00 kış (`season=3`): ~104-111 ms (aynı yapının yazına göre +2-8);
+- çizim çağrısı gündüz 12 → 15, gece 13 → 16 (nehir +1, duman +2; çakma
+  anında yıldırım +1); üçgen +432 (duman); GPU belleği tahmini +0.9 MB
+  (akış 412 KB, mevsim 410 KB, sis 102 KB doku).
+- Harita kurma (node, 320², medyan): akış alanı 5-29 ms, sis 11-18, mevsim
+  baytları ~7, duman ≤1 → harita başına +25-55 ms (mesh toplamı ~300-330).
+- Özellik özellik (her biri bir öncekine karşı): nehir ve duman gürültü
+  içinde (±5); sis 07:00'de ~+5; şimşeğin `uFlash` terimi ~+3; mevsim yazın
+  0, kışın ilk sürümde +17 → renk vertex'e taşınınca +3-9.
+
+**Kapsamadığı:** gerçek GPU, telefon, Firefox/Safari; animasyon yalnız sabit
+karelerle (akışın, dumanın, şimşeğin akarken hissi gözle bakılmadı);
+şimşeğin gerçek ekranda rahatsız edip etmediği (oran ve nabız ölçüldü, his
+değil); mevsimle yağmur/kar uyumu.
+
+## Önceki oturum — kulübeler kalktı, rüzgâr kenara kadar, bulut tipleri (2026-10-05)
 
 Uğur canlıda baktı: *"hutları beğenmedim kaldıralım. rüzgarlar mapten çıkana
 kadar devam etsinler fade out olmasınlar birden. yağış yapan bulutlar da daha
@@ -54,7 +136,8 @@ seed × 3): üretim ~335 ms aynı, mesh ~310 aynı, rüzgâr alanı + yollar 108
 
 **Kapsamadığı:** gerçek GPU, telefon, Firefox/Safari; rüzgârın kenardan
 çıkışının akarken gözle hissi (kare dizisi var); bulut tiplerinin Uğur'un
-gözüne uyması. Yayınlanmadı.
+gözüne uyması. Bu oturumda yayınlanmadı; 2026-10-06'da `840100e` yayınıyla
+canlıya çıktı.
 
 ## Önceki oturum — kulübeler, lav ışığı, bulutlu yağmur, rüzgâr akışı (2026-10-05)
 

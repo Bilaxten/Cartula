@@ -9,6 +9,34 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-06 beş harita özelliğine gözle bak** (her biri canlıda,
+      her biri `git revert <hash>` ile tek başına geri alınır; sonra
+      `bash scripts/publish-site.sh`). Headless Edge'de (SwiftShader) sabit
+      karelerle bakıldı; gerçek GPU, telefon, Firefox/Safari ve akarken his
+      denenmedi. **Bak:** Isometric, seed 1337 (volkan + nehir), 4242, 90210:
+      - `840100e` **Akan nehirler**: yakınlaş, nehir ve basamak havuzlarında
+        beyaz benekler yokuş aşağı kayıyor mu, şelale dibinde köpük var mı,
+        büyük gölün ortası durgun mu. Benek hareketi kare kare (çeyrek tile
+        adımlarla): akıcı isteniyorsa `flow.js` GLSL'indeki yuvarlama kalkar.
+        Bakıldı: 1337/4242/90210 gündüz, 90210 gece, şelale yakın çekimi.
+      - `f81bb03` **Volkan dumanı**: kraterden küp küp duman, rüzgâr
+        çizgileriyle aynı yöne yatıyor mu; *Time of day* 22:00'de alttan
+        turuncu. Bakıldı: 1337 gündüz/gece, 4242 (kenara doğru esen rüzgâr).
+      - `ebd782e` + `ebf56b9` **Vadi sisi**: *Time of day* 06:00-08:00
+        vadilerde soluk sis, 09:30 inceliyor, 14:00 yok, 19:00 hafif, 22:00
+        yok (ikisini birlikte geri al). Bakıldı: 1337 07:00
+        önce/sonra, 07/09:30/19/22 yakın çekim.
+      - `ab243ce` **Şimşek**: *Rain & snow* açık, yağmur bulutunu bekle (12
+        sn'de ~%42): bulut parlıyor, zemin aydınlanıyor, yıldırım iniyor.
+        Rahatsız edici mi? ⚠️ Gündüz yıldırım saydam bulutun ardında zor
+        seçiliyor (karar). Bakıldı: 1337 ilk çakma, gündüz ve gece, 4 kare.
+      - `e9efaaf` **Mevsim** (View → *Season*): sonbaharda orman pas/sarı,
+        kışta dağlardan inen kar, soğuk göller buz, lav karsız; üstten
+        görünümde de. Random/Regenerate mevsime dokunmamalı (CDP ile
+        denendi: dokunmuyor). Bakıldı: 1337 yaz/sonbahar/kış genel, donmuş
+        göl yakın çekim, üstten kış/sonbahar, TR/EN panel.
+      Kararların listesi ve "alternatif" seçenekleri: `CURRENT.md` 2026-10-06.
+
 - [ ] **2026-10-05 bulut tipleri, gezen yağmur bulutu, kenara kadar rüzgâr,
       lav ışığına gözle bak** (`0937cba`, `450a87b`, `da0b8b7`, `6f1c1e2`; her
       biri `git revert` ile tek başına geri alınır). Headless Edge'de
@@ -125,6 +153,11 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       geçmek ya da voxel'de düzenlemeyi açmak daha iyi olur. Karar verilmedi.
 
 ## NEXT
+
+- [ ] **Mevsim × yağış (2026-10-06, yapılmadı):** kışın kar çizgisi iniyor
+      ama yağmur bulutları hâlâ biyoma göre yağmur yağdırıyor (karlı arazide
+      yağmur). İstenirse `weather.js` `ground` dokusundaki tür baytı mevsimle
+      yeniden yazılır (slider bırakılınca, tek `texSubImage2D`).
 
 - [ ] **Fırça sonrası komşu hücreler** 450 ms'lik tam render'a kadar eski
       hillshade/kıyı tonunda kalıyor (boyanan hücrenin kendisi artık doğru).

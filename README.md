@@ -294,9 +294,11 @@ zamandan bağımsız kalır: kamera durunca bulanık sonuç yeniden kullanılır
 ⚠️ Işıklar yanarken gece renk düzeltmesi CSS'ten (`#daynight` + filtre)
 shader'a geçer (aynı formül, fark ≤4/255): CSS örtüsü WebGL'den SONRA
 uygulandığı için ışıkları gri-kahveye boyuyordu; shader'da ışık
-düzeltmeden sonra eklenir. Gündüz yol CSS'te kalır. Arazi shader'ı üç
-derlenmiş varyant (gündüz / gece / bloom kaynağı): SwiftShader dallanmanın
-iki tarafını da çalıştırdığı için ölü gece kodu gündüz ~18 ms yiyordu.
+düzeltmeden sonra eklenir. Gündüz yol CSS'te kalır. Arazi shader'ı
+derlenmiş varyantlardan oluşur (gündüz / gece / bloom kaynağı; 2026-10-06'dan
+beri ayrıca `RIVER` ve gerektiğinde `FOG` / `SEASON` birleşimleri, aşağıda):
+SwiftShader dallanmanın iki tarafını da çalıştırdığı için ölü gece kodu
+gündüz ~18 ms yiyordu.
 
 **Kıyı köpüğü** (2026-10-05): deniz ve göl tile'larının üst yüzünde, karaya
 değen köşede 1 olan köşe bayrağı (`mesh.foam`); komşu tile'lar köşeyi
@@ -376,6 +378,98 @@ döngüsü her fragmanda koştuğu için SwiftShader'da 1280×800'de kare başı
 900 parçacık, harita başına tek statik buffer; düşüş vertex shader'da
 zamandan hesaplanır. Kar, rüzgâr çizgileriyle aynı hâkim rüzgârla biraz
 sürüklenir (`--weather`).
+
+**Akan nehirler** (2026-10-06, `src/render/flow.js`): nehirler, basamaklı
+çağlayanların havuzları ve şelale diplerindeki havuzlar yokuş aşağı akar.
+Bu haritalarda "nehir" kısa `river` parçaları + seviye seviye inen küçük
+havuzlardan (settle pass'i geniş yayılmaları `lake` diye etiketliyor) oluşan
+bir zincir; bu yüzden akış GEOMETRİDEN, **gövde** başına kararlaştırılır (tek
+seviyede 4-komşulu tatlı su parçası): çıkışı (daha alçak su, deniz, harita
+kenarı) olan gövde çıkışa BFS uzaklığı boyunca akar, havuzda giriş → çıkış en
+kısa yoluna yakın kalır ve ondan 3 tile uzakta durulur; `lake` etiketli bir
+tile yalnız suyun girdiği/çıktığı yere 3 tile yakınsa akar (büyük gölün ortası
+durgun, deniz hiç akmaz). Çıkışı olmayan gövdede nehir tile'ları üretecin kendi
+yokuş-aşağı adımını (`grid.flow`, orta hatlarda; genişletilmiş yatak en yakın
+orta hattan kopyalar) kullanır. Şelale dudağı düşüşün üstünden akar; iniş
+tile'ının 2 adım çevresi dışa doğru yayılıp köpürür. Akış hiçbir zaman kıyıya
+ya da bir basamak yukarı koşmaz (o bileşen atılır). Hız eğimden: gövdenin
+çıkıştaki düşüşü / uzunluğu. Değerler grid KÖŞELERİNDE, (W+1)×(H+1) RGBA8
+doku (hız + köpük); durgun suya değen köşede hız 0, desen kenarda solar.
+Çizim: akan tile'ların üst yüzleri indeks tamponunun SONUNA taşınır ve
+`RIVER` varyantıyla ayrı çizilir (köşeler, vertex'ler, üçgen kümesi aynı; tek
+fazla çizim çağrısı) — başka hiçbir fragman desenin bedelini ödemez. Desen
+klasik çift fazlı flow map: çeyrek tile köpük benekleri + yarım tile
+dalgacıklar akış boyunca taşınır, yarım döngü kaymış iki katman çapraz
+geçişle sıfırlanmayı gizler; hız çeyrek tile blok başına bir kez okunur ve yol
+tam bloklara yuvarlanır, benek hep bir blok (voxel ızgarasında, kesik değil;
+rüzgâr çizgileri gibi "kare kare"). `--flow`.
+
+**Volkan dumanı** (2026-10-06, `src/render/smoke.js`): en az 3 tile'lık her
+lav alanı kraterinden (en yüksek lav tile'larının ortası; en çok 4) tüter.
+Duman bulutların voxel dili: 18 eksen hizalı küp; doğar, yükselir (yavaşlayarak),
+büyür ve KÜÇÜLEREK dağılır (solarak değil: hepsi tek opaklık, bulutların
+derinlik-ön-geçişi sıralamasız çalışır). Rüzgâr, rüzgâr çizgilerinin kendi
+alanı (`SM.Wind`), menfezde örneklenir: duman dik çıkar, yükseldikçe rüzgâr
+yönüne yatar. Harita kenarını 1.5 tile geçen küp yok olur; tepe, kameranın
+çerçevelediği gökyüzünün (`SM.Sky.ceiling`) altında kalır. Renk palet
+karışımı: menfeze yakın kül (volkanik kaya → kaya grisi), yukarıda açık (kaya
+→ kar); gece alçak küpler alttan lav rengiyle aydınlanır (gece düzeltmesinden
+sonra eklenir, lav nabzıyla titrer). Harita başına tek statik buffer, yol
+vertex shader'da zamanın fonksiyonu (rüzgârla aynı 12 Hz); lavsız haritada
+hiç çizim yok. `--smoke`.
+
+**Vadi sisi** (2026-10-06, `src/render/fog.js`): sabahları vadilerde, nehir
+vadilerinde ve dağ eteğindeki alçak yerlerde sis. Yalnız *Time of day*
+yönetir: şafakta (6:00-8:00) en kalın, öğleye doğru kalkar, öğleden sonra
+yok, akşamüstü hafif (şafak sisinin 0.3'ü), 22:00'de biter, 2:30'dan şafağa
+doğru yeniden yükselir; eğri süreklidir. Gece saatleri bilerek sissiz: gece
+düzeltmesinin altında görünmüyor, varyantı SwiftShader'da kare başına ~5 ms
+yiyordu. Nerede: tile başına bir sis yüzeyi = çevresi (iki kez geniş kutu
+bulanıklığı, deniz 0) − 0.3 kademe; bunun altında kalan tile, ne kadar
+alttaysa o kadar sisli (1.6 kademe altta tam yoğunluk 0.72). Sırtlar,
+zirveler, düz yüksek arazi açık; deniz hiç sislenmez. Tile başına, bütün sütun
+aynı (bloklu): ilk sürüm sisi vertex yüksekliğine göre veriyordu, her kıyı
+yarının dibine sissiz denize inen beyaz bir perde çıktı. Çizim: `FOG` varyantı
+tile'ın sisini R8 dokudan vertex aşamasında okur, rengi (paletin karı,
+gün ışığıyla kısılmış) renk düzeltmesinden ÖNCE karıştırır (sabahın altın
+tonu, gecenin mavisi uygulanır). Varyant saat ilk kez sis getirdiğinde
+derlenir, yalnız sis varken kullanılır: öğleden sonra bedava. `--fog`.
+
+**Şimşek** (2026-10-06, `src/render/lightning.js`): yağmur bulutları (kar
+bulutu asla; yalnız *Rain & snow* açıkken) arada bir çakar: çakma yerinin
+çevresi (ve hafifçe bütün harita) yukarıdan aydınlanır, bulutun kendisi
+parlar, bulutun altından zemine bloklu bir yıldırım iner (ızgara eksenleri
+boyunca dikey düşüşler + kısa yatay kırıklar, bir yan dal). İki nabız: vuruş
+ve 0.16 sn sonra daha zayıf bir ikinci vuruş; yıldırım yalnız nabızlarda
+görünür. Seyrek ve sakin: zaman 12 sn'lik dilimlere bölünür, dilimde seed'li
+0.42 olasılıkla, dilim başından en az 3 sn sonra bir çakma — dakikada en çok
+5, ortalama ~2, hiçbir saniyede ikiden fazla parlama yok, ışık en çok 0.5
+artar. `prefers-reduced-motion`'da ışık parlaması yok (yıldırım kalır).
+Durumsuz: çakma (harita seed'i, hava, zaman)'ın saf fonksiyonu, kare başına
+birkaç hash, ayırma yok; arazi shader'ında tek uniform (`uFlash`, lambert
+terimine eklenir). `--lightning`.
+
+**Mevsim** (2026-10-06, `src/render/season.js`; View → *Season*, TR
+*Mevsim*): ilkbahar / yaz / sonbahar / kış, sürekli slider (0..3). Yalnız
+görünüm: hiçbir biyom, kademe ya da seed değişmez; *Random* / *Regenerate*
+ona dokunmaz (harita boyutu gibi); paylaşım linkinde *Time of day* gibi
+taşınır. İlkbahar ve yaz üretilen harita. Sonbahar: yaprak döken orman
+(`forest` biyomu; tayga ve yağmur ormanı yeşil kalır) her tile kendi tonunda
+paletin savan sarısı ile mesa pası arasına döner; derin kışta yapraklar
+dökülmüş, orman çıplak (paletin `bare` kahve-grisine doğru). Kış kar çizgisini
+indirir: her kara tile'ının bir kar İHTİYACI var (yüksekliği, üretecin kendi
+sıcaklığa bağlı kar çizgisinin ne kadar altında; `biome.js classify`), kış
+çizgiyi kara yükseklik aralığının en çok 0.3'ü kadar indirir: önce zirveler,
+sonra yüksek ve soğuk arazi (varsayılan haritalarda karanın ~%20-30'u). Lav
+asla karlanmaz. Kış miktarı × 0.4'ten soğuk tatlı su donar: palet buzu
+(kar → sığ deniz), dalga gölgesi, kıyı köpüğü, akış yok, şelale donuk.
+Geometrik dalga çukuru bırakıldı (tatlı suda çok küçük; tile başına durdurmak
+donmuş ve açık suyun köşe paylaştığı yerde yarık açardı). Çizim: tile başına
+RGBA8 doku; `SEASON` varyantı vertex aşamasında okuyup `vColor`'u orada
+yeniden boyar (fragman başına SwiftShader'da kare başına ~10 ms daha
+pahalıydı), slider yazdan ilk çıktığında derlenir, yalnız yaz dışında
+kullanılır. Üstten görünüm JS ikizini (`SM.Season.tileColor`) boyar, slider
+bırakılınca yeniden çizer; Unity albedo'su mevsimsiz kalır. `--season`.
 
 **Varsayılan harita 320²** (2026-10-05, önceden 192²). Paylaşım linkindeki
 `size` hâlâ kazanır, *Random* boyuta dokunmaz. Bedeli (seed 1337,

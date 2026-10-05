@@ -1,5 +1,71 @@
 # DEVLOG
 
+## 2026-10-06 — Akan nehirler, volkan dumanı, vadi sisi, şimşek, mevsimler
+
+**Ne yapıldı:** Uğur beş özelliği onayladı ve her birinin ayrı yayınına izin
+verdi. Sırayla, her biri kendi commit'i ve canlı yayını: akan nehirler
+(`840100e`), volkan dumanı (`f81bb03`), vadi sisi (`ebd782e`), şimşek
+(`ab243ce`), mevsim slider'ı (`e9efaaf`). Her birinin kendi harness'ı var
+(`--flow`, `--smoke`, `--fog`, `--lightning`, `--season`), hepsi
+`checks.sh`'e bağlı; yeni kontroller mutasyonla denendi (yönü ters çevir,
+denizi sislendir, kar bulutundan çaktır, kenarı kaldır…: kırmızı).
+
+**Neden bu yaklaşım:**
+
+*Nehirler.* İlk sürüm akışı yalnız `river` biyomuna verdi ve haritada neredeyse
+hiçbir şey akmadı: 320²'de ~150 nehir tile'ı var, gerisi settle pass'inin `lake`
+diye etiketlediği basamak havuzları. Bu haritalarda nehir bir zincir: küçük
+havuzlar seviye seviye iniyor, aralarında şelaleler. O yüzden akış etiketten
+değil geometriden: tek seviyeli tatlı su gövdesi, çıkışı (alçak su, deniz,
+kenar) varsa ona doğru akıyor; havuzdan giriş → çıkış yoluna yakın geçiyor,
+göl etiketli tile yalnız giriş/çıkışa yakınsa akıyor (büyük gölün ortası
+durgun). Desende iki tuzak gözle görüldü: fragman başına hız deseni
+kıvırıp ince şeritlere çekiyordu (akış hızlanınca/dönünce kareler
+makaslanıyor), hızı çeyrek tile blok başına bir kez okumak düzeltti; benekler
+blok kenarında kesiliyordu, yolu tam bloklara yuvarlamak düzeltti ve hareket
+rüzgâr çizgileri gibi "kare kare" oldu. Akan üst yüzler indeks tamponunun
+sonuna taşındı ve ayrı varyantla çiziliyor: desenin bedelini başka hiçbir
+fragman ödemiyor.
+
+*Duman.* Bulutların dili: eksen hizalı küpler. Küp solarak değil küçülerek
+dağılıyor; böylece hepsi tek opaklıkta ve bulutların derinlik-ön-geçişi
+(her piksel bir kez karışır) sıralama olmadan çalışıyor. Rüzgâr ikinci bir
+model değil: rüzgâr çizgilerinin alanı menfezde örnekleniyor. İlk denemede
+duman tek bir yığın gibiydi (büyük küpler üst üste); küçültüp dağıtmak ve
+rüzgârla daha fazla yatırmak dumanı okunur yaptı. Kenara yakın volkanda duman
+haritanın boşluğuna taşıyordu; kenar ötesinde küçülüyor (rüzgâr ve bulutlar
+gibi). Gece ilk sürümde turuncu ışık yalnız alt yüzlerdeydi, yukarıdan bakan
+kamera onları görmüyor; yan yüzler de aldı.
+
+*Sis.* İlk sürüm sisi vertex yüksekliğine göre verdi: her duvar tepeden
+dibe sislendi ve her kıyı yarının dibinde sissiz denize inen beyaz bir perde
+çıktı. Sis tile başına, bütün sütun için tek değer oldu (bloklu, voxel gibi).
+Varyant yalnız sis varken; öğleden sonra hiç derlenmiyor bile. Son ölçümde
+gece 22:00'de (0.3 sis) kare ~9 ms yavaştı ve sis gece düzeltmesinin altında
+görünmüyordu: 22:00-2:30 arası sissiz yapıldı (`ebf56b9`).
+
+*Şimşek.* "Nöbet tetiklemesin" ölçüye çevrildi: dakikada en çok 5 çakma,
+çakmalar arası en az 3 sn, hiçbir saniyede ikiden fazla parlama (`--lightning`
+30 dk × 4 haritada sayıyor). Durumsuz: çakma zamanın saf fonksiyonu.
+`prefers-reduced-motion`'da ışık parlaması yok.
+
+*Mevsim.* Harita verisine dokunmamak şart: grid, biyom, seed aynı kalıyor;
+her şey bir tile baytı dokusundan ve bir slider değerinden. Kar çizgisi
+üretecin kendi formülünden (`biome.js classify`): kış o çizgiyi indiriyor.
+İlk sürüm rengi fragman başına hesapladı ve SwiftShader'da kış kareyi ~17 ms
+yavaşlattı; ölçünce ~10 ms'nin fragman karışımlarından geldiği çıktı. Renk
+vertex'e taşındı (`vColor`), ek varying gerekmedi, bedel ~3-9 ms'ye indi ve
+yazın sıfır. Kraterin karlandığı görüldü: lav karlanmıyor.
+
+**Doğrulama:** her özellik için `bash scripts/checks.sh` temiz,
+`publish-site.sh` → canlı = commit, değişen her JS dosyası canlıda sha256 ile
+aynı. Headless Edge (SwiftShader) ekran görüntüleri: üç seed, gündüz/gece,
+yakın çekimler, önce/sonra; canlı sayfada da (kış sabahı, çakma) shader hatası
+yok. Önce/sonra performans dönüşümlü (sayılar `CURRENT.md`).
+
+**Açık:** gerçek GPU ve telefon; akarken his (akış, duman, şimşek yalnız sabit
+karelerle görüldü); mevsim ile yağış uyumu (`TODO.md` NEXT).
+
 ## 2026-10-05 — Kulübeler gitti, rüzgâr kenardan çıkar, bulutların tipi var
 
 **Ne yapıldı:** Uğur canlı sürüme baktı: kulübeleri beğenmedi; rüzgâr
