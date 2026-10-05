@@ -88,6 +88,128 @@
     };
   }
 
+  /* Terrain-following waves (Uğur 2026-10-05: "terraine uyumlu şekilde
+   * dalgalanıp sönümlenecek"). Until then every wave ran in one direction
+   * across the whole map. Now, per map:
+   *   - d   = distance from each water cell to the nearest land cell
+   *           (two-pass chamfer, weights 1 and sqrt 2),
+   *   - phase = WAVE_K * d + a little seeded noise, so sin(wt + phase) puts
+   *           crests on rings that run in toward every coast and around
+   *           every island,
+   *   - amp = 0 where the water touches land (the swell settles instead of
+   *           slamming), full in a band just off the shore, decaying to a
+   *           calm floor out at sea.
+   * Values live at GRID CORNERS: every vertex at a corner -- the four water
+   * tops that share it, a water tile's wall rim -- reads the same number,
+   * so shared edges keep moving together (no slits, --mesh). The value at a
+   * tile's centre drives the per-tile crest shading and the shore foam, so
+   * both stay in step with the swell. */
+  var WAVE_K = 0.9;          // radians per tile of distance (~7-tile wavelength)
+  var WAVE_NOISE = 1.3;      // radians of seeded phase noise
+  var WAVE_FLOOR = 0.12;     // open-sea amplitude, as a share of the full swell
+
+  function smoothstep01(e0, e1, x) {
+    var t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0)));
+    return t * t * (3 - 2 * t);
+  }
+
+  function waveAmplitude(d) {
+    return smoothstep01(0, 0.9, d) *
+      (WAVE_FLOOR + (1 - WAVE_FLOOR) * (1 - smoothstep01(2.5, 14, d)));
+  }
+
+  function waveField(grid) {
+    var W = grid.width;
+    var H = grid.height;
+    var n = W * H;
+    var dist = new Float32Array(n);
+    var CW = W + 1;
+    var cornerDist = new Float32Array(CW * (H + 1));
+    var cornerPhase = new Float32Array(CW * (H + 1));
+    var cornerAmp = new Float32Array(CW * (H + 1));
+    var tilePhase = new Float32Array(n);
+    var tileAmp = new Float32Array(n);
+    var seed = grid.config && grid.config.seed != null ? grid.config.seed | 0 : 0;
+    var noise = SM.makeNoise2D ? SM.makeNoise2D((seed ^ 0xa7e) >>> 0) : function () { return 0; };
+    var BIG = 1e9;
+    var D = Math.SQRT2;
+    var x;
+    var y;
+    var i;
+
+    for (i = 0; i < n; i++) dist[i] = grid.water[i] ? BIG : 0;
+    function relax(x0, y0, dx, dy, w) {
+      var xx = x0 + dx;
+      var yy = y0 + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) return;
+      var c = dist[yy * W + xx] + w;
+      if (c < dist[y0 * W + x0]) dist[y0 * W + x0] = c;
+    }
+    for (y = 0; y < H; y++) {
+      for (x = 0; x < W; x++) {
+        relax(x, y, -1, 0, 1);
+        relax(x, y, 0, -1, 1);
+        relax(x, y, -1, -1, D);
+        relax(x, y, 1, -1, D);
+      }
+    }
+    for (y = H - 1; y >= 0; y--) {
+      for (x = W - 1; x >= 0; x--) {
+        relax(x, y, 1, 0, 1);
+        relax(x, y, 0, 1, 1);
+        relax(x, y, 1, 1, D);
+        relax(x, y, -1, 1, D);
+      }
+    }
+    // A map with no land at all: everything is open sea.
+    for (i = 0; i < n; i++) if (dist[i] >= BIG) dist[i] = 64;
+
+    for (y = 0; y <= H; y++) {
+      for (x = 0; x <= W; x++) {
+        var sum = 0;
+        var cnt = 0;
+        var land = false;
+        for (var k = 0; k < 4; k++) {
+          var cx = x - 1 + (k & 1);
+          var cy = y - 1 + (k >> 1);
+          if (cx < 0 || cy < 0 || cx >= W || cy >= H) continue;
+          if (!grid.water[cy * W + cx]) land = true;
+          sum += dist[cy * W + cx];
+          cnt++;
+        }
+        var d = land ? 0 : Math.max(0, sum / Math.max(1, cnt) - 0.5);
+        var c = y * CW + x;
+        cornerDist[c] = d;
+        cornerPhase[c] = WAVE_K * d + WAVE_NOISE * noise(x * 0.09, y * 0.09);
+        cornerAmp[c] = waveAmplitude(d);
+      }
+    }
+    for (y = 0; y < H; y++) {
+      for (x = 0; x < W; x++) {
+        i = y * W + x;
+        var td = grid.water[i] ? Math.max(0, dist[i] - 0.5) : 0;
+        tilePhase[i] = WAVE_K * td + WAVE_NOISE * noise((x + 0.5) * 0.09, (y + 0.5) * 0.09);
+        tileAmp[i] = grid.water[i] ? waveAmplitude(td + 0.5) : 0;
+      }
+    }
+    return {
+      width: W,
+      height: H,
+      dist: dist,
+      cornerDist: cornerDist,
+      cornerPhase: cornerPhase,
+      cornerAmp: cornerAmp,
+      tilePhase: tilePhase,
+      tileAmp: tileAmp
+    };
+  }
+
+  // Phase in radians -> one byte (2 pi wraps to 0); amplitude 0..1 -> byte.
+  function phaseByte(ph) {
+    var t = ph / (Math.PI * 2);
+    return Math.round((t - Math.floor(t)) * 256) & 255;
+  }
+
   function hexToRgb(hex) {
     // CSS palette strings are converted before entering the GPU's float range.
     var n = parseInt(hex.slice(1), 16);
@@ -185,6 +307,11 @@
     // touches land at every corner and would turn white bank to bank).
     var foam = [];
     var quadFoam = null;            // set by addTop for one quad, else null
+    // Wave bytes per vertex: corner phase, corner amplitude, tile phase,
+    // tile amplitude (see waveField). Zero on anything that does not ride
+    // the water surface.
+    var waves = waveField(grid);
+    var wave = [];
     var NO_FOAM = [0, 0, 0, 0];
     var LAKE = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'lake'; });
     var TOWN = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'town'; });
@@ -260,6 +387,15 @@
       // cascade in the fragment shader (see makeProgram's vFall handling).
       fall.push(fallFlag ? 1 : 0);
       town.push(cellTown);
+      if (waterTop) {
+        // The vertex's grid corner (positions are integers there) and tile.
+        var wc = Math.round(z + H / 2) * (W + 1) + Math.round(x + W / 2);
+        var wt = Math.max(0, Math.min(H - 1, cellY)) * W + Math.max(0, Math.min(W - 1, cellX));
+        wave.push(phaseByte(waves.cornerPhase[wc]), Math.round(waves.cornerAmp[wc] * 255),
+          phaseByte(waves.tilePhase[wt]), Math.round(waves.tileAmp[wt] * 255));
+      } else {
+        wave.push(0, 0, 0, 0);
+      }
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;
@@ -681,6 +817,7 @@
       fall: new Uint8Array(fall),
       town: new Uint8Array(town),
       foam: new Uint8Array(foam),
+      wave: new Uint8Array(wave),
       indices: new Uint32Array(indices),
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
@@ -966,7 +1103,7 @@
   // Fixed attribute slots, bound before linking, so the three terrain
   // program variants share one VAO.
   var TERRAIN_ATTRIBS = ['aPosition', 'aNormal', 'aColor', 'aSideDepth', 'aCellUV',
-    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown', 'aFoam'];
+    'aEmissive', 'aWater', 'aShore', 'aAO', 'aFall', 'aTown', 'aFoam', 'aWave'];
 
   /* `variant`: '' = day (exactly the lighting it always had), 'NIGHT' =
    * plus the in-shader colour grade, 'NIGHT WINDOWS' = that plus the
@@ -996,11 +1133,12 @@
       'in float aFall;',
       'in float aTown;',
       'in float aFoam;',
+      // Corner phase, corner amplitude, tile phase, tile amplitude (normalised
+      // bytes, waveField in this file).
+      'in vec4 aWave;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
-      // Vertex-only (no cross-stage precision pair to keep in step).
-      'uniform vec2 uGridSize;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -1040,18 +1178,19 @@
       '  // The surface only DIPS, from its rest level (crest) down to',
       '  // WAVE_DIP (trough): every wall meeting water reaches that far below',
       '  // it (buildVoxelMesh skirts), so no trough opens a slit to the clear',
-      '  // colour. One continuous function of world position, undamped: two',
-      '  // water tiles share their edge vertices and must move together, or',
-      '  // a seam opens between them (the old per-tile shore damping did).',
-      '  float wave = -' + glslFloat(WAVE_DIP) + ' * aWater *',
-      '    (0.5 - 0.5 * sin(uTime * 1.40 + aPosition.x * 0.72 +',
-      '    aPosition.z * 0.48));',
-      '  // Per-tile shade: the same wave sampled at the TILE CENTRE (aCellUV',
-      '  // is shared by the four corners of a tile, so the value is flat across',
-      '  // it). Crest tiles lighten, trough tiles darken; top faces only.',
-      '  vec2 tile = aCellUV * uGridSize - 0.5 * uGridSize;',
-      '  vWaveShade = aWater * step(0.5, aNormal.y) *',
-      '    sin(uTime * 1.40 + tile.x * 0.72 + tile.y * 0.48);',
+      '  // colour. Phase and amplitude come per GRID CORNER (aWave.xy), so',
+      '  // every vertex at a corner moves identically and shared edges stay',
+      '  // closed. Rings of crests run in toward the coast (phase grows with',
+      '  // the distance to land) and die out at the water line (amplitude 0).',
+      '  const float TAU = 6.2831853;',
+      '  float wave = -' + glslFloat(WAVE_DIP) + ' * aWater * aWave.y *',
+      '    (0.5 - 0.5 * sin(uTime * 1.40 + aWave.x * (255.0 / 256.0) * TAU));',
+      '  // Per-tile shade: the swell at the TILE CENTRE (aWave.zw, the same',
+      '  // for the four corners of a tile, so flat across it). Crest tiles',
+      '  // lighten, trough tiles darken; top faces only. The shore foam',
+      '  // reads the same value.',
+      '  vWaveShade = aWater * step(0.5, aNormal.y) * aWave.w *',
+      '    sin(uTime * 1.40 + aWave.z * (255.0 / 256.0) * TAU);',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
       '    (aPosition.y + wave) * uVScale,',
@@ -1503,6 +1642,7 @@
     var fallBuffer = gl.createBuffer();
     var townBuffer = gl.createBuffer();
     var foamBuffer = gl.createBuffer();
+    var waveBuffer = gl.createBuffer();
     var indexBuffer = gl.createBuffer();
     var shadowTexture = gl.createTexture();
     // Separate buffers make each data channel inspectable in headless output.
@@ -1518,6 +1658,7 @@
     var fall = TERRAIN_ATTRIBS.indexOf('aFall');
     var townAttr = TERRAIN_ATTRIBS.indexOf('aTown');
     var foamAttr = TERRAIN_ATTRIBS.indexOf('aFoam');
+    var waveAttr = TERRAIN_ATTRIBS.indexOf('aWave');
     var foamColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
       .map(function (v) { return v / 255; });
     var levelVP = new Float32Array(16);
@@ -1549,7 +1690,6 @@
         viewProjection: 'uViewProjection',
         verticalScale: 'uVScale',
         foamColor: 'uFoamColor',
-        gridSize: 'uGridSize',
         sunDirection: 'uSunDirection',
         sunStrength: 'uSunStrength',
         time: 'uTime',
@@ -1641,10 +1781,10 @@
     gl.enable(gl.DEPTH_TEST);
     gl.bindVertexArray(vao);
 
-    function setupAttrib(buffer, location, size, type) {
+    function setupAttrib(buffer, location, size, type, normalized) {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
       gl.enableVertexAttribArray(location);
-      gl.vertexAttribPointer(location, size, type || gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(location, size, type || gl.FLOAT, !!normalized, 0, 0);
     }
 
     setupAttrib(positionBuffer, position, 3);
@@ -1659,6 +1799,7 @@
     setupAttrib(fallBuffer, fall, 1, gl.UNSIGNED_BYTE);
     setupAttrib(townBuffer, townAttr, 1, gl.UNSIGNED_BYTE);
     setupAttrib(foamBuffer, foamAttr, 1, gl.UNSIGNED_BYTE);
+    setupAttrib(waveBuffer, waveAttr, 4, gl.UNSIGNED_BYTE, true);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bindVertexArray(null);
     gl.bindTexture(gl.TEXTURE_2D, shadowTexture);
@@ -1986,6 +2127,9 @@
       gl.bindBuffer(gl.ARRAY_BUFFER, foamBuffer);
       acct.bufferData(gl.ARRAY_BUFFER, foamBuffer,
         mesh.foam || new Uint8Array(mesh.vertexCount), gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, waveBuffer);
+      acct.bufferData(gl.ARRAY_BUFFER, waveBuffer,
+        mesh.wave || new Uint8Array(mesh.vertexCount * 4), gl.STATIC_DRAW);
       var ordered = settlementLast(mesh.indices, mesh.town);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
       acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, ordered.indices, gl.STATIC_DRAW);
@@ -2166,7 +2310,6 @@
       gl.useProgram(U.program);
       gl.uniformMatrix4fv(U.viewProjection, false, combined);
       gl.uniform1f(U.verticalScale, vScale);
-      gl.uniform2f(U.gridSize, gridSize[0], gridSize[1]);
       gl.uniform3fv(U.sunDirection, sun);
       gl.uniform1f(U.sunStrength, strength);
       gl.uniform1f(U.debugView, debugView);
@@ -2245,7 +2388,6 @@
       gl.useProgram(glowU.program);
       gl.uniformMatrix4fv(glowU.viewProjection, false, combined);
       gl.uniform1f(glowU.verticalScale, vScale);
-      gl.uniform2f(glowU.gridSize, gridSize[0], gridSize[1]);
       gl.uniform1f(glowU.time, elapsedTime);
       gl.uniform3fv(glowU.lightColor, lightColor);
       gl.bindVertexArray(vao);
@@ -2363,6 +2505,7 @@
       gl.deleteBuffer(fallBuffer);
       gl.deleteBuffer(townBuffer);
       gl.deleteBuffer(foamBuffer);
+      gl.deleteBuffer(waveBuffer);
       if (bloom) bloom.dispose();
       if (wind) wind.dispose();
       if (weather) weather.dispose();
@@ -2428,6 +2571,9 @@
   SM.buildVoxelMesh = buildVoxelMesh;
   SM.VOXEL_WAVE_DIP = WAVE_DIP;
   SM.voxelGradeColor = gradeColor;
+  SM.voxelWaveField = waveField;
+  SM.voxelWaveAmplitude = waveAmplitude;
+  SM.VOXEL_WAVE_K = WAVE_K;
   SM.mat4Invert = mat4Invert;
   SM.voxelSettlementLast = settlementLast;
   SM.voxelTerrainShaderSources = terrainShaderSources;

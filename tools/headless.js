@@ -233,6 +233,74 @@ function raisedColumnAffectsNeighbourAO() {
 //   - neighbour below: this tile's own wall exists and its rim vertices ride
 //     the surface (water flag 1), so the rim never pokes above the water;
 //   - water at the same level: nothing -- one continuous wave moves both.
+/* Terrain-following waves (2026-10-05): the swell is a per-corner field, so
+ * (1) every vertex at one position reads the same corner bytes (shared edges
+ * move together), (2) the amplitude is 0 where water touches land, (3) the
+ * phase is k * distance + bounded noise (crests run toward the coast), (4)
+ * open sea is calm and the band just off the shore is not, (5) a tile's
+ * centre value (shading, foam) is flat across its top. */
+function terrainWaveChecks(grid, mesh) {
+  const W = grid.width, H = grid.height, CW = W + 1;
+  const f = SM.voxelWaveField(grid);
+  const out = [];
+  const byPos = new Map();
+  let shared = 0, sharedBad = 0, shoreBad = 0, flatBad = 0;
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    if (!mesh.water[v]) continue;
+    const key = mesh.positions[v * 3] + ',' + mesh.positions[v * 3 + 1] + ',' + mesh.positions[v * 3 + 2];
+    const val = mesh.wave[v * 4] * 256 + mesh.wave[v * 4 + 1];
+    if (byPos.has(key)) { shared++; if (byPos.get(key) !== val) sharedBad++; } else byPos.set(key, val);
+    const cx = Math.round(mesh.positions[v * 3] + W / 2), cy = Math.round(mesh.positions[v * 3 + 2] + H / 2);
+    let land = false;
+    for (let k = 0; k < 4; k++) {
+      const x = cx - 1 + (k & 1), y = cy - 1 + (k >> 1);
+      if (x >= 0 && y >= 0 && x < W && y < H && !grid.water[y * W + x]) land = true;
+    }
+    if (land && mesh.wave[v * 4 + 1] !== 0) shoreBad++;
+  }
+  for (let q = 0; q < mesh.vertexCount; q += 4) {
+    if (!mesh.water[q] || mesh.normals[q * 3 + 1] !== 1) continue;
+    for (let k = 1; k < 4; k++) {
+      if (mesh.wave[(q + k) * 4 + 2] !== mesh.wave[q * 4 + 2] || mesh.wave[(q + k) * 4 + 3] !== mesh.wave[q * 4 + 3]) flatBad++;
+    }
+  }
+  out.push([`waves: ${shared} shared water vertices read identical corner phase+amplitude (${sharedBad} differ)`,
+    shared > 1000 && sharedBad === 0]);
+  out.push([`waves: amplitude 0 wherever the water touches land (${shoreBad} exceptions)`, shoreBad === 0]);
+  out.push([`waves: tile shade/foam value is flat across each water top (${flatBad} exceptions)`, flatBad === 0]);
+  let noiseMax = 0, lip = 0, nearSum = 0, nearN = 0, farSum = 0, farN = 0;
+  for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
+    const c = y * CW + x, d = f.cornerDist[c];
+    noiseMax = Math.max(noiseMax, Math.abs(f.cornerPhase[c] - SM.VOXEL_WAVE_K * d));
+    if (x < W) lip = Math.max(lip, Math.abs(d - f.cornerDist[c + 1]));
+    if (y < H) lip = Math.max(lip, Math.abs(d - f.cornerDist[c + CW]));
+    if (d > 1.2 && d < 2.5) { nearSum += f.cornerAmp[c]; nearN++; }
+    if (d > 16) { farSum += f.cornerAmp[c]; farN++; }
+  }
+  out.push([`waves: phase = k * distance to land + noise within ${noiseMax.toFixed(2)} rad (crests run shoreward); ` +
+    `distance changes <= ${lip.toFixed(2)} per corner step`, noiseMax <= 1.31 && lip <= 1.5]);
+  out.push([`waves: swell near the shore (mean amplitude ${(nearSum / nearN).toFixed(2)}, ${nearN} corners) ` +
+    `vs calm open sea (${farN ? (farSum / farN).toFixed(2) : '-'}, ${farN} corners)`,
+    nearN > 100 && nearSum / nearN > 0.85 && (!farN || farSum / farN < 0.2)]);
+  {
+    // An island world has real open sea: there it must be calm.
+    const g2 = SM.generate({ seed: 4242, width: 160, height: 160, seaLevel: 0.6, islandFalloff: 1 });
+    const f2 = SM.voxelWaveField(g2);
+    let s2 = 0, n2 = 0;
+    for (let c = 0; c < f2.cornerDist.length; c++) if (f2.cornerDist[c] > 16) { s2 += f2.cornerAmp[c]; n2++; }
+    out.push([`waves: island world (seed 4242, 160², sea 0.6): open sea calm (mean amplitude ` +
+      `${n2 ? (s2 / n2).toFixed(2) : '-'}, ${n2} corners beyond 16 tiles)`, n2 > 200 && s2 / n2 < 0.2]);
+  }
+  let mono = true;
+  for (let d = 0; d < 30; d += 0.25) {
+    if (d >= 2.5 && SM.voxelWaveAmplitude(d + 0.25) > SM.voxelWaveAmplitude(d) + 1e-9) mono = false;
+  }
+  out.push(['waves: amplitude 0 at the water line, eases in within a tile, decays out to sea',
+    SM.voxelWaveAmplitude(0) === 0 && SM.voxelWaveAmplitude(1) > 0.95 && mono &&
+    SM.voxelWaveAmplitude(30) > 0.1 && SM.voxelWaveAmplitude(30) < 0.15]);
+  return out;
+}
+
 function waveSkirtCheck(grid, mesh) {
   const W = grid.width, H = grid.height, level = grid.level;
   const DIP = SM.VOXEL_WAVE_DIP || 0.072;
@@ -419,6 +487,7 @@ function runMeshChecks() {
     }
     return { ok: flagged > 0 && bad === 0 && missed === 0, flagged, bad, missed };
   })();
+  const waveChecks = terrainWaveChecks(a, mesh);
   const quads = mesh.triangleCount / 2;
   const perCell = quads / (a.width * a.height);
   const results = [
@@ -444,7 +513,7 @@ function runMeshChecks() {
     ['shift-drag pan keeps the ground under the cursor', panFollows],
     ['clock display wraps after midnight', clockWrap],
     ['triangle count (Faz 1 baseline)', triangleCount]
-  ].concat(shadowChecks);
+  ].concat(shadowChecks, waveChecks);
   console.log('voxel mesh checks (seed 1337, 192²):');
   for (const [name, ok] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
   console.log(`  mesh: ${mesh.vertexCount} vertices, ${mesh.triangleCount} triangles, ${buildMs.toFixed(1)} ms`);
