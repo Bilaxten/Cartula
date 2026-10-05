@@ -30,18 +30,40 @@ Yeni özellik yok. Dört düzeltme, hepsi `bash scripts/checks.sh` temizken:
    (`git ls-files --eol`) okuyor; bilaxten.art'taki ikiz betikle aynı
    düzeltme. Sahte CRLF blob'uyla tetiklendiği görüldü.
 
-**Bulunan ama DOKUNULMAYAN, karar Uğur'da (ayrıntı + yama `TODO.md`):**
-- ⚠️ **Lambert ışığı ile düşen gölge ters yönde** (`setSun` yatay bileşeni
-  çeviriyor, `buildShadowMap` çevirmiyor). İki çözüm de görünümü değiştirir.
-- Shift+sürükle pan dikeyde `sin²(pitch)` kadar yavaş.
-- Doldurulan iç denizler büyük düz `beach` ovası oluyor (beach hücrelerinin
-  ~%68'i varsayılan haritada).
+**İkinci tur — Uğur'un gece talimatı: "önerdiğin gibi düzelt, her şey geri
+alınabilir olsun, sabah bakacağım".** Görünümü/hissi değiştiren kararlar,
+her biri TEK commit (`git revert <hash>` yalnız onu geri alır):
 
-**Doğrulamanın kapsamadığı:** hiçbir şey tarayıcıda gözle kontrol edilmedi.
-(1) üstten görünümde doldurulmuş havzaların hillshade'ini düzleştirir ve bu
-hücrelerin tonunu çok az değiştirir (`biomeShade` rakım terimi) — beklenen
-ama görülmedi. (3)'ün log yarısı yalnız okunarak doğrulandı. Unity içe
-aktarma hâlâ denenmedi.
+5. ⚠️ **Düşen gölge aydınlık yüzle aynı taraftaydı** (`1cd3abb`): `setSun`
+   yatay bileşeni çeviriyor, `buildShadowMap` çevirmiyordu; bulut gölgesi
+   de Lambert'le aynı taraftaydı. Gölge yürüyüşü çevrildi (üç sistemden
+   yalnız biri değişti). Alternatif: Lambert + bulut gölgesini çevirmek.
+6. **Shift+sürükle dikey pan** imleci izliyor (`8dcc9c6`); eskiden
+   `sin²(pitch)` kadar yavaştı. Alternatif: eski his.
+7. **Doldurulan iç denizler iklimine göre biyom alıyor** (`e9cf0dc`);
+   eskiden hepsi düz `beach` ovasıydı (varsayılan haritada beach'in %68'i).
+   Alternatif: büyük havzayı göl bırakmak (09-01'de bilerek kaldırılmıştı).
+8. **Unity `albedo.png` ışıksız renk** (`9d69dce`): hillshade ve yerleşim
+   işaretleri yok. Alternatif: ekrandaki render'ın aynısı.
+9. **Tek hücre boyayıcı** (`6ee275d`, `SM.paintTopDownTile`): fırça boyaması
+   hillshade'i ±0.18'de kırpan kendi kopyasını taşıyordu.
+10. **`main.js` ölü iso artıkları silindi** (`1ec1911`), davranış aynı.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` temiz; 5 ve 6 için
+önce kırmızı görülen `--mesh` kontrolleri; 8 ve 9 için Node'da sahte
+canvas'la çizim çağrısı karşılaştırması (tam render'ın çağrı günlüğü
+refactor öncesiyle birebir). Sonunda headless Edge'de `index.html` iki
+görünümde de açıldı (konsolda hata yok, WebGL2 çalıştı) ve ekran görüntüsüne
+bakıldı: harita düzgün, kumsallar yalnız kıyıda.
+
+**Kapsamadığı:** etkileşim denenmedi (pan, fırça, Q/E, export düğmesi).
+Gölgenin yeni yönü ekran görüntüsünde bu ölçekte ayırt edilemedi — *Sun
+shadow* debug görünümüyle bakılmalı. Unity içe aktarma hâlâ denenmedi.
+`docs/measurements` manifestleri (7)'den önce üretildi, bayat.
+
+**Bilerek bırakılanlar** (`TODO.md`): Pages `?v=` sürümü (her yayında elle
+artırma ister), README milestone listesi + DEVLOG'un 09-08…09-23 boşluğu,
+skill'lerdeki başka projeden kalan satırlar, Unity doğrulaması.
 
 ## Önceki oturum — 3 madde kod taraması düzeltmesi (2026-09-23, Claude Opus 5.5)
 
@@ -255,7 +277,7 @@ doğru mu" sorusu için.
 ## Sonraki adım
 
 **M1-M4 bitti, vaka çalışması `bilaxten.art` `site` dalında** (2026-09-22).
-Kuyruğun başı artık `TODO.md` NOW'daki ışık/gölge yönü kararı (2026-10-05).
+Kuyruğun başı: `TODO.md` NOW'daki gece düzeltmelerine gözle bakmak (2026-10-05).
 
 Küçük ve bağımsız bir cila maddesi de kuyrukta: fırçalar yalnız üstten
 görünümde çalışıyor ama varsayılan açılış voxel — araç seçilince sekmeye

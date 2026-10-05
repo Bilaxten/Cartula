@@ -9,30 +9,23 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
-- [ ] **Işık yönü ile düşen gölge birbirinin tersi (2026-10-05, kod okunarak ve
-      `buildShadowMap` sayısal denemesiyle doğrulandı, tarayıcıda bakılmadı —
-      karar Uğur'da).**
-      `sunModel` (`main.js`) `dx/dy`'yi "ışığın GELDİĞİ yön" olarak üretir
-      (yorumlar: "east -> west", "a bit from the north"). `SM.buildShadowMap`
-      bunu öyle kullanır: engeli `s + (dx,dy)·st` yönünde arar, yani gölge
-      güneşin tersine düşer. Ama `setSun` (`voxel3d.js`) yatay bileşeni ters
-      çevirip shader'a verir (`sun = (-dx, rise, -dy)`; "Iso uses incoming ray
-      direction" yorumu eski iso kodunu yanlış okuyor — silinen `iso.js` de
-      `+dx` yönünde yürüyordu). Sonuç 14:00'te: Lambert doğu+güney duvarlarını
-      aydınlatıyor, düşen gölge de doğu+güneye uzanıyor — aydınlık yüzün dibinde
-      gölge. Bulut gölgesi (`cloudShadowUniforms`) Lambert'le aynı tarafta, yani
-      arazi gölgesiyle o da ters.
-      İki tutarlı çözüm, ikisi de görünümü değiştirir:
-      (A) `setSun`'da eksi işaretlerini kaldır (`sun[0] = dx; sun[2] = dy`):
-          gölgeler yerinde kalır, aydınlık duvarlar kuzey+batıya geçer —
-          varsayılan kamera (yaw 45) gölgede kalan duvarlara bakar, sahne
-          koyulaşır. `sunModel` yorumlarıyla uyumlu olan bu.
-      (B) `buildShadowMap`'te yürüyüşü `sx - SUN_DX*st`, `sy - SUN_DY*st` yap:
-          duvar aydınlatması aynı kalır, gölgeler tepelerin arkasına (kuzey-
-          batı) geçer, varsayılan açıdan daha az görünür.
-      Hangisi seçilirse *Render debug view → Sun shadow* ile *Lit* yan yana
-      kontrol edilmeli; `--mesh`'e "yüksek sütunun gölgesi, Lambert'in
-      aydınlattığı yüzün TERS tarafına düşer" kontrolü eklenmeli.
+- [ ] **2026-10-05 gece düzeltmelerine gözle bak (Uğur yokken karar verildi;
+      her biri tek commit, `git revert <hash>` yalnız onu geri alır):**
+      - `1cd3abb` düşen gölge artık aydınlık yüzün TERS tarafına düşüyor
+        (gölge yürüyüşü çevrildi; duvar ışığı ve bulut gölgesi aynı). Diğer
+        seçenek: Lambert + bulut gölgesini çevirmek (gölgeler eski yerinde
+        kalır, varsayılan kameraya bakan duvarlar kararır). *Render debug
+        view → Sun shadow* ile *Lit*'i yan yana kontrol et.
+      - `8dcc9c6` Shift+sürükle dikey pan artık imleci birebir izliyor
+        (varsayılan pitch'te ~2.2 kat hızlı). Diğer seçenek: eski yavaş his.
+      - `e9cf0dc` doldurulan iç denizler artık `beach` değil, iklimine göre
+        biyom (1337/192²: beach 4329 → 1400). Diğer seçenek: büyük havzayı
+        göl bırakmak (2026-09-01'de bilerek kaldırılmıştı).
+      - `9d69dce` Unity `albedo.png` hillshade'siz ve yerleşim işaretsiz.
+        Diğer seçenek: ekrandaki render'ın aynısı.
+      - `6ee275d` fırça boyaması ile tam render tek boyayıcı kullanıyor.
+      Headless Edge'de sayfa iki görünümde de hatasız açıldı ve ekran
+      görüntüsüne bakıldı; etkileşim (pan, fırça, export düğmesi) denenmedi.
 
 - [ ] **Portfolyo yol haritasından kalanlar (2026-09-22 sırası; 1-5 bitti):**
       - Vaka çalışması (`bilaxten.art`): `[SES]` cümleleri, şelale/gökyüzü
@@ -41,22 +34,16 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       - Shader cilası (su köpük bandı, outline, mesafe sisi) — estetik karar,
         Uğur'la birlikte (paletten çıkma, ton az).
 
-- [ ] **Doldurulan iç denizler büyük düz "beach" ovası oluyor (2026-10-05
-      ölçümü, karar Uğur'da — eski tarama #3 ile aynı kök).** 7c, nehirle
-      beslenmeyen her kapalı su kütlesini boyutuna bakmadan karaya çevirir ve
-      `seaThresh + 0.012`'ye kaldırır; bu `beachThresh`'in altı olduğu için
-      hepsi `beach` olur. Varsayılan haritada (1337, 192²) 4329 beach
-      hücresinin 2929'u böyle; 90210/448²'de 29030'un 22426'sı. İç deniz boyut
-      eşiği (büyük havza göl kalır) ya da doldurulan hücreyi iklimine göre
-      sınıflamak iki olası cevap. P2 "ada aynı kalır" sapması (128→256'da
-      kara/su %78-96, biyom %41-89; seed 11'de ~4900 hücre shallow_water→lake)
-      da buradan.
+- [ ] **P2 "ada aynı kalır" kısmen tutuyor (eski tarama #3):** 128→256'da
+      kara/su %78-96, biyom %41-89 (2026-09-22 ölçümü; `e9cf0dc` biyom
+      oranını değiştirmiş olabilir, yeniden ölçülmedi). Sebep: küçük haritada
+      kenara değen su büyük haritada kapalı kalıp göl ya da kara oluyor.
 
-- [ ] **Ölçüm paketinin görsel yarısı** (Uğur, tarayıcıda): 3 seed × üstten/voxel
-      PNG + orbit klip. Talimat: `docs/measurements/README.md`. Sayısal manifest
-      hazır (`node tools/headless.js --manifest`). ⚠️ `manifest-2026-09-15.json`
-      2026-09-22 deniz/nehir değişikliklerinden önce üretildi; yayımlamadan
-      önce yeniden üret.
+- [ ] **Ölçüm paketi:** `docs/measurements/manifest-*.json` 2026-10-05
+      biyom değişikliğinden (`e9cf0dc`) önce üretildi — yayımlamadan önce
+      `node tools/headless.js --manifest` ile yeniden üret. Görsel yarısı
+      (3 seed × üstten/voxel PNG + orbit klip) Uğur'da:
+      `docs/measurements/README.md`.
 
 - [ ] **Fırça cilası (M3 sonrası, küçük):** fırçalar yalnız üstten görünümde
       çalışıyor ama VARSAYILAN açılış voxel. Araç seçilince sekmeye otomatik
@@ -64,30 +51,14 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NEXT
 
-- [ ] **Shift+sürükle pan dikeyde imleci izlemiyor (2026-10-05, hesapla
-      doğrulandı, düzeltilmedi — his değişir).** `panVector` dikey sürüklemeyi
-      `sin(pitch)` ile ÇARPIYOR; zemin düzlemi ekranda `sin(pitch)` kadar
-      kısaldığı için BÖLMESİ gerekir. Şimdiki hâliyle arazi imlecin
-      `sin²(pitch)` katı kadar kayıyor (pitch 42°'de %45, 10°'de %3). Yama:
-      `downX = cos(yaw) / sin(pitch)`, `downZ = sin(yaw) / sin(pitch)`
-      (pitch 10°'de alt sınırlı, taşma yok) + `--mesh`'e "pan vektörünü görüş
-      tabanına izdüşür, ekran kayması sürüklemeye eşit" kontrolü.
+- [ ] **Fırça sonrası komşu hücreler** 450 ms'lik tam render'a kadar eski
+      hillshade/kıyı tonunda kalıyor (boyanan hücrenin kendisi artık doğru).
+      Küçük; istenirse `paintEditedTiles` komşu halkayı da boyar.
 
-- [ ] **`paintEditedTiles` üstten render'dan sapıyor** (`main.js`): canlı fırça
-      boyaması hillshade'i ±0.18'de, `renderTopDown` ±0.4'te kırpıyor; komşu
-      hücrelerin hillshade'i ve kıyı tonu da 450 ms sonraki tam render'a kadar
-      eski kalıyor. Temiz çözüm: tek hücre boyamayı `topdown.js`'e
-      (`SM.paintTopDownTile`) alıp ikisinin de onu çağırması. Tarayıcı
-      doğrulaması ister.
-
-- [ ] **`main.js` ölü kod (iso artığı, davranış etkisi yok):** `tick` içindeki
-      kullanılmayan `sun`/`seconds`; `startRiverAnim`'deki `content.diamond`,
-      `lh`, `d`, `mode`, `moveLast`; `ISO_TILE`, `ISO_BASE_LH`; iki kez
-      tanımlı `shade`; `$('sun')` `change` dinleyicisindeki ulaşılamayan
-      `view === 'iso'` dalı; paylaşım linkindeki okunmayan `renderer=voxel`.
-      `voxel3d.js`: `buildShadowMap` yorumu hâlâ "iso pre-pass" diyor.
-      `generate.js` başlığı ve `grid.js` `level` yorumu hâlâ "signed levels /
-      water < 0" diyor (deniz 2026-09-22'den beri düz, kademe 0).
+- [ ] **Bayat yorumlar (davranış etkisi yok):** `generate.js` başlığı ve
+      `grid.js` `level` yorumu hâlâ "signed levels / water < 0" diyor (deniz
+      2026-09-22'den beri düz, kademe 0); paylaşım linkindeki `renderer=voxel`
+      parametresini hiçbir şey okumuyor.
 
 - [ ] **README milestone listesi ve DEVLOG gerçeğin gerisinde.** DEVLOG'un son
       milestone kaydı 2026-09-06; 09-08 → 09-23 arası (property testler,
@@ -139,6 +110,3 @@ Bilinen sınırlar (kod tarafında ölçüldü, 2026-10-05):
   olarak basar.
 - Nehir ve göller yükseklik haritasında yalnız yatak olarak var; su düzlemi
   onları doldurmaz (`map.json` hücre listesi verir).
-- `albedo.png` üstten render'ın aynısı: *Hillshade* açıksa gölgelendirme ve
-  3 px'lik yerleşim işaretleri de içinde. "Albedo" adı için ikisini kapalı
-  üretmek daha doğru olur — karar verilmedi.

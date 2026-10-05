@@ -20,16 +20,26 @@ kara hücresi var" diye saymak oldu — bir tüketicinin gözünden bakınca ç�
 geldi (P8 beş seed'de kırmızı; hiza kontrolü eski eşlemede 61503@23,23;
 CRLF kontrolü sahte blob'la). `snapYaw`'da test hatayı KİLİTLEMİŞTİ
 (`snapYaw(316) === 270`) — yeşil test doğru davranışın kanıtı değil.
-Işık/gölge yönü uyuşmazlığı düzeltilmedi: iki tutarlı çözüm var ve ikisi de
-sahnenin görünüşünü değiştiriyor; bu gözle verilecek bir karar.
 
-**Değişen dosyalar:** `src/generate.js`, `src/export.js`,
-`src/render/voxel3d.js`, `tools/headless.js`, `scripts/checks.sh`,
-`README.md`, `AGENTS.md`, `CURRENT.md`, `TODO.md`.
+**İkinci tur (Uğur: "önerdiğin gibi düzelt, geri alınabilir olsun"):**
+ışık/gölge yönü uyuşmazlığında gölge yürüyüşü çevrildi (`1cd3abb`) — Lambert,
+bulut gölgesi ve arazi gölgesinden ikisi zaten aynı yöndeydi, tek olanı
+değiştirmek en küçük görsel değişiklikti. Dikey pan (`8dcc9c6`), iç deniz
+dolgusunun biyomu (`e9cf0dc`), ışıksız albedo (`9d69dce`), tek hücre
+boyayıcı (`6ee275d`), ölü kod (`1ec1911`). Her biri tek commit; alternatifler
+`CURRENT.md`'de. Canvas kodu için tarayıcı yerine Node'da sahte canvas'la
+çizim çağrısı günlüğü karşılaştırıldı — refactor'ün piksel değiştirmediğini
+tarayıcısız kanıtlamanın yolu bu oldu.
 
-**Doğrulama:** `bash scripts/checks.sh` temiz. Tarayıcıda bakılmadı.
+**Değişen dosyalar:** `src/generate.js`, `src/export.js`, `src/main.js`,
+`src/render/voxel3d.js`, `src/render/topdown.js`, `tools/headless.js`,
+`scripts/checks.sh`, `README.md`, `AGENTS.md`, `CURRENT.md`, `TODO.md`.
 
-**Sonraki adım:** `TODO.md` NOW — ışık yönü için A/B kararı.
+**Doğrulama:** `bash scripts/checks.sh` temiz; headless Edge'de iki görünüm
+hatasız açıldı, ekran görüntüsüne bakıldı. Etkileşim denenmedi.
+
+**Sonraki adım:** `TODO.md` NOW — gece kararlarına gözle bakıp onayla ya da
+ilgili commit'i `git revert` et.
 
 ## 2026-09-06 — Eski 2D izometrik yol tamamen kaldırıldı (+ PNG export düzeldi)
 
