@@ -11,6 +11,7 @@
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
  *   node tools/headless.js --worldtypes # world type preset validity + effect
+ *   node tools/headless.js --i18n       # UI language: tr/en key parity, index.html hooks
  */
 'use strict';
 const fs = require('fs');
@@ -23,7 +24,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'render/topdown.js', 'render/sky.js',
-                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js']) {
+                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -1476,8 +1477,170 @@ function runWorldTypesChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
+// --- UI language (TR / EN) -------------------------------------------------
+// The panel is bilingual (Uğur 2026-10-05: everything on bilaxten.art exists in
+// Turkish and English). Two ways it silently rots: a key added in one language
+// only (the other shows the English fallback or the bare key), and a new
+// element in index.html with visible text but no hook (it stays English in
+// Turkish mode). Both fail here. Not covered: strings built in JS that never
+// go through T() -- only the obvious `.textContent/.title/.innerHTML = '...'`
+// literal pattern in main.js is caught.
+
+// Minimal tag tokenizer for our own index.html (no dependency): yields the
+// element stack so every text node knows its parent and ancestors.
+function walkHtml(html, onText, onElement) {
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+    'link', 'meta', 'source', 'track', 'wbr']);
+  const tokenRe = /<!--[\s\S]*?-->|<!doctype[^>]*>|<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s=>\/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|([^<]+)/gi;
+  const attrRe = /([^\s=>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  const stack = [];
+  let m;
+  while ((m = tokenRe.exec(html))) {
+    if (m[5] != null) { if (stack.length) onText(m[5], stack); continue; }
+    if (!m[2]) continue; // comment / doctype
+    const tag = m[2].toLowerCase();
+    if (m[1]) { // closing tag: pop to the matching open element
+      for (let k = stack.length - 1; k >= 0; k--) {
+        if (stack[k].tag === tag) { stack.length = k; break; }
+      }
+      continue;
+    }
+    const attrs = {};
+    let a;
+    attrRe.lastIndex = 0;
+    while ((a = attrRe.exec(m[3] || ''))) attrs[a[1].toLowerCase()] = a[2] ?? a[3] ?? a[4] ?? '';
+    const el = { tag, attrs, line: html.slice(0, m.index).split('\n').length, texts: 0 };
+    onElement(el, stack);
+    if (tag === 'script' || tag === 'style') { // raw text: skip to its end tag
+      const end = html.toLowerCase().indexOf('</' + tag, tokenRe.lastIndex);
+      tokenRe.lastIndex = end < 0 ? html.length : end;
+      continue;
+    }
+    if (!m[4] && !VOID.has(tag)) stack.push(el);
+  }
+}
+
+function runI18nChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const I = SM.I18N;
+  const langs = Object.keys(I.STRINGS);
+  const en = I.STRINGS.en, tr = I.STRINGS.tr;
+
+  // 1) Both languages carry the same keys, none empty, same {placeholders}.
+  {
+    const bad = [];
+    const all = new Set([...Object.keys(en), ...Object.keys(tr)]);
+    const ph = s => (String(s).match(/\{\w+\}/g) || []).sort().join(',');
+    for (const key of all) {
+      for (const l of ['en', 'tr']) {
+        const v = I.STRINGS[l][key];
+        if (v == null) bad.push(`${key}: missing in ${l}`);
+        else if (typeof v !== 'string' || !v.trim()) bad.push(`${key}: empty in ${l}`);
+      }
+      if (en[key] != null && tr[key] != null && ph(en[key]) !== ph(tr[key])) {
+        bad.push(`${key}: placeholders differ (en ${ph(en[key]) || '-'} / tr ${ph(tr[key]) || '-'})`);
+      }
+    }
+    push(`tr and en have the same ${all.size} keys, none empty, same placeholders (languages: ${langs.join(', ')})`,
+      bad.length === 0 && langs.length === 2, bad.join('; '));
+  }
+
+  // 2) index.html: every visible text and every title/aria-label/placeholder/alt
+  //    has a hook, and every hook names a key that exists.
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  {
+    const noHook = [], badKey = [], multi = [];
+    const hasLetters = s => /\p{L}/u.test(s.replace(/&[a-z]+;|&#x?[0-9a-f]+;/gi, ''));
+    const exempt = stack => stack.some(e => e.attrs.translate === 'no');
+    const keyOk = (key, el, what) => {
+      if (!key || en[key] == null || tr[key] == null) {
+        badKey.push(`line ${el.line} <${el.tag}> ${what}="${key}" is not in both languages`);
+      }
+    };
+    walkHtml(html, (text, stack) => {
+      if (!hasLetters(text)) return;
+      const parent = stack[stack.length - 1];
+      if (exempt(stack)) return;
+      if ('data-i18n' in parent.attrs || 'data-i18n-js' in parent.attrs) {
+        // apply() rewrites only the FIRST text node of an element with children.
+        if (++parent.texts > 1 && 'data-i18n' in parent.attrs) {
+          multi.push(`line ${parent.line} <${parent.tag}> has more than one text node; only the first is translated`);
+        }
+        return;
+      }
+      noHook.push(`line ${parent.line} <${parent.tag}> "${text.trim().slice(0, 40)}"`);
+    }, (el, stack) => {
+      const self = [...stack, el];
+      if ('data-i18n' in el.attrs) keyOk(el.attrs['data-i18n'], el, 'data-i18n');
+      for (const attr of I.ATTRS) {
+        const hook = 'data-i18n-' + attr;
+        if (hook in el.attrs) keyOk(el.attrs[hook], el, hook);
+        if (attr in el.attrs && hasLetters(el.attrs[attr]) && !(hook in el.attrs) && !exempt(self)) {
+          noHook.push(`line ${el.line} <${el.tag}> ${attr}="${el.attrs[attr].slice(0, 40)}" without ${hook}`);
+        }
+      }
+    });
+    push('every visible text and title/aria-label/placeholder/alt in index.html has a translation hook',
+      noHook.length === 0, noHook.join('; '));
+    push('every data-i18n* hook in index.html names a key that exists in both languages',
+      badKey.length === 0, badKey.join('; '));
+    push('no data-i18n element has a second text node that apply() would leave untranslated',
+      multi.length === 0, multi.join('; '));
+  }
+
+  // 3) Keys main.js asks for: literal T('key') calls, plus the keys it builds
+  //    from data ids (biome legend/select/hover, pipeline stage label/desc).
+  {
+    const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    const bad = [];
+    const used = new Set();
+    let m;
+    // T('key') -- but not T('biome.' + id): a prefix is checked below by id.
+    const callRe = /\bT\(\s*'([^']+)'\s*(?=[,)])/g;
+    while ((m = callRe.exec(mainJs))) used.add(m[1]);
+    const ternRe = /\bT\(([^()]*\?[^()]*)\)/g; // T(cond ? 'a' : 'b')
+    while ((m = ternRe.exec(mainJs))) for (const q of m[1].match(/'([^']+)'/g) || []) used.add(q.slice(1, -1));
+    for (const b of SM.BIOME_LIST) used.add('biome.' + b.id);
+    for (const st of SM.PIPELINE_STAGES) { used.add('stage.' + st.id + '.label'); used.add('stage.' + st.id + '.desc'); }
+    for (const key of used) if (en[key] == null || tr[key] == null) bad.push(key);
+    push(`all ${used.size} keys main.js uses (literal T() calls, biome ids, pipeline stages) exist in both languages`,
+      bad.length === 0, bad.join(', '));
+
+    // Hard-coded UI text written straight into the DOM, bypassing T().
+    const raw = [];
+    const rawRe = /\.(textContent|title|innerHTML|placeholder)\s*=\s*(['"])((?:(?!\2).)*)\2/gu;
+    while ((m = rawRe.exec(mainJs))) {
+      // Markup inside an innerHTML literal ('<span class="sw" ...') is not text.
+      if (!/\p{L}/u.test(m[3].replace(/<[^>]*(>|$)/g, ''))) continue;
+      raw.push(`line ${mainJs.slice(0, m.index).split('\n').length}: .${m[1]} = ${m[2]}${m[3].slice(0, 40)}${m[2]}`);
+    }
+    push('main.js writes no literal text straight into .textContent/.title/.innerHTML/.placeholder',
+      raw.length === 0, raw.join('; '));
+  }
+
+  // 4) The language switch itself: two buttons tr/en and the shared key.
+  {
+    const btns = (html.match(/data-set-lang="(tr|en)"/g) || []).length;
+    const i18nSrc = fs.readFileSync(path.join(root, 'i18n.js'), 'utf8');
+    push('index.html has the TR and EN buttons; i18n.js uses the shared bx-lang key and loads in <head>',
+      btns === 2 && /'bx-lang'/.test(i18nSrc) &&
+      /<head>[\s\S]*<script src="src\/i18n\.js"><\/script>[\s\S]*<\/head>/.test(html),
+      btns === 2 ? '' : `data-set-lang buttons: ${btns}`);
+  }
+
+  console.log('UI language checks (tr / en):');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
 if (process.argv[2] === '--worldtypes') {
   runWorldTypesChecks();
+} else if (process.argv[2] === '--i18n') {
+  runI18nChecks();
 } else if (process.argv[2] === '--shaders') {
   runShaderChecks();
 } else if (process.argv[2] === '--sky') {
