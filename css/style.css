@@ -433,6 +433,9 @@ details.group .body { padding: 2px 18px 18px; }
 }
 #stage.dragging { cursor: grabbing; }
 #stage.editing { cursor: crosshair; }
+/* Space held: the next drag pans, whatever the tool (main.js setSpaceHeld). */
+#stage.space-pan, #stage.space-pan.editing { cursor: grab; }
+#stage.space-pan.dragging { cursor: grabbing; }
 #map, #riverfx, #gl {
   position: absolute;
   top: 0;
@@ -464,6 +467,10 @@ details.group .body { padding: 2px 18px 18px; }
   font-size: 11px;
   pointer-events: none;
 }
+/* In the isometric view the yaw chip sits bottom-centre on the same line:
+ * the hint wraps upward before it reaches the chip (half its width + gaps)
+ * instead of running under it. */
+body.iso #isohint { max-width: max(120px, calc(50% - 160px)); }
 
 #yawControl {
   position: absolute;

@@ -123,6 +123,13 @@ Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını s�
 
 Fırça düzenlemelerini geri almak Edit → *Reset to generated*.
 
+**Kamera kısayolları:** izometrikte sürükle = döndür, **Boşluk+sürükle** ya da
+Shift+sürükle = kaydır, tekerlek = yakınlaş, Q/E = 90° snap. Üstten görünümde
+sürükle = kaydır (*Pan* aracı); **Boşluk+sürükle her araçta kaydırır**, fırça
+seçiliyken bile (2026-10-05). Boşluk basılıyken imleç el (grab / grabbing),
+sayfa kaymaz, odaktaki düğme ya da kutucuk basılmaz; metin/sayı alanında ve
+açılır listede Boşluk kendi işini yapar.
+
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); başa dönme noktasında opaklık tam 0, gölge de bulutla
 birlikte solar. Saydam voxel bulut iki geçişle çizilir (önce yalnız derinlik,

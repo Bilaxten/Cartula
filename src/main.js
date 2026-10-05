@@ -960,8 +960,22 @@
 
   function hideBrushCursor() { $('brushCursor').hidden = true; }
 
+  // Space + drag pans in both views, whatever the tool (Uğur 2026-10-05), the
+  // way image editors do it. While Space is held the stage shows grab /
+  // grabbing (#stage.space-pan in style.css) and the brush cursor hides,
+  // because the next drag moves the view instead of painting. Shift+drag in
+  // the isometric view still pans as before.
+  var spaceHeld = false;
+  function setSpaceHeld(on) {
+    if (spaceHeld === on) return;
+    spaceHeld = on;
+    stage.classList.toggle('space-pan', on);
+    if (on) hideBrushCursor();
+  }
+  function isSpaceKey(ev) { return ev.code === 'Space' || ev.key === ' '; }
+
   function showBrushCursor(tile) {
-    if (!tile || view !== 'top' || $('editTool').value === 'pan') { hideBrushCursor(); return; }
+    if (!tile || view !== 'top' || $('editTool').value === 'pan' || spaceHeld) { hideBrushCursor(); return; }
     var radius = parseInt($('brushSize').value, 10), ts = content.tile * cam.scale;
     // The river tool paints a narrow channel, not the full disc. Showing the disc
     // would make the cursor lie about what the next click does.
@@ -1002,12 +1016,14 @@
     if (isVoxelMode()) {
       if (ev.button !== 0) return;
       ev.preventDefault();
-      if (!ev.shiftKey) stopAutoRotate(); // pan doesn't touch yaw, orbit does
-      drag = { x: ev.clientX, y: ev.clientY, voxel: true, pan: ev.shiftKey };
+      var pan = ev.shiftKey || spaceHeld;
+      if (!pan) stopAutoRotate(); // pan doesn't touch yaw, orbit does
+      drag = { x: ev.clientX, y: ev.clientY, voxel: true, pan: pan };
       stage.classList.add('dragging');
       return;
     }
-    if (ev.button === 0 && view === 'top' && grid && !pipeline && $('editTool').value !== 'pan') {
+    if (ev.button === 0 && view === 'top' && grid && !pipeline && !spaceHeld &&
+        $('editTool').value !== 'pan') {
       var tile = eventTile(ev);
       if (!tile) return;
       ev.preventDefault();
@@ -1561,6 +1577,14 @@
     var textEditable = tn === 'TEXTAREA' || tn === 'SELECT' ||
       (tn === 'INPUT' && target.type !== 'range' && target.type !== 'checkbox');
     if (textEditable) return;
+    if (isSpaceKey(ev)) {
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      // No page scroll, and a focused button or checkbox is not pressed:
+      // Space is the pan modifier everywhere outside a text field / select.
+      ev.preventDefault();
+      setSpaceHeld(true);
+      return;
+    }
     var key = (ev.key || '').toLowerCase();
     if (ev.ctrlKey || ev.metaKey) {
       if (ev.altKey) return;
@@ -1576,6 +1600,14 @@
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
   });
+  window.addEventListener('keyup', function (ev) {
+    if (!isSpaceKey(ev) || !spaceHeld) return;
+    // A focused button fires its click on Space keyup; it must not here.
+    ev.preventDefault();
+    setSpaceHeld(false);
+  });
+  // A Space released while the window had no focus never sends keyup.
+  window.addEventListener('blur', function () { setSpaceHeld(false); });
   stage.addEventListener('wheel', onWheel, { passive: false });
 
   // Language switch (TR / EN, src/i18n.js): `SM.I18N.apply` has already

@@ -154,8 +154,8 @@
       'stats.edited': 'edited',
       'hover.moist': 'moist',
 
-      'hint.top': 'drag to pan · scroll to zoom',
-      'hint.iso': 'drag to orbit · shift+drag to pan · scroll to zoom · Q/E snap',
+      'hint.top': 'drag / space+drag to pan · scroll to zoom',
+      'hint.iso': 'drag to orbit · space/shift+drag to pan · scroll to zoom · Q/E snap',
       'hint.contextLost': 'GPU context lost · waiting for the browser to restore it',
       'yaw.slider': 'Camera yaw',
       'yaw.auto': 'Auto-rotate',
@@ -330,8 +330,8 @@
       'stats.edited': 'düzenlendi',
       'hover.moist': 'nem',
 
-      'hint.top': 'sürükle: kaydır · tekerlek: yakınlaş',
-      'hint.iso': 'sürükle: döndür · shift+sürükle: kaydır · tekerlek: yakınlaş · Q/E: 90°',
+      'hint.top': 'sürükle / boşluk+sürükle: kaydır · tekerlek: yakınlaş',
+      'hint.iso': 'sürükle: döndür · boşluk/shift+sürükle: kaydır · tekerlek: yakınlaş · Q/E: 90°',
       'hint.contextLost': 'GPU bağlamı kayboldu · tarayıcının geri getirmesi bekleniyor',
       'yaw.slider': 'Kamera dönüş açısı',
       'yaw.auto': 'Kendiliğinden döndür',
