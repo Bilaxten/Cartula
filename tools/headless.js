@@ -2323,14 +2323,20 @@ function runWindChecks() {
     const b = Wd.makeStreakBuffers();
     const b2 = Wd.makeStreakBuffers();
     const P = Wd.POINTS;
+    // Points may run past the map edge as a streak leaves; they must stay
+    // close to it (one streak length) and every point still drawn (not
+    // faded out past the edge) stays within EXIT_FADE of the map.
     let inside = true, above = true, alphaOk = true;
+    const reach = P * 0.5 * Wd.SPEED_MAX * 1.2 + 1;
     for (const t of [0, 3.7, 12.25, 600]) {
       Wd.streaksInto(f, t, 1000, b);
       for (let k = 0; k < b.count; k++) {
         if (!(b.alpha[k] >= 0 && b.alpha[k] <= 1)) alphaOk = false;
         for (let j = 0; j < P; j++) {
           const q = k * P + j, px = b.x[q], py = b.y[q];
-          if (!(px >= 0 && py >= 0 && px <= W && py <= H)) { inside = false; continue; }
+          const out = Wd.outside(f, px, py);
+          if (!(out <= reach)) { inside = false; continue; }
+          if (out > 0) continue;
           const cell = Math.min(H - 1, Math.floor(py)) * W + Math.min(W - 1, Math.floor(px));
           if (b.ground[q] + Wd.LIFT < Math.max(0, g.level[cell]) + 0.9) above = false;
         }
@@ -2341,7 +2347,14 @@ function runWindChecks() {
     Wd.streaksInto(f, 7.5, 64, b2);
     const buf = new Float32Array(Wd.MAX_STREAKS * P * 2 * Wd.FLOATS);
     const verts = Wd.ribbons(f, b, buf);
-    push(`seed ${seed}: streaks bounded (${b.count} <= ${Wd.MAX_STREAKS}), inside the map, ` +
+    // Drawn ribbon vertices: alpha 0 for every point beyond EXIT_FADE.
+    let drawnOutside = 0;
+    for (let v = 0; v < verts; v += 2) {
+      const q = (v / 2) | 0;
+      if (Wd.outside(f, b.x[q], b.y[q]) > Wd.EXIT_FADE && buf[v * Wd.FLOATS + 7] > 0) drawnOutside++;
+    }
+    inside = inside && drawnOutside === 0;
+    push(`seed ${seed}: streaks bounded (${b.count} <= ${Wd.MAX_STREAKS}), on the map (past the edge only while leaving, invisible there), ` +
       `at least 0.9 levels above the ground, alpha 0..1, stateless in time`,
       b.count === Wd.MAX_STREAKS && inside && above && alphaOk &&
       typedEqual(b.x, b2.x) && typedEqual(b.y, b2.y) && typedEqual(b.alpha, b2.alpha) &&
@@ -2366,6 +2379,9 @@ function runWindChecks() {
       if (fr % 15) continue;
       for (let k = 0; k < b.count; k++) {
         if (b.alpha[k] < 0.5) continue;
+        let off = false;
+        for (let j = 0; j < P; j++) if (Wd.outside(f, b.x[k * P + j], b.y[k * P + j]) > 0) off = true;
+        if (off) continue;
         let len = 0, sp = 0;
         for (let j = 1; j < P; j++) len += Math.hypot(b.x[k * P + j] - b.x[k * P + j - 1], b.y[k * P + j] - b.y[k * P + j - 1]);
         for (let j = 0; j < P; j++) sp += Wd.sample(f.speed, f, b.x[k * P + j], b.y[k * P + j]) / P;
@@ -2397,6 +2413,49 @@ function runWindChecks() {
     }
     push(`seed ${seed}: a streak moves on ${(changes / 10).toFixed(1)} times a second (UPDATE_HZ ${Wd.UPDATE_HZ}; was 4.8)`,
       Math.abs(changes / 10 - Wd.UPDATE_HZ) <= 0.5, '');
+
+    // Owner 2026-10-05, second round: "rüzgarlar mapten çıkana kadar devam
+    // etsinler fade out olmasınlar birden". Over 300 s at 30 fps: within one
+    // generation, a streak's alpha never drops while its head is on the map
+    // (except a capped stagnant path, which fades over its last seconds); a
+    // generation that is not stagnant ends only once its whole streak has
+    // left the map; on average nearly every slot shows a streak.
+    let drops = 0, earlyEnds = 0, ends = 0, visible = 0, frames = 0;
+    const prevGen = new Float64Array(P).fill(-1), prevAlpha = new Float64Array(Wd.MAX_STREAKS);
+    const prevGenK = new Float64Array(Wd.MAX_STREAKS).fill(-1);
+    const lastX = new Float64Array(Wd.MAX_STREAKS * P), lastY = new Float64Array(Wd.MAX_STREAKS * P);
+    const lastStag = new Uint8Array(Wd.MAX_STREAKS);
+    for (let fr = 0; fr < 30 * 300; fr++) {
+      Wd.streaksInto(f, fr / 30, Wd.MAX_STREAKS, b);
+      frames++;
+      for (let k = 0; k < b.count; k++) {
+        const hx = b.x[k * P + P - 1], hy = b.y[k * P + P - 1];
+        const headIn = Wd.outside(f, hx, hy) === 0;
+        if (b.gen[k] === prevGenK[k]) {
+          if (headIn && b.alpha[k] < prevAlpha[k] - 1e-9 && !b.stagnant[k]) drops++;
+        } else if (prevGenK[k] >= 0) {
+          ends++;
+          // The previous generation's last frame: every point gone past the edge.
+          if (!lastStag[k]) {
+            let onMap = 0;
+            for (let j = 0; j < P; j++) if (Wd.outside(f, lastX[k * P + j], lastY[k * P + j]) < Wd.EXIT_FADE - 1e-4) onMap++;
+            if (onMap > 0) earlyEnds++;
+          }
+        }
+        prevGenK[k] = b.gen[k];
+        prevAlpha[k] = b.alpha[k];
+        lastStag[k] = b.stagnant[k];
+        for (let j = 0; j < P; j++) { lastX[k * P + j] = b.x[k * P + j]; lastY[k * P + j] = b.y[k * P + j]; }
+        if (b.alpha[k] > 0.5) visible++;
+      }
+    }
+    const stag = f.paths.gens.filter(x => x.stagnant).length;
+    push(`seed ${seed}: streaks live until they leave the map: no alpha drop with the head on the map, ` +
+      `${ends} generation ends all past the edge (${earlyEnds} early), ${(visible / frames).toFixed(1)} of ${Wd.MAX_STREAKS} ` +
+      `streaks visible on average; ${stag}/${f.paths.gens.length} stagnant paths capped at ${Wd.MAX_PATH} steps ` +
+      `(${(Wd.MAX_PATH * Wd.STEP / Wd.SPEED).toFixed(0)} s) with a ${Wd.STAGNANT_FADE} s fade`,
+      drops === 0 && earlyEnds === 0 && ends > 0 && visible / frames >= Wd.MAX_STREAKS * 0.85,
+      `drops ${drops}, early ${earlyEnds}`);
   }
 
   // The per-frame path (streaksInto, ribbons) must not allocate.

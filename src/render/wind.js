@@ -69,6 +69,16 @@
   var MAX_TURN = 14 * Math.PI / 180;
   var TURN_LIMIT = 18 * Math.PI / 180;
   var UPDATE_HZ = 12;           // visible updates per second
+  // Paths (owner, 2026-10-05 second round: "rüzgarlar mapten çıkana kadar
+  // devam etsinler fade out olmasınlar birden"): every streak rides its
+  // path until it has left the map. GENERATIONS paths per streak are
+  // precomputed per map and replayed in a cycle; a path that has not left
+  // the map after MAX_PATH steps (a closed basin, a slow eddy) is capped
+  // there and fades out over STAGNANT_FADE seconds.
+  var GENERATIONS = 6;
+  var MAX_PATH = 1100;          // steps: 1100 x STEP / SPEED = ~229 s
+  var STAGNANT_FADE = 4;        // seconds
+  var EXIT_FADE = 1.2;          // tiles past the edge over which a point fades
   var LIFT = 1.4;               // levels above the smoothed ground
   var WIDTH = 0.3;              // ribbon width in tiles, at its widest
   var MIN_PIXELS = 2.2;         // ...but never thinner than this on screen
@@ -265,7 +275,7 @@
       u[i] /= len;
       v[i] /= len;
     }
-    return {
+    var out = {
       width: W,
       height: H,
       u: u,
@@ -276,6 +286,8 @@
       prevailing: [w0x, w0y],
       seed: seed | 0
     };
+    out.paths = buildPaths(out);
+    return out;
   }
 
   // Bilinear sample of a cell-centred array at continuous grid coordinates.
@@ -291,6 +303,122 @@
       (arr[i + f.width] * (1 - ax) + arr[i + f.width + 1] * ax) * ay;
   }
 
+
+  /* One integration step of state `st` (point x, y and unit heading hx,
+   * hy), in place: RK2 midpoint, turn capped at MAX_TURN per tile
+   * travelled. Only used when the paths are built, once per map. */
+  function step(f, st) {
+    var sp = sample(f.speed, f, st.x, st.y) * STEP;
+    var mx = st.x + st.hx * sp * 0.5;
+    var my = st.y + st.hy * sp * 0.5;
+    var dx = sample(f.u, f, mx, my);
+    var dy = sample(f.v, f, mx, my);
+    var turn = Math.atan2(st.hx * dy - st.hy * dx, st.hx * dx + st.hy * dy);
+    var cap = MAX_TURN * sp;
+    turn = turn > cap ? cap : (turn < -cap ? -cap : turn);
+    var c = Math.cos(turn);
+    var sn = Math.sin(turn);
+    var nhx = st.hx * c - st.hy * sn;
+    st.hy = st.hx * sn + st.hy * c;
+    st.hx = nhx;
+    st.x += st.hx * sp;
+    st.y += st.hy * sp;
+    return st;
+  }
+
+  /* Every streak's GENERATIONS paths for this map. A path starts at a
+   * seeded spawn point and follows the field until it leaves the map; it
+   * then runs on straight until its last point is POINTS steps beyond the
+   * edge, so the whole drawn streak can slide out (ribbons fades each point
+   * as it crosses the edge). Returns { xy (Float32Array of points),
+   * gens: [{ start (point index), length (points), duration (s), stagnant }]
+   * per streak (k * GENERATIONS + g), cycle (s) per streak }. */
+  function buildPaths(f) {
+    var W = f.width;
+    var H = f.height;
+    var xs = [];
+    var gens = [];
+    var cycle = [];
+    var stepTime = STEP / SPEED;
+    var st = { x: 0, y: 0, hx: 0, hy: 0 };
+    var inside = function (x, y) { return x >= 0 && y >= 0 && x <= W && y <= H; };
+
+    for (var k = 0; k < MAX_STREAKS; k++) {
+      var total = 0;
+      for (var g = 0; g < GENERATIONS; g++) {
+        var start = xs.length / 2;
+        var best = null;
+        // Up to 8 seeded spawn points: the first whose path stays on the
+        // map for at least a streak's length plus a little.
+        for (var tryN = 0; tryN < 8; tryN++) {
+          var salt = (k * GENERATIONS + g) * 8 + tryN;
+          var sx = 1 + hash(f.seed, salt, 303) * (W - 2);
+          var sy = 1 + hash(f.seed, salt, 404) * (H - 2);
+          st.x = sx;
+          st.y = sy;
+          st.hx = sample(f.u, f, sx, sy);
+          st.hy = sample(f.v, f, sx, sy);
+          var hl = Math.sqrt(st.hx * st.hx + st.hy * st.hy) || 1;
+          st.hx /= hl;
+          st.hy /= hl;
+          var n = 0;
+          while (n < MAX_PATH && inside(st.x, st.y)) { step(f, st); n++; }
+          best = { x: sx, y: sy, n: n };
+          if (n >= POINTS + 8) break;
+        }
+        // Record the chosen path (integrated again, the same numbers).
+        st.x = best.x;
+        st.y = best.y;
+        st.hx = sample(f.u, f, st.x, st.y);
+        st.hy = sample(f.v, f, st.x, st.y);
+        hl = Math.sqrt(st.hx * st.hx + st.hy * st.hy) || 1;
+        st.hx /= hl;
+        st.hy /= hl;
+        xs.push(st.x, st.y);
+        var count = 1;
+        var lastX = st.x;
+        var lastY = st.y;
+        while (count < MAX_PATH && inside(st.x, st.y)) {
+          lastX = st.x;
+          lastY = st.y;
+          step(f, st);
+          xs.push(st.x, st.y);
+          count++;
+        }
+        var stagnant = inside(st.x, st.y);
+        if (!stagnant) {
+          // Straight on past the edge, one last-step length at a time.
+          var ex = st.x - lastX;
+          var ey = st.y - lastY;
+          var el = Math.sqrt(ex * ex + ey * ey);
+          if (el < 0.08) {
+            ex = ex / (el || 1) * 0.08;
+            ey = ey / (el || 1) * 0.08;
+          }
+          // `gone`: the first point EXIT_FADE past the edge (moving
+          // straight out, every later point is further out). The path runs
+          // on until the tail can reach gone + 1 with the head POINTS - 1
+          // ahead, so when the generation ends every drawn point has faded.
+          var gone = -1;
+          while (gone < 0 || count < gone + POINTS + 2) {
+            st.x += ex;
+            st.y += ey;
+            xs.push(st.x, st.y);
+            if (gone < 0 && outside(f, st.x, st.y) >= EXIT_FADE) gone = count;
+            count++;
+          }
+        }
+        // The tail walks the path from point 0 to point count - POINTS - 1
+        // (the head POINTS - 1 ahead of it, one more for the interpolation).
+        var duration = Math.max(1, count - POINTS - 1) * stepTime;
+        gens.push({ start: start, length: count, duration: duration, stagnant: stagnant });
+        total += duration;
+      }
+      cycle.push(total);
+    }
+    return { xy: new Float32Array(xs), gens: gens, cycle: cycle };
+  }
+
   // Reusable output of streaksInto (typed arrays: nothing is allocated per
   // frame -- per-frame garbage is banned in this renderer's draw path).
   function makeStreakBuffers() {
@@ -300,11 +428,11 @@
       y: new Float32Array(MAX_STREAKS * POINTS),
       ground: new Float32Array(MAX_STREAKS * POINTS),
       alpha: new Float32Array(MAX_STREAKS),
-      // The last POINTS + 1 path points (one more than drawn: the drawn
-      // polyline sits a fraction of a step along them), and smoothing
-      // scratch.
-      ringX: new Float32Array(POINTS + 1),
-      ringY: new Float32Array(POINTS + 1),
+      // Which generation each streak is in (cycle number x GENERATIONS +
+      // generation) and whether that path is a capped, stagnant one.
+      gen: new Float64Array(MAX_STREAKS),
+      stagnant: new Uint8Array(MAX_STREAKS),
+      // Smoothing scratch.
       tmpX: new Float32Array(POINTS),
       tmpY: new Float32Array(POINTS)
     };
@@ -328,7 +456,8 @@
    * out.alpha[k] is the life fade (0..1). Pure function of (field, t). */
   function streaksInto(f, t, count, out) {
     var n = Math.min(MAX_STREAKS, Math.max(0, count | 0));
-    var R = POINTS + 1;
+    var P = f.paths;
+    var xy = P.xy;
     var k;
     var j;
 
@@ -336,87 +465,52 @@
     // UPDATE_HZ times a second, in step.
     t = Math.floor(t * UPDATE_HZ + 1e-6) / UPDATE_HZ;
     for (k = 0; k < n; k++) {
-      var life = 4.5 + 2.5 * hash(f.seed, k, 101);
-      var clock = t + life * hash(f.seed, k, 202);
-      var gen = Math.floor(clock / life);
-      var age = clock - gen * life;
-      var px = 1 + hash(f.seed, k * 977 + gen, 303) * (f.width - 2);
-      var py = 1 + hash(f.seed, k * 977 + gen, 404) * (f.height - 2);
-      // How far along its path the tail is, in (fractional) steps. Pre-
-      // rolled by its own length: a streak fades in already whole instead
-      // of growing out of its spawn point.
-      var along = age * SPEED / STEP;
+      // Where in its cycle of generations the streak is.
+      var cyc = P.cycle[k];
+      var clock = t + cyc * hash(f.seed, k, 202);
+      var round = Math.floor(clock / cyc);
+      var age = clock - round * cyc;
+      var g = 0;
+      var gen = P.gens[k * GENERATIONS];
+      while (g < GENERATIONS - 1 && age >= gen.duration) {
+        age -= gen.duration;
+        g++;
+        gen = P.gens[k * GENERATIONS + g];
+      }
+      // How far along its path the tail is, in (fractional) steps; the
+      // drawn points sit `frac` of the way between path points, so the
+      // streak glides between steps.
+      var along = Math.min(age * SPEED / STEP, gen.length - POINTS - 1);
       var tail = Math.floor(along);
       var frac = along - tail;
-      var steps = tail + POINTS;
-      var written = 1;
       var base = k * POINTS;
-      var hx = sample(f.u, f, px, py);
-      var hy = sample(f.v, f, px, py);
-      var hl = Math.sqrt(hx * hx + hy * hy) || 1;
-      var stopped = false;
-
-      hx /= hl;
-      hy /= hl;
-
-      // The last POINTS + 1 positions of the path, in a ring.
-      out.ringX[0] = px;
-      out.ringY[0] = py;
-      for (j = 0; j < steps; j++) {
-        if (!stopped) {
-          // Midpoint (RK2) step of STEP time units: STEP x local speed tiles.
-          var sp = sample(f.speed, f, px, py) * STEP;
-          var mx = px + hx * sp * 0.5;
-          var my = py + hy * sp * 0.5;
-          var dx = sample(f.u, f, mx, my);
-          var dy = sample(f.v, f, mx, my);
-          // Turn toward the field, but never more than MAX_TURN per tile:
-          // no kinks, whatever the field does under it.
-          var turn = Math.atan2(hx * dy - hy * dx, hx * dx + hy * dy);
-          var cap = MAX_TURN * sp;
-          turn = turn > cap ? cap : (turn < -cap ? -cap : turn);
-          var c = Math.cos(turn);
-          var s = Math.sin(turn);
-          var nhx = hx * c - hy * s;
-          hy = hx * s + hy * c;
-          hx = nhx;
-          var nx = px + hx * sp;
-          var ny = py + hy * sp;
-          // At the map border the path ends (no sliding along the edge,
-          // which was a sharp turn); the streak fades out there.
-          if (nx < 0.5 || ny < 0.5 || nx > f.width - 0.5 || ny > f.height - 0.5) stopped = true;
-          else {
-            px = nx;
-            py = ny;
-          }
-        }
-        out.ringX[written % R] = px;
-        out.ringY[written % R] = py;
-        written++;
-      }
-      // Unroll oldest -> newest, each point `frac` of the way to the next
-      // path point: the streak glides along its path between steps.
       for (j = 0; j < POINTS; j++) {
-        var a = (written + j) % R;
-        var b = (written + j + 1) % R;
-        out.x[base + j] = out.ringX[a] + (out.ringX[b] - out.ringX[a]) * frac;
-        out.y[base + j] = out.ringY[a] + (out.ringY[b] - out.ringY[a]) * frac;
+        var a = (gen.start + Math.min(gen.length - 1, tail + j)) * 2;
+        var b = (gen.start + Math.min(gen.length - 1, tail + j + 1)) * 2;
+        out.x[base + j] = xy[a] + (xy[b] - xy[a]) * frac;
+        out.y[base + j] = xy[a + 1] + (xy[b + 1] - xy[a + 1]) * frac;
       }
       smoothPass(out, base);
       smoothPass(out, base);
       for (j = 0; j < POINTS; j++) {
         out.ground[base + j] = sample(f.ground, f, out.x[base + j], out.y[base + j]);
       }
-      // Fade in over the first second, out over the last 1.5 s, and out
-      // as the head nears the map border.
-      var hxp = out.x[base + POINTS - 1];
-      var hyp = out.y[base + POINTS - 1];
-      var edge = Math.min(hxp, hyp, f.width - hxp, f.height - hyp);
-      out.alpha[k] = smoothstep(0, 1, age) * smoothstep(life, life - 1.5, age) *
-        smoothstep(0.5, 4, edge);
+      // Fade in over the first second. No fade on the way out: the streak
+      // leaves through the map edge (ribbons hides each point past it).
+      // Only a capped, stagnant path fades, over its last STAGNANT_FADE s.
+      out.alpha[k] = smoothstep(0, 1, age) *
+        (gen.stagnant ? smoothstep(gen.duration, gen.duration - STAGNANT_FADE, age) : 1);
+      out.gen[k] = round * GENERATIONS + g;
+      out.stagnant[k] = gen.stagnant ? 1 : 0;
     }
     out.count = n;
     return out;
+  }
+
+  /* How far point (x, y) lies outside the map, in tiles (0 inside). */
+  function outside(f, x, y) {
+    var d = Math.max(-x, -y, x - f.width, y - f.height);
+    return d > 0 ? d : 0;
   }
 
   /* Sharpest bend of drawn streaks, radians per tile: for every pair of
@@ -460,7 +554,10 @@
         // Thin at both ends, widest just behind the head; brighter toward
         // the head, so it reads as moving forward.
         var width = WIDTH * Math.pow(Math.sin(Math.PI * Math.min(1, along * 1.08)), 0.7);
-        var alpha = s.alpha[k] * Math.pow(along, 0.8);
+        // A point past the map edge fades out over EXIT_FADE tiles: the
+        // streak slides out through the edge instead of vanishing.
+        var alpha = s.alpha[k] * Math.pow(along, 0.8) *
+          (1 - smoothstep(0, EXIT_FADE, outside(f, s.x[q], s.y[q])));
         for (var side = -1; side <= 1; side += 2) {
           buf[o++] = s.x[q] - f.width / 2;
           buf[o++] = s.ground[q] + LIFT;
@@ -629,6 +726,11 @@
     ribbons: ribbons,
     sample: sample,
     maxTurnPerTile: maxTurnPerTile,
+    outside: outside,
+    GENERATIONS: GENERATIONS,
+    MAX_PATH: MAX_PATH,
+    STAGNANT_FADE: STAGNANT_FADE,
+    EXIT_FADE: EXIT_FADE,
     createLayer: createLayer,
     MAX_STREAKS: MAX_STREAKS,
     STEP: STEP,

@@ -311,6 +311,19 @@ dönüyordu). `--wind` çizilen çizgilerin en keskin bükümünü ölçer
 — zaman 1/12 s'ye kuantize, çizgi entegrasyon noktaları arasında kesirli
 adımla kayar (önceden baş tam adım atlıyordu: saniyede 4.8); hâlâ zamanın
 saf fonksiyonu, hâlâ "kare kare" bir el animasyonu görünümü.
+Üçüncü tur (Uğur: *"rüzgarlar mapten çıkana kadar devam etsinler fade out
+olmasınlar birden"*): **sabit ömür yok**. Her çizgi için harita başına 6 yol
+önceden hesaplanır (seed'li doğuş noktası, akışla haritanın kenarına kadar,
+sonra dümdüz dışarı) ve döngüyle oynatılır; bir neslin süresi = yol uzunluğu.
+Çizgi doğarken 1 sn'de belirir, sonra kenardan çıkana kadar yaşar: kenarı geçen
+her nokta 1.2 tile içinde kaybolur, yani çizgi kenardan "kayıp çıkar"; nesil
+ancak bütün noktaları kaybolunca biter. 1100 adımda (~229 s) kenara
+varamayan yol (kapalı havza, girdap) orada kesilir ve son 4 sn'de söner.
+Kare başına iş azaldı (her karede yeniden entegrasyon yok: 0.25 → 0.03-0.05
+ms), alan + yollar 320²'de ~150 ms (önce ~120), yollar ~1.7 MB. `--wind`:
+başı haritadayken hiçbir çizginin alfası düşmez (durgun yollar hariç), her
+nesil bittiğinde bütün noktaları kenarın 1.2 tile ötesindedir, 64 yuvanın
+ortalama 63'ü görünür.
 
 **Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
 harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,
