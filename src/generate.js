@@ -16,8 +16,11 @@
   'use strict';
 
   var REF = 112;          // reference tile span for world-space coords
-  // Latitude falloff, in world units — derived so a 192² map (the UI default)
-  // reproduces the old grid-relative "1 - |y/h - 0.5| * 1.7" band exactly.
+  // Latitude falloff, in world units — derived so a 192² map (the UI default
+  // until 2026-10-05; 320² since) reproduces the old grid-relative
+  // "1 - |y/h - 0.5| * 1.7" band exactly. Deliberately NOT moved to 320:
+  // world-space latitude is size-independent, and changing this constant
+  // would shift every map's climate bands.
   // Using wyOf(y) here instead of a grid-fraction keeps climate/biome in the
   // same world-space sampling as elevation/moisture: the same absolute point
   // gets the same latitude band regardless of map size (kod taraması
@@ -90,8 +93,8 @@
   }
 
   var DEFAULTS = {
-    width: 192,
-    height: 192,
+    width: 320,            // the UI default (index.html #size), since 2026-10-05
+    height: 320,
     seed: 1337,
     seaLevel: 0.38,        // ~fraction of the reference area that is water
     elevationScale: 2.5,   // world-space noise frequency
