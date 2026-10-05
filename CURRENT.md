@@ -11,7 +11,52 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — kulübeler, lav ışığı, bulutlu yağmur, rüzgâr akışı (2026-10-05)
+## Bu oturum — kulübeler kalktı, rüzgâr kenara kadar, bulut tipleri (2026-10-05)
+
+Uğur canlıda baktı: *"hutları beğenmedim kaldıralım. rüzgarlar mapten çıkana
+kadar devam etsinler fade out olmasınlar birden. yağış yapan bulutlar da daha
+yavaş şekilde hareket edebilir diğer bulutlar gibi. bulutlardaki şekil
+varyasyonunu arttıralım ... yükseklik voxel sayısı farklı ... pofuduk ...
+küçük küçük birden fazla buluta sahip bulut kümeleri"*. Dört commit, push'landı:
+
+1. **Kulübeler kaldırıldı** (`0937cba`): pass, `src/huts.js`, mesh, üstten
+   görünüm, `--huts`, belgeler; pencere ışığı makinesi de (`aTown`, pencere
+   varyantı, pencere-sonda index sırası). Gece yalnız lav ışır; bloom kaynağı
+   yalnız lav (R miktar, G/B nabız fazörü). Mesh tabanı 124228'e döndü.
+2. **Rüzgâr kenara kadar** (`450a87b`): sabit ömür yok. Her çizgi için harita
+   başına 6 yol önceden hesaplanır (doğuştan kenara, sonra dümdüz dışarı),
+   döngüyle oynatılır; nesil = yol süresi. Kenarı geçen her nokta 1.2 tile
+   içinde kaybolur (çizgi kenardan kayıp çıkar). Kenara varamayan yol 1100
+   adımda (~229 s) kesilir, son 4 sn'de söner. Kare başına iş 0.25 → 0.03-0.05
+   ms; alan + yollar 320²'de ~158 ms (önce ~108).
+3. **Bulut tipleri + doku gölge** (`da0b8b7`): stratus (1-2 katman levha),
+   kümülüs (düz taban + 4-6 katman kuleler), pofuduk (top), küme (3-7 ayrı
+   kabarık); her gökyüzünün ilk dört bulutu dört farklı tip. Gölge artık JS'te
+   yarım çözünürlüklü R8 dokuya çiziliyor, shader tek okuma yapıyor (lob
+   döngüsü gitti). Bulut üçgeni 320²'de 14-18k → 5-10k.
+4. **Hava bulutları geçiyor** (`6f1c1e2`): açık hava bulutları gibi x boyunca
+   geçip dönüyor, hızın %40-60'ı; şekli ağır nimbus; yağış her tile'da altına
+   göre, harita dışına yağmaz, bulutla birlikte söner.
+
+**Kararlar (Uğur değiştirmek isteyebilir):** durgun rüzgâr yolu sınırı 1100
+adım (~229 s) + 4 sn sönme; uzun yaşayan çizgiler (320²'de medyan ~100 s);
+hava bulutu hızı %40-60; hava bulutu hâlâ gölge düşürmüyor (doku sayesinde
+artık bedava, istenirse tek satır); bulutlar eskisinden küçük ve çeşitli
+(kapladıkları alan azaldı); küme kabarıkları ilk üçü üçgende.
+
+**Ölçüm (SwiftShader, 1280×800, seed 1337, 320², önce `3738e04` / sonra,
+dönüşümlü 2 tur):** GPU kare süresi gündüz sabit 164/153 → 106/107 ms, gece
+sabit 171/170 → 121/121, gündüz dönen 153/155 → 102/103, gece dönen 203/200 →
+149/147 (kazancın çoğu gölge döngüsünün dokuya dönmesi). CPU render 0.9 →
+0.7 ms. Üçgen 371k → 353k (gece dönen 701k → 682k). Harita kurma (node, 3
+seed × 3): üretim ~335 ms aynı, mesh ~310 aynı, rüzgâr alanı + yollar 108 →
+158 ms, hava ~15, gökyüzü ~7.
+
+**Kapsamadığı:** gerçek GPU, telefon, Firefox/Safari; rüzgârın kenardan
+çıkışının akarken gözle hissi (kare dizisi var); bulut tiplerinin Uğur'un
+gözüne uyması. Yayınlanmadı.
+
+## Önceki oturum — kulübeler, lav ışığı, bulutlu yağmur, rüzgâr akışı (2026-10-05)
 
 Uğur kendi PC'sinde yeni özelliklere baktı: *"bu parlamalar ne ve neden
 lavlar parlamıyor? yağmur ve kar yarı saydam bulutlardan yağsın. rüzgarı da
@@ -27,7 +72,7 @@ birebir uygulandı. Altı commit, hepsi push'landı:
    ve söner; saniyede 4.8 yerine 12 güncelleme (zaman 1/12 s'ye kuantize,
    noktalar arası kesirli adım). `--wind` en keskin bükümü ölçer: 14.7°/tile
    (sınır 18; eski kod 1100+).
-2. **Kulübeler** (`7bc509d`): `src/huts.js`, pass 8c; ~8000 kara tile başına
+2. **Kulübeler** (`7bc509d`; aynı gün `0937cba` ile kaldırıldı): `src/huts.js`, pass 8c; ~8000 kara tile başına
    bir, 3-12, en az 24 tile ara, suya yakın tercih, seed'li dönüş. Mesh'e kabuk
    (kulübe başına 160 üçgen), üstten görünümde çatı rengi. Yeni `--huts`.
    Mesh tabanı 124228 → 124708 (arazi aynı).

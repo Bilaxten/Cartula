@@ -9,21 +9,17 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
-- [ ] **2026-10-05 kulübe, lav, bulutlu yağmur, rüzgâra gözle bak** (`b63070b`,
-      `7bc509d`, `d959a4c`, `38aa281`, `e0355b6`; her biri `git revert`
-      ile tek başına geri alınır). Headless Edge'de (SwiftShader) bakıldı;
-      gerçek GPU, telefon denenmedi. **Bak:** Isometric, seed 1337:
-      - Kulübeler (haritada 9 tane): kazıklı, kapı + iki yan pencere; renkler
-        (koyu mesa kazık, mesa tahta, volkanik çatı, derin deniz camı) iyi mi?
-        Üstten görünümde 3×3 koyu kare.
-      - *Time of day* 22:00: yalnız kulübe pencereleri ve lav ışıyor; lav en
-        güçlü ışık, halesi nabızla atıyor. Yerleşimlerde artık nokta yok.
-      - Yağmur/kar bulutları: yarı saydam, gri; yağmur bulutun altından
-        düşüyor; birkaç dakika izleyince bulut yavaşça kayıyor ve yağmur
-        onunla gidiyor. ⚠️ Karar: gölge yok (maliyet). *Rain & snow* kapalı
-        → bulut da gider.
-      - Rüzgâr: hızlı yerde uzun, yavaşta kısa; keskin dönüş yok; saniyede
-        12 kez ilerliyor. Hâlâ kesik geliyorsa sayı tek satır (`UPDATE_HZ`).
+- [ ] **2026-10-05 bulut tipleri, gezen yağmur bulutu, kenara kadar rüzgâr,
+      lav ışığına gözle bak** (`0937cba`, `450a87b`, `da0b8b7`, `6f1c1e2`; her
+      biri `git revert` ile tek başına geri alınır). Headless Edge'de
+      (SwiftShader) bakıldı. **Bak:** Isometric, seed 1337:
+      - Bulutlar: stratus levha, uzun kümülüs, pofuduk top, küçük bulut kümesi
+        var mı; bulut örtüsü eskisinden az, yeterli mi? Gölgeler şekle uyuyor mu.
+      - Yağmur/kar bulutu yavaşça haritayı geçiyor, yağmur altına göre
+        değişiyor (çölde/lavda yağmıyor). ⚠️ Karar: gölge yok.
+      - Rüzgâr: çizgi kenardan kayıp çıkana kadar yaşıyor; hiç birden sönmüyor
+        (yalnız 229 sn'de kenara varamayanlar 4 sn'de söner).
+      - *Time of day* 22:00: yalnız lav ışıyor, halesi atıyor; kulübe yok.
 
 - [ ] **2026-10-05 telefonda gerçek cihazda bak** (`7b76615` ☰ panel,
       `e5c1fc4` telefon düzeni, `bb2caae` dokunmatik). Edge öykünmesi + CDP
@@ -40,9 +36,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       karelerle. **Bak:** Isometric, seed 1337:
       - `e8da874` **P** ile performans paneli: sayılar akıyor mu, gerçek
         GPU'da GPU süresi geliyor mu (SwiftShader'da geldi).
-      - `127a590` gece ışıkları + bloom: kasaba noktaları `d959a4c` ile
-        kalktı (Uğur), ışık artık kulübe pencerelerinde ve lavda (yukarıdaki
-        madde). Hâlâ bakılacak: 17:00 → 19:00 arası yavaş yanıyor mu. ⚠️ Karar:
+      - `127a590` gece ışıkları + bloom: kasaba noktaları `d959a4c` ile,
+        kulübeler `0937cba` ile kalktı (Uğur); ışık artık yalnız lavda. Hâlâ bakılacak: 17:00 → 19:00 arası yavaş yanıyor mu. ⚠️ Karar:
         ışıklar yanarken gece renk düzeltmesi CSS'ten shader'a geçiyor (aynı
         formül); ekranda 17:00'de bir sıçrama görürsen söyle.
       - `7265a2a` kıyıda beyaz bloklu köpük çizgisi; nehirlerde bilerek yok.

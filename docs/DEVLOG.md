@@ -1,5 +1,45 @@
 # DEVLOG
 
+## 2026-10-05 — Kulübeler gitti, rüzgâr kenardan çıkar, bulutların tipi var
+
+**Ne yapıldı:** Uğur canlı sürüme baktı: kulübeleri beğenmedi; rüzgâr
+çizgileri birden sönmesin, haritadan çıkana kadar yaşasın; yağmur bulutları
+da öbürleri gibi (daha yavaş) gezsin; bulutlar daha çeşitli olsun: farklı
+yükseklik, pofuduk, küçük bulut kümeleri. Dört commit: kulübeler ve pencere
+ışığı kaldırıldı (`0937cba`), rüzgâr kenara kadar (`450a87b`), bulut tipleri
+ve doku gölge (`da0b8b7`), hava bulutları geçiyor (`6f1c1e2`).
+
+**Neden bu yaklaşım:** Rüzgârda "durumsuz" kalmak şarttı (ekran görüntüsü
+tekrarlanabilsin). Değişken ömürlü nesiller durumsuz hesaplanamaz, çünkü
+hangi neslin sürdüğünü bilmek öncekilerin hepsini toplamayı gerektirir. Çözüm
+harita başına önceden hesap: her çizgiye 6 yol, her biri doğuştan kenara
+kadar; nesil süresi yolun süresi, 6 yol bir döngü. Yan kazanç: kare başına
+entegrasyon bitti. Çizgi kenarda "sönmüyor", nokta nokta kenarın ötesinde
+kayboluyor; nesil ancak son noktası da gidince bitiyor (`--wind` 300 sn'de
+bunu ve başı haritadayken alfanın hiç düşmediğini ölçüyor).
+
+Bulut çeşitliliği lob sayısını artırdı (küme 7 lob). Bir önceki turda 7 fazla
+lob gölge döngüsünde ~25-30 ms yemişti; o yüzden gölge önce dokuya taşındı:
+JS her bulut hareketinde lobları yarım çözünürlüklü bir dokuya çiziyor, shader
+tek okuma yapıyor. Sonuç tersine döndü: gündüz kare SwiftShader'da ~50 ms
+hızlandı. Tipler tam voxel: lob artık bir katman tavanı (`top`) taşıyor, yüksek
+bir kubbe alçaktan kesilince stratus levhası çıkıyor; kümülüs kuleleri dar
+tutuldu ki 4-6 katman yukarıdan bakınca da uzun okunsun.
+
+Hava bulutları gezince altlarındaki biyom değişiyor; zaten tile başına doku
+vardı (ne yağar + zemin seviyesi), yani bulutu serbest bırakmak yetti. Ayrıca
+harita dışına yağış ve sönen buluttan yağış kapatıldı.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → temiz; `--wind`,
+`--sky` (dört tip, doku = analitik elips ≤ 1/255), `--weather` (hız aralığı,
+dönüş, sönme), `--night` (yalnız lav) yeni kontrollerle; her biri bilerek
+bozulup kırmızı görüldü. Headless Edge: genel görünüm, küme ve kümülüs yakın
+çekimi, hava bulutu 8 sn aralıklı dizi, kenardan çıkan çizgi dizisi, gece lav.
+Önce/sonra perf dönüşümlü.
+
+**Açık:** gerçek GPU; bulut tiplerinin ve küçülen bulut örtüsünün Uğur'un
+gözüne uyması; uzun ömürlü çizgilerin yoğunluk hissi.
+
 ## 2026-10-05 — Kulübeler, lavın ışığı, bulutlardan yağan yağmur, akan rüzgâr
 
 **Ne yapıldı:** Uğur yeni özelliklere kendi PC'sinde baktı ve dört şey
