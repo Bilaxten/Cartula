@@ -16,6 +16,7 @@
  *   node tools/headless.js --night      # night lights: settlement-only flag, night curve, grade
  *   node tools/headless.js --wind       # wind lines: terrain-steered field, bounded stateless streaks
  *   node tools/headless.js --weather    # rain/snow: biome rules, bounded, deterministic per seed
+ *   node tools/headless.js --flow       # flowing rivers: fresh water only, downhill, falls, still lake middles
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -28,7 +29,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -2542,6 +2543,212 @@ function runWindChecks() {
 }
 
 // ---------------------------------------------------------------------------
+// --flow : flowing rivers (src/render/flow.js). Only fresh water flows (never
+// the sea), never toward higher water; a lip runs over its drop and a landing
+// churns; a big lake keeps a still middle; the corner image stops against
+// still water; the mesh only REORDERS indices (the flowing tops move to the
+// end, drawn by the RIVER variant) -- vertices and triangles are unchanged;
+// only the RIVER variant compiles the pattern.
+// ---------------------------------------------------------------------------
+// Does a current (dx, dy) at tile (x, y) have a component (> 0.38, i.e.
+// not a grazing diagonal) across an edge into land or higher water?
+function intoWallAt(g, x, y, dx, dy) {
+  const W = g.width, H = g.height, L = g.level[y * W + x];
+  const parts = [[Math.sign(dx), 0, Math.abs(dx)], [0, Math.sign(dy), Math.abs(dy)]];
+  for (const [ox, oy, m] of parts) {
+    if (m <= 0.38) continue;
+    const px = x + ox, py = y + oy;
+    if (px < 0 || py < 0 || px >= W || py >= H) continue;
+    const j = py * W + px;
+    if (!g.water[j] || g.level[j] > L) return true;
+  }
+  return false;
+}
+
+function runFlowChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, !!ok, detail || '']);
+  const F = SM.RiverFlow;
+  const MIN_DROP = SM.WATERFALL_MIN_DROP || 3;
+  const RIVER = SM.BIOME_LIST.findIndex(b => b.id === 'river');
+  const LAKE = SM.BIOME_LIST.findIndex(b => b.id === 'lake');
+  const N4 = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  let flowing = 0, lakeFlowing = 0, uphill = 0, notFresh = 0, lipsBad = 0, lips = 0, landBad = 0, landings = 0;
+  let speedBad = 0, cornerBad = 0, interior = 0, interiorFlowing = 0, boxed = 0;
+  const perSeed = [];
+  for (const seed of [1337, 4242, 90210]) {
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const W = g.width, H = g.height, n = W * H;
+    const t0 = performance.now();
+    const f = F.field(g);
+    const ms = performance.now() - t0;
+    const f2 = F.field(g);
+    push(`seed ${seed}: same grid -> byte-identical flow image`,
+      Buffer.compare(Buffer.from(f.corner), Buffer.from(f2.corner)) === 0);
+    let fl = 0;
+    for (let i = 0; i < n; i++) {
+      if (!f.tile[i]) continue;
+      fl++;
+      if (!g.water[i] || SM.isSea(g, i)) notFresh++;
+      if (g.biome[i] === LAKE) lakeFlowing++;
+      // Zero only where a boxed-in landing churns in place.
+      if ((f.speed[i] < F.MIN_SPEED - 1e-6 && !(f.speed[i] === 0 && f.foam[i] > 0)) || f.speed[i] > F.VMAX + 1e-6) speedBad++;
+      // The current never runs across an edge into a bank or up a step:
+      // each orthogonal component it has points at lower or level water
+      // (or off the map).
+      const x = i % W, y = (i / W) | 0;
+      if (intoWallAt(g, x, y, f.dx[i], f.dy[i])) uphill++;
+      const tx = Math.round(x + f.dx[i]), ty = Math.round(y + f.dy[i]);
+      const inside = tx >= 0 && ty >= 0 && tx < W && ty < H;
+      if (g.waterfalls[i] === 1) {
+        lips++;
+        if (!inside || g.level[i] - g.level[ty * W + tx] < MIN_DROP ||
+          Math.abs(f.speed[i] - F.SPEED_LIP) > 1e-6) lipsBad++;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      if (g.waterfalls[i] !== 2 || !g.water[i] || SM.isSea(g, i)) continue;
+      landings++;
+      if (!f.tile[i] || f.foam[i] !== 1 || (f.speed[i] < F.SPEED_POOL - 1e-6 && f.speed[i] !== 0)) landBad++;
+      if (f.speed[i] === 0) boxed++;
+    }
+    // A big lake's middle: lake tiles LAKE_REACH + 3 or more steps from
+    // anything but their own body (land, another level, the sea) are still.
+    const dEdge = new Int32Array(n).fill(-1), q = [];
+    for (let i = 0; i < n; i++) {
+      if (f.body[i] < 0) continue;
+      const x = i % W, y = (i / W) | 0;
+      for (const [ox, oy] of N4) {
+        const px = x + ox, py = y + oy;
+        if (px < 0 || py < 0 || px >= W || py >= H || f.body[py * W + px] !== f.body[i]) { dEdge[i] = 0; q.push(i); break; }
+      }
+    }
+    for (let h = 0; h < q.length; h++) {
+      const c = q[h], x = c % W, y = (c / W) | 0;
+      for (const [ox, oy] of N4) {
+        const px = x + ox, py = y + oy;
+        if (px < 0 || py < 0 || px >= W || py >= H) continue;
+        const j = py * W + px;
+        if (f.body[j] !== f.body[c] || dEdge[j] >= 0) continue;
+        dEdge[j] = dEdge[c] + 1;
+        q.push(j);
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      if (g.biome[i] !== LAKE || dEdge[i] < F.LAKE_REACH + 3) continue;
+      interior++;
+      if (f.tile[i]) interiorFlowing++;
+    }
+    // Corners: alpha exactly where a flowing tile meets; zero velocity where
+    // still water does.
+    const CW = W + 1;
+    for (let cy = 0; cy <= H; cy++) {
+      for (let cx = 0; cx <= W; cx++) {
+        let any = false, still = false;
+        for (let k = 0; k < 4; k++) {
+          const x = cx - 1 + (k & 1), y = cy - 1 + (k >> 1);
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const j = y * W + x;
+          if (f.tile[j]) any = true; else if (g.water[j]) still = true;
+        }
+        const o = (cy * CW + cx) * 4;
+        if ((f.corner[o + 3] === 255) !== any) cornerBad++;
+        if (any && still && (f.corner[o] !== 128 || f.corner[o + 1] !== 128)) cornerBad++;
+      }
+    }
+    flowing += fl;
+    perSeed.push(`${seed}: ${fl} tiles, ${ms.toFixed(1)} ms`);
+  }
+  push(`fresh water flows on every seed, 256² (${perSeed.join('; ')})`,
+    flowing > 300 && perSeed.every(s => !/: 0 tiles/.test(s)));
+  push(`only fresh water flows, never the sea or land (${notFresh} exceptions)`, notFresh === 0);
+  push(`no current runs into a bank or up a step (${uphill} of ${flowing})`, uphill === 0);
+  push(`every waterfall lip runs over its drop at SPEED_LIP (${lips} lips, ${lipsBad} wrong)`, lips > 10 && lipsBad === 0);
+  push(`every fresh-water landing churns (foam 1) and flows at SPEED_POOL or, boxed in by banks, in place (${landings} landings, ${boxed} boxed, ${landBad} wrong)`,
+    landings > 10 && landBad === 0);
+  push(`speeds within [MIN_SPEED, VMAX] (${speedBad} outside)`, speedBad === 0);
+  push(`pools between steps flow (${lakeFlowing} lake-labelled tiles) but a big lake's middle is still ` +
+    `(${interiorFlowing} of ${interior} interior lake tiles flow)`,
+    lakeFlowing > 50 && interior > 100 && interiorFlowing === 0);
+  push(`corner image: alpha exactly where flowing water meets, zero velocity against still water (${cornerBad} bad)`,
+    cornerBad === 0);
+  push('velocity bytes round-trip within half a step, clamped at VMAX',
+    [-2, -1.3, 0, 0.4, 1.7, 2].every(v => Math.abs(F.decode(F.encode(v)) - v) <= F.VMAX / 254 + 1e-9) &&
+    F.decode(F.encode(5)) <= F.VMAX + 1e-9 && F.encode(0) === 128);
+
+  // A river without the generator's centrelines (a brush-drawn channel)
+  // still flows, still never toward higher water.
+  {
+    const g = SM.generate({ seed: 4242, width: 256, height: 256 });
+    g.flow = new Int8Array(g.width * g.height);
+    const f = F.field(g);
+    let riv = 0, still = 0, up = 0;
+    for (let i = 0; i < f.tile.length; i++) {
+      if (!g.water[i] || g.biome[i] !== RIVER) continue;
+      riv++;
+      if (!f.tile[i]) { still++; continue; }
+      if (intoWallAt(g, i % g.width, (i / g.width) | 0, f.dx[i], f.dy[i])) up++;
+    }
+    push(`without grid.flow (brush-drawn rivers) river tiles still flow: ${riv - still} of ${riv}, ${up} into a bank or up a step`,
+      riv > 50 && (riv - still) / riv > 0.6 && up === 0);
+  }
+
+  // Mesh: the flowing tops move to the end of the index buffer, nothing else changes.
+  {
+    const g = SM.generate({ seed: 1337, width: 192, height: 192 });
+    const withFlow = SM.buildVoxelMesh(g);
+    const keep = SM.RiverFlow;
+    delete SM.RiverFlow;
+    const plain = SM.buildVoxelMesh(g);
+    SM.RiverFlow = keep;
+    const f = keep.field(g);
+    const tris = a => {
+      const out = [];
+      for (let k = 0; k < a.length; k += 3) out.push(a[k] + ',' + a[k + 1] + ',' + a[k + 2]);
+      return out.sort().join(';');
+    };
+    push('mesh with flow: same vertices, same set of triangles as without (only reordered)',
+      typedEqual(withFlow.positions, plain.positions) && typedEqual(withFlow.colors, plain.colors) &&
+      typedEqual(withFlow.wave, plain.wave) && withFlow.triangleCount === plain.triangleCount &&
+      tris(withFlow.indices) === tris(plain.indices));
+    let bad = 0, tops = 0;
+    for (let k = withFlow.riverIndexStart; k < withFlow.indices.length; k++) {
+      const v = withFlow.indices[k];
+      const x = Math.floor(withFlow.cellUV[v * 2] * g.width), y = Math.floor(withFlow.cellUV[v * 2 + 1] * g.height);
+      if (withFlow.normals[v * 3 + 1] !== 1 || !f.tile[y * g.width + x]) bad++;
+    }
+    for (let i = 0; i < f.tile.length; i++) if (f.tile[i]) tops++;
+    push(`indices[riverIndexStart..] are exactly the tops of the ${tops} flowing tiles (${bad} other vertices)`,
+      tops > 0 && bad === 0 && withFlow.indices.length - withFlow.riverIndexStart === tops * 6 &&
+      withFlow.flowMap.length === (g.width + 1) * (g.height + 1) * 4);
+  }
+
+  // Shaders: only the RIVER variants carry the pattern.
+  {
+    const src = v => SM.voxelTerrainShaderSources(v);
+    const pattern = v => /riverFlow\(baseColor\)/.test(src(v).fragment) && /uFlowMap/.test(src(v).fragment);
+    push('RIVER variant (day and night) runs the flow pattern; its vertex stage passes vRiverPos',
+      pattern('RIVER') && pattern('NIGHT RIVER') && /vRiverPos = aPosition\.xz/.test(src('RIVER').vertex));
+    push('in the plain day/night/glow variants the flow code sits behind #ifdef RIVER (compiled out)',
+      ['', 'NIGHT', 'GLOW'].every(v => {
+        const t = src(v).fragment;
+        return !/#define RIVER/.test(t) && /#ifdef RIVER[\s\S]*riverFlow\(baseColor\);[\s\S]*#endif/.test(t);
+      }));
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    push('the renderer draws the flowing range with the RIVER program and the rest with the plain one',
+      /acct\.drawElements\(gl\.TRIANGLES, mainCount, gl\.UNSIGNED_INT, 0\)/.test(voxel) &&
+      /acct\.drawElements\(gl\.TRIANGLES, indexCount - mainCount, gl\.UNSIGNED_INT, mainCount \* 4\)/.test(voxel));
+  }
+
+  console.log('flowing rivers checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+// ---------------------------------------------------------------------------
 // --weather : rain and snow (src/render/weather.js). Snow only over cold
 // biomes, nothing over desert/mesa/lava, rain elsewhere inside a zone;
 // bounded count; zones and particles deterministic per seed.
@@ -2901,6 +3108,8 @@ function runWeatherChecks() {
 
 if (process.argv[2] === '--layout') {
   runLayoutChecks();
+} else if (process.argv[2] === '--flow') {
+  runFlowChecks();
 } else if (process.argv[2] === '--weather') {
   runWeatherChecks();
 } else if (process.argv[2] === '--wind') {

@@ -300,6 +300,14 @@
     var waves = waveField(grid);
     var wave = [];
     var NO_FOAM = [0, 0, 0, 0];
+    // Flowing water (src/render/flow.js): which tiles flow, and the
+    // per-corner velocity/foam image the RIVER shader variant reads. The
+    // top faces of flowing tiles go to their own index range at the END of
+    // the index buffer (riverIndexStart), drawn by that variant alone, so
+    // no other fragment pays for the flow pattern. Vertices are untouched.
+    var flow = SM.RiverFlow ? SM.RiverFlow.field(grid) : null;
+    var riverIndices = [];
+    var quadIndices = null;         // set around one addTop, else `indices`
     var LAKE = SM.BIOME_LIST.findIndex(function (b) { return b.id === 'lake'; });
     var indices = [];
     var minX = Infinity;
@@ -406,6 +414,7 @@
     ) {
       var base = pos.length / 3;
       var f = quadFoam || NO_FOAM;
+      var into = quadIndices || indices;
 
       foam.push(f[0], f[1], f[2], f[3]);
       // Duplicating the four vertices lets adjacent faces retain hard normals.
@@ -431,11 +440,11 @@
         cellX, cellY, glow, waterTop[3], shoreWeight, vertexAo[3], fallFlag
       );
       if (shouldFlipVoxelQuad(vertexAo[0], vertexAo[1], vertexAo[2], vertexAo[3])) {
-        indices.push(base, base + 1, base + 3);
-        indices.push(base + 1, base + 2, base + 3);
+        into.push(base, base + 1, base + 3);
+        into.push(base + 1, base + 2, base + 3);
       } else {
-        indices.push(base, base + 1, base + 2);
-        indices.push(base, base + 2, base + 3);
+        into.push(base, base + 1, base + 2);
+        into.push(base, base + 2, base + 3);
       }
     }
 
@@ -716,7 +725,9 @@
         }
 
         // Top and sides share one material decision so biome seams stay sharp.
+        quadIndices = flow && flow.tile[i] ? riverIndices : null;
         addTop(x, y, L, material.top, glow, surface, material.shore);
+        quadIndices = null;
         addWall(i, x, y, L, -1, 0, 0, material, glow, surface);
         addWall(i, x, y, L, 1, 0, 1, material, glow, surface);
         addWall(i, x, y, L, 0, -1, 2, material, glow, surface);
@@ -788,6 +799,8 @@
       0,
       [3, 3, 3, 3]
     );
+    var riverIndexStart = indices.length;
+    for (var ri = 0; ri < riverIndices.length; ri++) indices.push(riverIndices[ri]);
     return {
       positions: new Float32Array(pos),
       normals: new Float32Array(norm),
@@ -802,6 +815,10 @@
       foam: new Uint8Array(foam),
       wave: new Uint8Array(wave),
       indices: new Uint32Array(indices),
+      // indices[riverIndexStart..] are the top faces of flowing water.
+      riverIndexStart: riverIndexStart,
+      // Per-corner flow image, (W+1) x (H+1) RGBA8 (flow.js).
+      flowMap: flow ? flow.corner : null,
       // The vertex shader turns aCellUV back into a tile centre with this.
       gridSize: [W, H],
       // The map's seed: the sky (SM.Sky.cloudInstances) is derived from it.
@@ -1073,6 +1090,7 @@
     // Arrays preserve GLSL's own line structure without a template dependency.
     var vertexSource = [
       '#version 300 es',
+      define,
       'in vec3 aPosition;',
       'in vec3 aNormal;',
       'in vec3 aColor;',
@@ -1101,9 +1119,17 @@
       'out float vFall;',
       'out float vFallCoord;',
       'out float vWaveShade;',
+      '#ifdef RIVER',
+      // World x/z for the flow pattern (highp: a quarter-tile hash cell on a
+      // 448-tile map needs more than mediump's 10-bit mantissa).
+      'out highp vec2 vRiverPos;',
+      '#endif',
       '',
       'void main() {',
       '  vNormal = aNormal;',
+      '#ifdef RIVER',
+      '  vRiverPos = aPosition.xz;',
+      '#endif',
       '  vColor = aColor;',
       '  vSideDepth = aSideDepth;',
       '  vCellUV = aCellUV;',
@@ -1180,6 +1206,13 @@
       'uniform float uDebugView;',
       // Shore foam colour (snow, from the biome palette).
       'uniform vec3 uFoamColor;',
+      // Flowing water (src/render/flow.js): only the river draw compiles it.
+      '#ifdef RIVER',
+      'in highp vec2 vRiverPos;',
+      'uniform sampler2D uFlowMap;',
+      'uniform vec2 uFlowMapSize;',
+      SM.RiverFlow ? SM.RiverFlow.GLSL : 'vec3 riverFlow(vec3 b) { return b; }',
+      '#endif',
       // Night: lava shines through the night grade. Fragment-only uniforms
       // (no cross-stage precision pair).
       '#ifdef NIGHT',
@@ -1254,6 +1287,10 @@
       '  vec3 fallColor = mix(vColor, vec3(0.80, 0.90, 0.94),',
       '    0.30 + 0.45 * fallStreak);',
       '  vec3 baseColor = mix(vColor, fallColor, vFall);',
+      '#ifdef RIVER',
+      '  // Rivers and plunge pools: the advected flow pattern (flow.js).',
+      '  baseColor = riverFlow(baseColor);',
+      '#endif',
       '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
       '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
       '  // line is blocky like the voxels; its reach follows the SAME per-tile',
@@ -1506,6 +1543,10 @@
     // Optional: without them the map still renders, without night lights.
     var nightProgram = makeProgram(gl, 'NIGHT');
     var glowProgram = makeProgram(gl, 'GLOW');
+    // Flowing water's top faces (flow.js). Optional: without them rivers
+    // are drawn by the plain programs, still.
+    var riverProgram = makeProgram(gl, 'RIVER');
+    var nightRiverProgram = nightProgram ? makeProgram(gl, 'NIGHT RIVER') : null;
 
     // Every draw call and buffer/texture allocation below goes through this
     // counter (src/perf.js), so the performance panel reports what the
@@ -1581,7 +1622,9 @@
         sunDirection: 'uSunDirection',
         sunStrength: 'uSunStrength',
         time: 'uTime',
-        shadowMap: 'uShadowMap'
+        shadowMap: 'uShadowMap',
+        flowMap: 'uFlowMap',
+        flowMapSize: 'uFlowMapSize'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1593,6 +1636,13 @@
     var dayU = terrainUniforms(program);
     var nightU = terrainUniforms(nightProgram);
     var glowU = terrainUniforms(glowProgram);
+    var riverU = terrainUniforms(riverProgram);
+    var nightRiverU = terrainUniforms(nightRiverProgram);
+    // The flow image (flow.js corners, RGBA8, linear) and where the flowing
+    // tops start in the index buffer.
+    var flowTexture = gl.createTexture();
+    var flowMapSize = [1, 1];
+    var riverIndexStart = 0;
     var nightLight = 0;
     // Optional: without it lava still shines, just without glow.
     var bloom = SM.Bloom ? SM.Bloom.create(gl, acct) : null;
@@ -1726,6 +1776,14 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, cloudMapData);
     acct.texture(cloudMap, 1);
+    gl.bindTexture(gl.TEXTURE_2D, flowTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([128, 128, 0, 0]));
+    acct.texture(flowTexture, 4);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2166,6 +2224,17 @@
       acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexBuffer, mesh.indices, gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       indexCount = mesh.indices.length;
+      riverIndexStart = mesh.riverIndexStart != null ? mesh.riverIndexStart : indexCount;
+      if (mesh.flowMap && mesh.gridSize) {
+        flowMapSize = [mesh.gridSize[0] + 1, mesh.gridSize[1] + 1];
+        gl.bindTexture(gl.TEXTURE_2D, flowTexture);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, flowMapSize[0], flowMapSize[1], 0,
+          gl.RGBA, gl.UNSIGNED_BYTE, mesh.flowMap);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+        acct.texture(flowTexture, flowMapSize[0] * flowMapSize[1] * 4);
+      }
       gridSize = mesh.gridSize || gridSize;
       meshVersion++;
     }
@@ -2294,13 +2363,22 @@
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
       gl.bindVertexArray(vao);
-      if (nightLight > 0.001 && nightU) {
-        // Night: the colour grade in the shader, lava shining past it.
-        setTerrainUniforms(nightU);
-        acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
-      } else {
-        setTerrainUniforms(dayU);
-        acct.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
+      var night = nightLight > 0.001 && nightU;
+      // Flowing water's tops (the end of the index buffer) are drawn by the
+      // RIVER variant; without it they stay in the main draw.
+      var flowU = night ? nightRiverU : riverU;
+      var mainCount = flowU ? riverIndexStart : indexCount;
+      // Night: the colour grade in the shader, lava shining past it.
+      setTerrainUniforms(night ? nightU : dayU);
+      acct.drawElements(gl.TRIANGLES, mainCount, gl.UNSIGNED_INT, 0);
+      if (mainCount < indexCount) {
+        setTerrainUniforms(flowU);
+        gl.activeTexture(gl.TEXTURE2);
+        gl.bindTexture(gl.TEXTURE_2D, flowTexture);
+        gl.uniform1i(flowU.flowMap, 2);
+        gl.uniform2f(flowU.flowMapSize, flowMapSize[0], flowMapSize[1]);
+        gl.activeTexture(gl.TEXTURE0);
+        acct.drawElements(gl.TRIANGLES, indexCount - mainCount, gl.UNSIGNED_INT, mainCount * 4);
       }
       gl.bindVertexArray(null);
       // Wind lines: after the terrain (depth-tested against it, so a ridge
@@ -2551,6 +2629,10 @@
       gl.deleteProgram(program);
       if (nightProgram) gl.deleteProgram(nightProgram);
       if (glowProgram) gl.deleteProgram(glowProgram);
+      if (riverProgram) gl.deleteProgram(riverProgram);
+      if (nightRiverProgram) gl.deleteProgram(nightRiverProgram);
+      gl.deleteTexture(flowTexture);
+      acct.forget(flowTexture);
       if (sky) {
         gl.deleteBuffer(sky.cloudPos);
         gl.deleteBuffer(sky.cloudNormal);
