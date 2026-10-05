@@ -475,6 +475,7 @@
     $('showClouds').disabled = false;
     if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     if (voxelRenderer.setWind) voxelRenderer.setWind($('showWind').checked);
+    if (voxelRenderer.setWeather) voxelRenderer.setWeather($('showWeather').checked);
     glCanvas.hidden = false;
     setIsoHint('hint.iso');
     applyDayNight();
@@ -498,7 +499,14 @@
     // The wind field follows the terrain, so it is rebuilt with the mesh
     // (new map or brush edit). A few ms at 192².
     if (SM.Wind && voxelRenderer.setWindField) {
-      voxelRenderer.setWindField(SM.Wind.field(grid, grid.config && grid.config.seed));
+      var windField = SM.Wind.field(grid, grid.config && grid.config.seed);
+      voxelRenderer.setWindField(windField);
+      // Rain and snow: zones and particles per map seed; snow drifts with
+      // the same prevailing wind.
+      if (SM.Weather && voxelRenderer.setWeatherData) {
+        voxelRenderer.setWeatherData(SM.Weather.build(grid, grid.config && grid.config.seed),
+          windField.prevailing);
+      }
     }
     updateVoxelSun();
     voxelRenderer.setMesh(voxelMesh);
@@ -1556,6 +1564,11 @@
     requestVoxelRender();
   });
   $('showPerf').addEventListener('change', function () { setPerfVisible(this.checked); });
+  $('showWeather').addEventListener('change', function () {
+    if (!isVoxelMode() || !voxelRenderer || !voxelRenderer.setWeather) return;
+    voxelRenderer.setWeather(this.checked);
+    requestVoxelRender();
+  });
   $('showWind').addEventListener('change', function () {
     if (!isVoxelMode() || !voxelRenderer || !voxelRenderer.setWind) return;
     voxelRenderer.setWind(this.checked);

@@ -15,6 +15,7 @@
  *   node tools/headless.js --perf       # perf panel: stats math, GL counter, no uncounted draws
  *   node tools/headless.js --night      # night lights: settlement-only flag, night curve, grade
  *   node tools/headless.js --wind       # wind lines: terrain-steered field, bounded stateless streaks
+ *   node tools/headless.js --weather    # rain/snow: biome rules, bounded, deterministic per seed
  */
 'use strict';
 const fs = require('fs');
@@ -26,7 +27,7 @@ global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
-                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js',
+                 'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
@@ -1017,7 +1018,7 @@ function runShaderChecks() {
   // fragmentSource array of quoted GLSL lines. Every GL file in src/render
   // is read (post.js has its own programs since 2026-10-05).
   const pairs = [];
-  for (const f of ['voxel3d.js', 'post.js', 'wind.js']) {
+  for (const f of ['voxel3d.js', 'post.js', 'wind.js', 'weather.js']) {
     const file = fs.readFileSync(path.join(root, 'render', f), 'utf8');
     // `makeProgram` only compiles; the terrain GLSL lives in
     // `terrainShaderSources(variant)`, so that body is read under its name.
@@ -1053,7 +1054,7 @@ function runShaderChecks() {
 
   results.push(['at least four programs were inspected (terrain, sky, bloom blur, composite)', pairs.length >= 4, []]);
 
-  console.log('shader declaration lint (src/render/voxel3d.js, post.js, wind.js):');
+  console.log('shader declaration lint (src/render/voxel3d.js, post.js, wind.js, weather.js):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
     for (const line of detail) console.log(`         ${line}`);
@@ -2274,7 +2275,69 @@ function runWindChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--wind') {
+// ---------------------------------------------------------------------------
+// --weather : rain and snow (src/render/weather.js). Snow only over cold
+// biomes, nothing over desert/mesa/lava, rain elsewhere inside a zone;
+// bounded count; zones and particles deterministic per seed.
+// ---------------------------------------------------------------------------
+function runWeatherChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const idx = list => list.map(id => SM.BIOME_LIST.findIndex(b => b.id === id));
+  const cold = idx(SM.Weather.COLD), dry = idx(SM.Weather.DRY);
+  const wet = idx(['forest', 'jungle', 'marsh']);
+  const sigs = [];
+  let anySnow = 0, anyRain = 0;
+
+  for (const seed of [1337, 4242, 90210, 7, 2024]) {
+    const g = run(seed, 128, 0.38).grid;
+    const a = SM.Weather.build(g, seed);
+    const b = SM.Weather.build(g, seed);
+    let rules = 0, rain = 0, snow = 0;
+    for (let p = 0; p < a.count; p++) {
+      const bi = g.biome[a.tiles[p]], k = a.kinds[p];
+      if (dry.includes(bi)) rules++;
+      else if (cold.includes(bi) && k !== 1) rules++;
+      else if (!cold.includes(bi) && k !== 0) rules++;
+      if (k) snow++; else rain++;
+    }
+    anySnow += snow; anyRain += rain;
+    sigs.push(a.zones.map(z => `${z.x},${z.y}`).join(';'));
+    push(`seed ${seed}: ${a.zones.length} zones, ${a.count} particles (${rain} rain, ${snow} snow) <= ` +
+      `${SM.Weather.MAX_PARTICLES}; snow only on cold biomes, none on desert/mesa/lava; deterministic`,
+      a.zones.length >= 1 && a.zones.length <= 3 && a.count <= SM.Weather.MAX_PARTICLES &&
+      a.data.length === a.count * 4 * 8 && rules === 0 &&
+      typedEqual(a.data, b.data) && Array.prototype.every.call(a.data, Number.isFinite),
+      `rule breaks ${rules}`);
+    // Zones are centred on wet or cold land.
+    const centresOk = a.zones.every(z => {
+      const i = Math.floor(z.y) * g.width + Math.floor(z.x);
+      return !g.water[i] && (wet.includes(g.biome[i]) || cold.includes(g.biome[i]) ||
+        SM.BIOME_LIST[g.biome[i]].id === 'jungle');
+    });
+    const coldTiles = g.biome.filter((bi, i) => !g.water[i] && cold.includes(bi)).length;
+    push(`seed ${seed}: every zone is centred on wet or cold land; a map with cold land ` +
+      `(${coldTiles} tiles) gets snow (${snow})`,
+      centresOk && (coldTiles < 30 * (g.width / 192) ** 2 || snow > 0), '');
+  }
+  push('zones differ between seeds; across the seeds both rain and snow occur',
+    new Set(sigs).size === sigs.length && anySnow > 0 && anyRain > 0, `rain ${anyRain}, snow ${anySnow}`);
+  {
+    const g = run(1337, 128, 0.38).grid;
+    push('the cap holds when asked for fewer', SM.Weather.build(g, 1337, 50).count <= 50, '');
+  }
+
+  console.log('rain and snow checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--weather') {
+  runWeatherChecks();
+} else if (process.argv[2] === '--wind') {
   runWindChecks();
 } else if (process.argv[2] === '--perf') {
   runPerfChecks();

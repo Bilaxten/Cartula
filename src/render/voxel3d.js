@@ -1574,6 +1574,11 @@
     // arrives from main.js per map (setWindField).
     var wind = SM.Wind ? SM.Wind.createLayer(gl, acct, GRADE_GLSL) : null;
     var showWind = true;
+    // Rain and snow (src/render/weather.js): static per map, falls in the
+    // vertex shader; optional like the wind.
+    var weather = SM.Weather ? SM.Weather.createLayer(gl, acct, GRADE_GLSL) : null;
+    var showWeather = true;
+    var weatherDraw = { combined: null, view: null, vScale: 1, time: 0, pixelWorld: 1, setGrade: null };
     // Light enough to read over grass by day and over the graded map at
     // night: the snow entry of the biome palette.
     var windColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
@@ -2140,6 +2145,15 @@
         windDraw.setGrade = setGradeUniforms;
         wind.draw(windDraw);
       }
+      if (weather && showWeather && !debugView) {
+        weatherDraw.combined = combined;
+        weatherDraw.view = view;
+        weatherDraw.vScale = vScale;
+        weatherDraw.time = elapsedTime;
+        weatherDraw.pixelWorld = 2 * camera.zoom / width;
+        weatherDraw.setGrade = setGradeUniforms;
+        weather.draw(weatherDraw);
+      }
       drawSky();
       // Night only: the bloom passes do not run at all while nightLight is 0.
       if (bloom && glowU && bloomOn && !debugView && nightLight > 0.001) {
@@ -2209,6 +2223,14 @@
 
     function setWind(on) {
       showWind = on !== false;
+    }
+
+    function setWeatherData(built, prevailing) {
+      if (weather && !disposed) weather.setData(built, prevailing);
+    }
+
+    function setWeather(on) {
+      showWeather = on !== false;
     }
 
     // Measurement / comparison hook: lights stay, only the glow is skipped.
@@ -2343,6 +2365,7 @@
       gl.deleteBuffer(foamBuffer);
       if (bloom) bloom.dispose();
       if (wind) wind.dispose();
+      if (weather) weather.dispose();
       gl.deleteBuffer(indexBuffer);
       gl.deleteTexture(shadowTexture);
       acct.forget(shadowTexture);
@@ -2387,6 +2410,8 @@
       setBloom: setBloom,
       setWindField: setWindField,
       setWind: setWind,
+      setWeatherData: setWeatherData,
+      setWeather: setWeather,
       setShadowMap: setShadowMap,
       setSky: setSky,
       setDebugView: setDebugView,
