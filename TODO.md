@@ -49,7 +49,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 - [ ] **Portfolyo yol haritasından kalanlar (2026-09-22 sırası; 1-5 bitti):**
       - Vaka çalışması (`bilaxten.art`): `[SES]` cümleleri, şelale/gökyüzü
         GIF'i, `site` → `master` kararı — Uğur.
-      - Unity export gerçekten içe aktarılıp denenmedi (aşağıdaki not).
+      - Unity export gerçekten içe aktarılıp denenmedi (aşağıdaki not; özellik
+        2026-10-05'ten beri şimdilik kapalı).
       - Shader cilası (su köpük bandı, outline, mesafe sisi) — estetik karar,
         Uğur'la birlikte (paletten çıkma, ton az).
 
@@ -111,6 +112,10 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       **bağımlılık** (`AGENTS.md` §2: önce sor). Kararı verilmedi.
 
 ## Unity export doğrulaması — açık (2026-09-29 notu, 2026-10-05 güncellendi)
+
+> ⚠️ 2026-10-05: Unity export arayüzde **şimdilik kapalı** (Uğur). Düğme gizli,
+> kod + `--export` duruyor; geri açmak `src/main.js` `UNITY_EXPORT_ENABLED = true`.
+> Aşağıdaki doğrulama ancak özellik geri açılınca anlamlı.
 
 Resmî Unity 6 dokümanı (Terrain > Import Raw) ilk RAW satırının hangi kenara
 düştüğünü açıkça yazmıyor. `export.js`'teki "row 0 = güney, Flip Vertically

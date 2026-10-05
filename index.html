@@ -224,7 +224,10 @@
         <button id="exportPng" type="button" title="Download the current view as a PNG" data-i18n="export.png" data-i18n-title="export.png.title">Export PNG</button>
         <button id="shareLink" type="button" title="Copy a link that reproduces this map" data-i18n="share.label" data-i18n-title="share.title">Copy link</button>
       </div>
-      <div class="toolrow">
+      <!-- Unity export: OFF for now (Uğur 2026-10-05, "şimdilik kapalı").
+           The row stays in the markup, hidden; main.js wires it only when
+           UNITY_EXPORT_ENABLED is true. See README "Unity export". -->
+      <div class="toolrow" id="exportUnityRow" hidden>
         <button id="exportUnity" type="button" title="Heightmap (16-bit RAW), albedo, biome mask and map.json as one .zip — Unity Terrain ready" data-i18n="export.unity" data-i18n-title="export.unity.title">Export for Unity (.zip)</button>
       </div>
     </footer>

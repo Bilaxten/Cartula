@@ -1452,7 +1452,16 @@
     });
   });
   $('exportPng').addEventListener('click', exportPng);
-  $('exportUnity').addEventListener('click', exportUnity);
+  // Unity export is OFF for now (Uğur 2026-10-05: "şimdilik kapalı"). The
+  // code path stays intact -- exportUnity above, src/export.js and its
+  // `--export` harness -- and the button stays in index.html, hidden. Setting
+  // this to true shows the row and wires the button again; nothing else
+  // changes. Never verified inside Unity either (TODO.md).
+  var UNITY_EXPORT_ENABLED = false;
+  if (UNITY_EXPORT_ENABLED) {
+    $('exportUnityRow').hidden = false;
+    $('exportUnity').addEventListener('click', exportUnity);
+  }
   // Dark mode: only the page chrome; the map keeps its own palette. The
   // initial value is set by the inline script in index.html.
   $('themeToggle').addEventListener('click', function () {
