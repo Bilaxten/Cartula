@@ -11,7 +11,44 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — arayüz Türkçe + İngilizce (2026-10-05, Claude Opus 5.5)
+## Bu oturum — su dalgasında kara şeritler + daha okunur dalga (2026-10-05, Claude Opus 5.5)
+
+Uğur'un raporu (ekran görüntüsüyle): iso görünümde su, kara sütununa
+(yalıyar) değdiği yerde dalgayla inip çıkıyor; inince aradaki boşluk siyah.
+İstediği: boşluk üstündeki bloğun rengiyle dolsun; dalga biraz daha görünsün.
+
+1. **Kök neden + düzeltme** (`073cf21`): yüzey dinlenme kademesi etrafında
+   ±0.036 oynuyordu, komşu her yüz ise tam o kademede bitiyordu. Çukurda
+   sütunun içi boş kalan yarık açılıyor, arka plan rengi siyah şerit olarak
+   görünüyordu — yalıyar dibinde, plinth halkasında ve kıyı ağırlığı farklı
+   iki su tile'ı arasında (tile başına kıyı sönümü ortak kenarı farklı
+   oynatıyordu). Şimdi: yüzey yalnız **iner** (tepe = dinlenme kademesi,
+   çukur = `SM.VOXEL_WAVE_DIP`), sönüm yok (tek sürekli dalga, ortak kenarlar
+   birlikte hareket eder); suya bakan her duvar çukurun altına kadar iner
+   (**etek**, komşunun kendi yan rengiyle); suyla aynı kademedeki kara ve
+   kenardaki su yanındaki halka kendi eteğini alır; su tile'ının kendi
+   duvarlarının üst kenarı yüzeyle birlikte iner.
+2. **Daha okunur dalga** (`92c546f`): çukur 0.072 → 0.15 kademe; her su
+   üst yüzü tile merkezindeki dalgadan tek bir parlaklık alır (±%7) —
+   tepe tile'lar açılır, çukurdakiler koyulaşır, dalga bütün tile'lardan
+   sakin basamaklı bantlar olarak ilerler. Maliyet: vertex başına bir `sin`,
+   bir vertex-only uniform (`uGridSize`).
+
+**Doğrulama:** `bash scripts/checks.sh` → `SONUÇ: temiz`. `--mesh`'e yeni
+kontrol: her su kenarı çukura kadar kapalı (eski renderer'da kırmızı: 3842
+delik, 398 çıplak kenar); su bayrağı kontrolü duvar üst kenarına izin
+veriyor; üçgen tabanı 123314 → 124228 (bilerek, etek quad'ları). `--falls`:
+şelale yüzü inişin `WAVE_DIP` altında bitiyor. Headless Edge (SwiftShader
+WebGL2, CDP, `?seed=1337`, bulutsuz, `setTime` ile sabit anlar): seed 1337
+kıyı yalıyarında yakın plan 4 an — arka plan rengi piksel sayısı önce
+21-907, sonra 0; orta yakınlıkta tile bantları görünüyor, iki an arası
+değişen piksel ~1.8 kat.
+
+**Kapsamadığı:** gerçek GPU (yalnız SwiftShader), dalganın akarken gözle
+hissi (yalnız sabit kareler), telefon. Yayınlanmadı: `publish-site.sh`
+koşulmadı (ana ajan yayınlayacak).
+
+## Önceki oturum — arayüz Türkçe + İngilizce (2026-10-05, Claude Opus 5.5)
 
 Uğur'un kararı (2026-10-05): sitede görünen her şey TR + EN, sağ üstte küçük
 bir *TR / EN* ile değişir. Uygulama arayüzü yalnız İngilizceydi.

@@ -1,5 +1,33 @@
 # DEVLOG
 
+## 2026-10-05 — Su dalgası: siyah yarıklar kapandı, dalga okunur oldu
+
+**Ne yapıldı:** Uğur iso görünümde suyun yalıyar dibinde inip çıktığını
+ve inerken aradaki boşluğun siyah göründüğünü bildirdi. Kök neden geometri:
+yüzey dinlenme kademesi etrafında oynuyor, komşu her yüz o kademede
+bitiyordu; çukurda sütunun boş içine yarık açılıyor, arka plan rengi
+görünüyordu. Ayrıca tile başına kıyı sönümü iki komşu su tile'ının ortak
+kenarını farklı oynatıp aralarında da ince siyah çizgi açıyordu
+(`073cf21`). Ardından dalga daha görünür yapıldı (`92c546f`).
+
+**Neden bu yaklaşım:** Üç seçenek vardı: derinlik/temizleme hilesi (yarığı
+gizler, nedenini değil), suya her yöne etek, ya da yüzeyi yalnız aşağı
+oynatıp suya bakan duvarları çukura kadar uzatmak. Sonuncusu seçildi: tepe
+dinlenme kademesi olunca suyun üstündeki hiçbir yüz değişmiyor, yalnız
+alttaki duvarlar `WAVE_DIP` kadar uzuyor — yeni quad yalnız suyla aynı
+kademedeki kara ve kenar halkası için (457 quad, %0.7). Boşluğu dolduran
+renk, Uğur'un istediği gibi üstteki bloğun kendi yan rengi. Sönüm kalktı
+çünkü artık gerekmiyor ve ortak kenarı bozan oydu. Dalganın okunurluğu
+için tile başına gürültü yerine aynı dalga fonksiyonunun tile merkezindeki
+değeri parlaklık oldu: ışık ve yükseklik aynı şeyi söylüyor, titreme yok.
+
+**Doğrulama:** `checks.sh` temiz; `--mesh`'te yeni "çukur yarık açmaz"
+kontrolü (eski renderer'da 3842 delik + 398 çıplak kenar ile kırmızı).
+Headless Edge (SwiftShader): aynı kamera ve sabit anlarda önce/sonra —
+arka plan renkli piksel 21-907 → 0.
+
+**Açık:** gerçek GPU'da ve akan animasyonda gözle bakılmadı.
+
 ## 2026-10-05 — Arayüz iki dilli: TR / EN
 
 **Ne yapıldı:** Uğur'un kararı — bilaxten.art'ta görünen her şey Türkçe ve

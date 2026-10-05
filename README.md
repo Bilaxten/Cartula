@@ -152,7 +152,10 @@ yok, main.js'te DOM'a doğrudan yazılan metin yok).
   yukarı; deniz düz yüzey, derinlik renkle — 2026-09-22'ye kadar deniz baseni
   aşağı kademeliydi), "Yükseklik abartısı" slider'ı mesh'i
   yeniden kurmadan uygular. 18 biyom, eğim tabanlı yalıyar, biyom-içi renk
-  varyasyonu.
+  varyasyonu. Su yüzeyi dalgayla yalnız **aşağı** iner (`SM.VOXEL_WAVE_DIP`);
+  suya bakan her duvar o çukurun altına kadar uzanır (etek), bu yüzden dalga
+  hiçbir yerde arka planı gösteren yarık açmaz (`--mesh` denetler). Su
+  tile'ları tepe/çukura göre tile başına açılıp koyulaşır.
   ⚠️ **2026-09-06:** bu iş önce canvas 2D'de (`src/render/iso.js`, dört yönlü
   bake edilmiş görüntü) yapılmıştı; WebGL yolu onu ikame edince eski renderer
   ve tüm yardımcıları SİLİNDİ (~830 satır). **2D olarak yalnızca üstten görünüm
