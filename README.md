@@ -348,9 +348,11 @@ salınır; parçacıklar ve gölge onunla gider (bulut, gölge ve yağmur aynı
 `SM.Weather.cloudsAt` sayısını okur). Bulut hareket ettiği için altındaki
 zemin değişir: vertex shader tile başına 2 baytlık küçük bir dokudan (seviye +
 ne yağar) okur: tundra/kar/tayga üstünde kar, çöl/mesa/lav üstünde hiçbir şey,
-kalan her yerde yağmur. Gölge: hava bulutu açık hava bulutunun 0.6'sı kadar
-**daha açık** gölge düşürür (aynı lob dizileri; dizi 18'den 27'ye çıktı).
-*Rain & snow* kapalıyken bulut, gölgesi ve parçacıklar birlikte kalkar. En çok
+kalan her yerde yağmur. **Gölge yok** (karar): bulut saydam ve altındaki
+zemini zaten tonluyor; 0.6 güçte açık gölge denendi, arazi shader'ının lob
+döngüsü her fragmanda koştuğu için SwiftShader'da 1280×800'de kare başına
+~25-30 ms yedi, karşılığında bulutun yanına ikinci bir koyu leke koyuyordu.
+*Rain & snow* kapalıyken bulut ve parçacıklar birlikte kalkar. En çok
 900 parçacık, harita başına tek statik buffer; düşüş vertex shader'da
 zamandan hesaplanır. Kar, rüzgâr çizgileriyle aynı hâkim rüzgârla biraz
 sürüklenir (`--weather`).

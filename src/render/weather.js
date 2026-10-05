@@ -22,8 +22,10 @@
  * else (a cloud over a mountain snows on the peak and rains in the valley).
  * A drop disappears where it reaches the ground.
  *
- * Shadow: a weather cloud casts a LIGHTER shadow than a fair-weather one
- * (SHADOW of it, through the same lobe uniforms as the sky).
+ * Shadow: none. The cloud is see-through and already tints the ground it
+ * hangs over; a lighter shadow (0.6 of a fair cloud's, through the
+ * terrain shader's lobe loop) was tried and cost ~25-30 ms a frame on
+ * SwiftShader at 1280x800 (voxel3d.js updateClouds).
  *
  * Bounded and cheap: at most MAX_PARTICLES (900), ONE static vertex buffer
  * per map; the fall is computed in the vertex shader from time, the clouds'
@@ -44,9 +46,8 @@
   var DRY = ['desert', 'mesa', 'lava'];
   var SEEDS = ['forest', 'jungle', 'marsh', 'taiga', 'tundra', 'snow'];
   // Opacity of a weather cloud, rain and snow (the map under it must stay
-  // readable), and the share of a fair cloud's shadow it casts.
+  // readable).
   var CLOUD_ALPHA = { rain: 0.58, snow: 0.48 };
-  var SHADOW = 0.6;
   // How far below snow-white the cloud is mixed toward the palette's rock
   // grey: rain clouds are heavier.
   var GREY = { rain: 0.42, snow: 0.16 };
@@ -482,7 +483,6 @@
     MAX_PARTICLES: MAX_PARTICLES,
     MAX_CLOUDS: MAX_CLOUDS,
     CLOUD_ALPHA: CLOUD_ALPHA,
-    SHADOW: SHADOW,
     SWAY: SWAY,
     KIND: KIND,
     COLD: COLD,

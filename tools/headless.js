@@ -852,7 +852,7 @@ function runSkyChecks() {
     Array.from(horizon).every(v => Number.isFinite(v))]);
   results.push(['shadow array is padded to MAX_SHADOW_LOBES (vec4 each)',
     horizon.length === SM.Sky.MAX_SHADOW_LOBES * 4 &&
-    SM.Sky.MAX_SHADOW_LOBES === (SM.Sky.MAX_CLOUDS + SM.Sky.MAX_WEATHER_CLOUDS) * SM.Sky.MAX_LOBES &&
+    SM.Sky.MAX_SHADOW_LOBES === SM.Sky.MAX_CLOUDS * SM.Sky.MAX_LOBES &&
     SM.Sky.MAX_WEATHER_CLOUDS === SM.Weather.MAX_CLOUDS]);
 
   // Geometry sanity: finite, indexed inside the buffer, deterministic.
@@ -2788,13 +2788,14 @@ function runWeatherChecks() {
     push('drops start at the cloud underside (level = underside - fallen, fallen from 0) and fade where they reach the ground',
       /float fallen = cl\.w \* cyc;/.test(wsrc) && /float level = cl\.z - fallen;/.test(wsrc) &&
       /smoothstep\(g\.x, g\.x \+ 0\.7, level\)/.test(wsrc) && /cloudData\[n \* 4 \+ 2\] = built\.clouds\[n\]\.bottom;/.test(wsrc), '');
-    push('one cloudsAt per frame feeds the weather cloud, its shadow and its rain; Rain & snow off removes all three',
+    push('one cloudsAt per frame feeds the weather cloud and its rain; weather clouds cast no shadow (cost); Rain & snow off removes both',
       (vsrc.match(/SM\.Weather\.cloudsAt\(/g) || []).length === 1 &&
       /var list = weatherBuilt && showWeather && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
-      /for \(f = 0; f < weatherNow\.length; f\+\+\) shadowCasters\.push\(weatherNow\[f\]\);/.test(vsrc) &&
+      (vsrc.match(/SM\.Sky\.cloudShadowUniforms\(/g) || []).length === 1 &&
+      /SM\.Sky\.cloudShadowUniforms\(cloudNow, meshBounds/.test(vsrc) &&
       /if \(weather && showWeather && !debugView && weatherNow\.length\) \{/.test(vsrc) &&
       /if \(weatherNow\.length && sky\.weatherCount\) drawWeatherClouds\(\);/.test(vsrc) &&
-      /weatherDraw\.centres = weatherCentres;/.test(vsrc) && /e\.shadow = SM\.Weather\.SHADOW;/.test(vsrc), '');
+      /weatherDraw\.centres = weatherCentres;/.test(vsrc), '');
   }
 
   console.log('rain and snow checks:');

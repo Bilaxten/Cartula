@@ -1276,8 +1276,8 @@
       // position. One soft ellipse per cloud LOBE (u, v, radiusU, radiusV), the
       // same lobes the cloud voxels fill, so the shadow has the cloud's shape.
       // Fixed-size array: GLSL uniform arrays cannot be dynamic, and
-      // `SM.Sky.MAX_SHADOW_LOBES` ((6 clouds + 3 weather clouds) x 3 lobes)
-      // is the JS half of the same contract.
+      // `SM.Sky.MAX_SHADOW_LOBES` (6 clouds x 3 lobes) is the JS half of the
+      // same contract.
       'uniform vec4 uCloudLobes[' + SM.Sky.MAX_SHADOW_LOBES + '];',
       'uniform float uCloudLobeFade[' + SM.Sky.MAX_SHADOW_LOBES + '];',  // the shadow fades with its cloud
       'uniform int uCloudLobeCount;',
@@ -1747,8 +1747,6 @@
     var weatherCentres = new Float32Array(SM.Sky.MAX_WEATHER_CLOUDS * 2);
     weatherDraw.centres = weatherCentres;
     var weatherNow = [];
-    // Fair clouds + weather clouds, for the shadow uniforms (reused).
-    var shadowCasters = [];
     // Light enough to read over grass by day and over the graded map at
     // night: the snow entry of the biome palette.
     var windColor = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'snow'; }).color)
@@ -1991,11 +1989,13 @@
         cloudNow = [];
       }
       updateWeatherClouds();
-      shadowCasters.length = 0;
-      if (showSky) for (f = 0; f < cloudNow.length; f++) shadowCasters.push(cloudNow[f]);
-      for (f = 0; f < weatherNow.length; f++) shadowCasters.push(weatherNow[f]);
-      SM.Sky.cloudShadowUniforms(shadowCasters, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
-      cloudLobeCount = SM.Sky.shadowLobeCount(shadowCasters);
+      // Only the fair-weather clouds cast a shadow. A weather cloud is
+      // see-through and already tints the ground it hangs over; its shadow
+      // (tried 2026-10-05, 0.6 of a fair one) cost ~25-30 ms a frame on
+      // SwiftShader at 1280x800 -- the lobe loop runs for every terrain
+      // fragment -- for a second dark patch beside the cloud.
+      SM.Sky.cloudShadowUniforms(cloudNow, meshBounds, sun, cloudShadowData, cloudLobeFadeData);
+      cloudLobeCount = showSky ? SM.Sky.shadowLobeCount(cloudNow) : 0;
       cloudFadeData.fill(0);
       for (f = 0; f < cloudNow.length && f < SM.Sky.MAX_CLOUDS; f++) {
         cloudFadeData[f] = cloudNow[f].fade;
@@ -2014,13 +2014,12 @@
       if (!list.length) return;
       SM.Weather.cloudsAt(weatherBuilt, elapsedTime, weatherCentres);
       for (n = 0; n < list.length; n++) {
-        var e = weatherNow[n] || (weatherNow[n] = { x: 0, y: 0, z: 0, radius: 0, fade: 1, shadow: 1, lobes: null });
+        var e = weatherNow[n] || (weatherNow[n] = { x: 0, y: 0, z: 0, radius: 0, fade: 1, lobes: null });
         e.x = weatherCentres[n * 2] - gridSize[0] / 2;
         e.z = weatherCentres[n * 2 + 1] - gridSize[1] / 2;
         e.y = list[n].bottom * vScale + SM.Sky.CLOUD_LAYER * 0.5;
         e.radius = list[n].radius;
         e.fade = list[n].alpha;
-        e.shadow = SM.Weather.SHADOW;
         e.lobes = list[n].lobes;
       }
     }
@@ -2446,8 +2445,7 @@
       gl.uniform1i(U.shadowMap, 0);
       gl.uniform4fv(U.cloudLobes, cloudShadowData);
       gl.uniform1fv(U.cloudLobeFade, cloudLobeFadeData);
-      // Fair clouds only while the sky is on, weather clouds only while
-      // Rain & snow is on (updateClouds builds the list accordingly).
+      // Fair clouds only while the sky is on (updateClouds).
       gl.uniform1i(U.cloudLobeCount, debugView ? 0 : cloudLobeCount);
       gl.uniform1f(U.cloudShadow, cloudShadowStrength);
       gl.uniform1f(U.nightLight, debugView ? 0 : nightLight);
