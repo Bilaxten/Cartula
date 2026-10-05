@@ -27,7 +27,7 @@ const win = {};
 global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
-for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
+for (const f of ['noise.js', 'grid.js', 'biome.js', 'huts.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
@@ -428,7 +428,10 @@ function runMeshChecks() {
   // 123314: sea is one flat surface at level 0, depth drawn as colour.
   // 123314 → 124228: wave skirts (2026-10-05) -- a land column level with
   // the water and the plinth ring beside edge water each gain a skirt quad.
-  const triangleCount = mesh.triangleCount === 124228;
+  // 124228 → 124708: three huts (src/huts.js, 2026-10-05), 160 triangles
+  // each; the terrain itself is unchanged (124228 with grid.huts = []).
+  const triangleCount = mesh.triangleCount === 124708 &&
+    SM.buildVoxelMesh(Object.assign({}, a, { huts: [] })).triangleCount === 124228;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -2691,7 +2694,114 @@ function runWeatherChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--layout') {
+// ---------------------------------------------------------------------------
+// --huts : the fixed voxel hut (src/huts.js). Count range, every hut on a
+// valid footprint, spacing, determinism, the model itself, the mesh shell.
+// ---------------------------------------------------------------------------
+function runHutChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const Hu = SM.Huts;
+  const habit = new Set(Hu.HABITABLE.map(id => SM.BIOME_IDX[id]));
+  const sigs = [];
+
+  for (const [seed, size] of [[1337, 192], [4242, 192], [90210, 192], [7, 256], [2024, 128], [1337, 320]]) {
+    const g = run(seed, size, 0.38).grid;
+    const g2 = SM.generate({ seed, width: size, height: size, seaLevel: 0.38 });
+    const huts = g.huts;
+    const W = g.width;
+    let land = 0;
+    for (let i = 0; i < g.water.length; i++) if (!g.water[i]) land++;
+    const want = Math.max(Hu.MIN_HUTS, Math.min(Hu.MAX_HUTS, Math.round(land / Hu.LAND_PER_HUT)));
+    sigs.push(JSON.stringify(huts));
+    push(`seed ${seed} ${size}²: ${huts.length} huts for ${land} land tiles (want ${want}, ${Hu.MIN_HUTS}..${Hu.MAX_HUTS}); same seed -> same huts`,
+      huts.length === want && JSON.stringify(huts) === JSON.stringify(g2.huts), '');
+    const bad = [];
+    let nearWater = 0;
+    for (const h of huts) {
+      const why = [];
+      if (![0, 1, 2, 3].includes(h.rot)) why.push('rot');
+      if (Hu.fits(g, h.x, h.y, null) !== h.base) why.push('footprint');
+      const fl = [];
+      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) fl.push(g.level[(h.y + dy) * W + h.x + dx]);
+      if (Math.max(...fl) - Math.min(...fl) > 1 || Math.max(...fl) !== h.base) why.push('uneven');
+      for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 3; dx++) {
+        const i = (h.y + dy) * W + h.x + dx;
+        if (g.water[i] || g.lava[i] || !habit.has(g.biome[i])) why.push('cell ' + SM.BIOME_LIST[g.biome[i]].id);
+      }
+      for (let dy = -1; dy <= 3; dy++) for (let dx = -1; dx <= 3; dx++) {
+        if (Math.abs(g.level[(h.y + dy) * W + h.x + dx] - h.base) > 2) why.push('cliff');
+      }
+      for (const o of huts) {
+        if (o !== h && Math.hypot(o.x - h.x, o.y - h.y) < Hu.MIN_SPACING) why.push('spacing');
+      }
+      let water = false;
+      for (let dy = -Hu.NEAR_WATER; dy <= Hu.NEAR_WATER + 2 && !water; dy++) {
+        for (let dx = -Hu.NEAR_WATER; dx <= Hu.NEAR_WATER + 2; dx++) {
+          const x = h.x + dx, y = h.y + dy;
+          if (x >= 0 && y >= 0 && x < W && y < g.height && g.water[y * W + x]) { water = true; break; }
+        }
+      }
+      if (water) nearWater++;
+      // The model on this ground: nothing inside the terrain, posts reach it.
+      const vox = Hu.voxels(g, h);
+      for (const v of vox) if (v.level < g.level[v.y * W + v.x]) why.push('buried');
+      if (vox.filter(v => v.m === 'G').length !== 2 || vox.filter(v => v.m === 'D').length !== 1) why.push('model');
+      if (why.length) bad.push(`${h.x},${h.y}: ${[...new Set(why)].join(' ')}`);
+    }
+    push(`seed ${seed} ${size}²: every hut on dry habitable land, footprint within one level, no cliff edge, ` +
+      `>= ${Hu.MIN_SPACING} tiles apart, nothing buried; ${nearWater}/${huts.length} within ${Hu.NEAR_WATER} tiles of water`,
+      bad.length === 0 && nearWater * 2 >= huts.length, bad.slice(0, 3).join(' | '));
+  }
+  push('huts differ between seeds', new Set(sigs).size === sigs.length, '');
+
+  {
+    // The model: 4 posts, 9 floor, walls with a door in front and a window
+    // on each side, a 9-voxel roof and a plus-shaped peak; rotation keeps it.
+    const g = run(1337, 192, 0.38).grid;
+    const h = g.huts[0];
+    const count = m => Hu.MODEL.join('').split('').filter(c => c === m).length;
+    const shapes = [0, 1, 2, 3].map(rot => {
+      const v = Hu.voxels(g, Object.assign({}, h, { rot }));
+      return v.filter(q => q.level >= h.base).length;
+    });
+    const doorRow = Hu.MODEL[2][0].indexOf('D') === 1 && Hu.MODEL[2][1] === 'GWG';
+    push('model: 4 posts, 9 floor, door front-centre, a window on each side wall, 9 roof + 5 peak; all four rotations keep 36 voxels',
+      count('P') === 4 && count('F') === 9 && count('D') === 1 && count('G') === 2 && count('R') === 14 &&
+      doorRow && shapes.every(n => n === 36), shapes.join(','));
+    // Mesh shell: huts add faces, all inside their footprint, none on the
+    // terrain without huts.
+    const mesh = SM.buildVoxelMesh(g);
+    const bare = SM.buildVoxelMesh(Object.assign({}, g, { huts: [] }));
+    const extra = mesh.triangleCount - bare.triangleCount;
+    push(`mesh: the ${g.huts.length} huts add ${extra} triangles (a closed shell, <= 12 per voxel), terrain untouched`,
+      extra > 0 && extra % 2 === 0 && extra <= g.huts.length * 40 * 12 && bare.triangleCount === 124228, '');
+    // Top-down: the roof covers exactly the footprint.
+    let cover = 0, outside = 0;
+    for (let y = h.y - 2; y < h.y + 5; y++) for (let x = h.x - 2; x < h.x + 5; x++) {
+      const inside = x >= h.x && y >= h.y && x < h.x + 3 && y < h.y + 3;
+      const hit = Hu.at(g, x, y) === h;
+      if (inside && hit) cover++;
+      if (!inside && hit) outside++;
+    }
+    // A brush edit that breaks the footprint removes the hut (never floats).
+    const edited = Object.assign({}, g, { level: g.level.slice() });
+    edited.level[(h.y + 1) * g.width + h.x + 1] = h.base - 3;
+    push('top-down roof covers exactly the 3x3 footprint; a hut whose ground is edited away is not drawn',
+      cover === 9 && outside === 0 && Hu.voxels(edited, h).length === 0 && Hu.at(edited, h.x + 1, h.y + 1) === null, '');
+  }
+
+  console.log('hut checks:');
+  for (const [name, ok, detail] of results) {
+    console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+    if (!ok && detail) console.log(`         ${detail}`);
+  }
+  if (!results.every(r => r[1])) process.exitCode = 1;
+}
+
+if (process.argv[2] === '--huts') {
+  runHutChecks();
+} else if (process.argv[2] === '--layout') {
   runLayoutChecks();
 } else if (process.argv[2] === '--weather') {
   runWeatherChecks();

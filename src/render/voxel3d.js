@@ -741,6 +741,50 @@
     }
     cellTown = 0;
 
+    /* Huts (src/huts.js): whole voxels, one per tile and level, on the
+     * same grid as the terrain. Only the outer shell is emitted: a face
+     * against another voxel of the hut, against terrain that covers it
+     * entirely, or a bottom resting on the ground is never seen. */
+    var hutColor = SM.Huts ? SM.Huts.materials() : null;
+    var HUT_FACES = [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]];
+    (grid.huts || []).forEach(function (hut) {
+      var vox = hutColor ? SM.Huts.voxels(grid, hut) : [];
+      var filled = {};
+
+      vox.forEach(function (v) { filled[v.x + ',' + v.y + ',' + v.level] = 1; });
+      vox.forEach(function (v) {
+        for (var f = 0; f < 6; f++) {
+          var n = HUT_FACES[f];
+          var nx = v.x + n[0];
+          var ny = v.y + n[2];
+          if (filled[nx + ',' + ny + ',' + (v.level + n[1])]) continue;
+          if (n[1] < 0 && levelAt(v.x, v.y) >= v.level) continue;
+          if (n[1] === 0 && levelAt(nx, ny) >= v.level + 1) continue;
+          addHutFace(v, n, hutColor[v.m]);
+        }
+      });
+    });
+
+    function addHutFace(v, n, c) {
+      // Unit cube centred in its cell and level; (a, b) span the face with
+      // a x b = n, so the corner order below is CCW seen from outside.
+      var cx = v.x - W / 2 + 0.5;
+      var cy = v.level + 0.5;
+      var cz = v.y - H / 2 + 0.5;
+      var a = n[1] !== 0 || n[2] !== 0 ? [1, 0, 0] : [0, 1, 0];
+      var b = [n[1] * a[2] - n[2] * a[1], n[2] * a[0] - n[0] * a[2], n[0] * a[1] - n[1] * a[0]];
+      var corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+      var verts = [];
+      for (var k = 0; k < 4; k++) {
+        var u = corners[k][0];
+        var w = corners[k][1];
+        verts.push(cx + (n[0] + a[0] * u + b[0] * w) * 0.5,
+          cy + (n[1] + a[1] * u + b[1] * w) * 0.5,
+          cz + (n[2] + a[2] * u + b[2] * w) * 0.5);
+      }
+      addQuad(verts, n, c, [0, 0, 0, 0], v.x, v.y, 0, [0, 0, 0, 0], 0, [3, 3, 3, 3]);
+    }
+
     /* A one-cell charcoal ring follows the nearest map edge. Its exterior walls
      * always reach the base, while changed edge heights expose connecting walls. */
     for (y = -1; y <= H; y++) {

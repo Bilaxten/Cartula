@@ -55,6 +55,8 @@ değil, kurallı:
    etiketlenir (`SM.tagWaterfalls`, `grid.js`; editör her fırça/undo sonrası
    yeniden etiketler)
 9. **yerleşimler** — düz, ılıman, tatlı suya yakın alanlar (topdown'da çizilir)
+10. **kulübeler** (8c, `src/huts.js`) — son kademelerden sonra, iyi yerlere
+    birkaç sabit voxel kulübe (`grid.huts`; ayrıntı aşağıda *Kulübeler*)
 
 `decorations` bayrağı (varsayılan **kapalı**) yol / fantezi etiket
 pass'lerini açar — **hiçbir renderer bunları çizmiyor**, o yüzden varsayılan
@@ -304,6 +306,22 @@ dönüyordu). `--wind` çizilen çizgilerin en keskin bükümünü ölçer
 — zaman 1/12 s'ye kuantize, çizgi entegrasyon noktaları arasında kesirli
 adımla kayar (önceden baş tam adım atlıyordu: saniyede 4.8); hâlâ zamanın
 saf fonksiyonu, hâlâ "kare kare" bir el animasyonu görünümü.
+
+**Kulübeler** (2026-10-05, Uğur: *"sabit bir hut şeklinde ev yapalım ... minecrafttaki
+witch hut gibi ... voxelleri kullan voxelleri bölme"*): tek, sabit bir model
+(`src/huts.js`): 3×3 tile, 5 kademe, kazıklar üstünde; kat 0 köşe kazıkları,
+1 döşeme, 2 duvarlar (önde kapı, iki yan duvarda birer pencere), 3 çatı, 4 artı
+şeklinde tepe. Her voxel bir harita voxel'i (tile × kademe), bölünmez. Renkler
+paletten: kazık/kapı koyu mesa, tahta mesa, çatı volkanik kaya, cam gündüz derin
+deniz mavisi. Yerleşim üretim hattının 8c pass'i (son kademelerden sonra):
+3×3 kuru, yaşanabilir biyom (çayır, ova, çalılık, orman, bataklık, yağmur
+ormanı, savan, yerleşim), lav yok, ayak izi içinde en çok 1 kademe fark, 5×5
+çevrede en çok 2 (uçurum kenarı değil); 6 tile içinde su olan yer güçlü, yerleşim
+yakını hafif tercih; ~8000 kara tile başına bir kulübe, 3-12 arası, en az 24
+tile aralık; seed'li döndürme (kapı yönü). Kazık kendi zemini bir kademe
+alçaksa bir voxel aşağı uzar. Fırçayla zemini bozulan kulübe çizilmez (havada
+kalmaz). Üstten görünümde ayak izi çatı renginde. Mesh'e kabuk olarak eklenir
+(kulübe başına 160 üçgen); `--huts` denetler.
 
 **Yağmur ve kar** (2026-10-05; View → *Rain & snow*, varsayılan açık):
 harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,

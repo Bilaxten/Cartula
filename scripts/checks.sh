@@ -90,7 +90,7 @@ else
     # --wind: rüzgâr alanı araziye uyuyor mu; çizgiler sınırlı, haritada, zeminin üstünde.
     # --weather: kar yalnız soğuk biyomda, çölde hiçbir şey; sınırlı, seed'e bağlı.
     # --layout: ☰ panel (buton, durum, erişilebilirlik), telefon düzeni, dokunmatik gezinme.
-    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout; do
+    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout --huts; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else
