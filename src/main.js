@@ -2088,7 +2088,13 @@
   applyQueryString();
   Object.keys(SLIDERS).forEach(function (id) {
     var input = $(id);
-    if (input.type === 'range') { paintRange(input); $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value); }
+    if (input.type === 'range') {
+      paintRange(input);
+      // A missing label must never stop init: regenerate() below draws the map (one unreproduced
+      // null here, 2026-10-05).
+      var lab = $(SLIDERS[id].label);
+      if (lab) lab.textContent = SLIDERS[id].fmt(input.value);
+    }
   });
   $('worldType').value = matchWorldType();
   buildLegend();
