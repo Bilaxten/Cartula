@@ -2,9 +2,11 @@
  *
  * Owner-approved (2026-10-06). Driven by *Time of day* alone (`amount`):
  * thickest at dawn, thinning through the morning, gone by late morning and
- * all afternoon, faint again from dusk, building through the night toward
- * the next dawn. Never a property of the map: the slider changes nothing
- * but this one number.
+ * all afternoon, faint again at dusk, gone again by 22:00, rising from
+ * 2:30 toward the next dawn. Never a property of the map: the slider
+ * changes nothing but this one number. The dark hours are fog-free on
+ * purpose: fog there is invisible under the night grade and its shader
+ * variant cost ~5 ms a frame on SwiftShader (measured 2026-10-06).
  *
  * Where (`field`, per map, data only): a fog SURFACE per tile -- the
  * terrain around it (a wide box blur, sea counted at its surface 0) less
@@ -46,11 +48,12 @@
    * dragging the slider never pops the fog in or out. */
   function amount(hour) {
     var h = ((+hour % 24) + 24) % 24;
-    if (h < 6) return DUSK + (1 - DUSK) * smooth(1, 5.5, h);    // builds toward dawn
+    if (h < 6) return smooth(2.5, 5.5, h);                        // rises toward dawn
     if (h < 8) return 1;                                          // dawn
     if (h < 12) return 1 - smooth(8, 11, h);                      // burns off
     if (h < 16.5) return 0;                                       // afternoon: none
-    return DUSK * smooth(16.5, 19.5, h);                          // evening
+    if (h < 19.5) return DUSK * smooth(16.5, 19.5, h);            // dusk
+    return DUSK * (1 - smooth(19.5, 22, h));                      // gone by 22:00
   }
 
   function blur(src, W, H, r) {

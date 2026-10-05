@@ -2617,7 +2617,25 @@ function runSmokeChecks() {
   push(`each plume's wind is the wind lines' field at its vent (${windBad} wrong)`, windBad === 0);
   push(`every puff rises (${riseBad} wrong) and bends downwind (${bendBad} wrong)`, riseBad === 0 && bendBad === 0);
   push(`a puff is born small and has shrunk to nothing by the end of its life: no pop at the wrap (${endBad} wrong)`, endBad === 0);
-  push(`nothing past the map edge: a puff ${S.EDGE} tiles out has no size (${edgeBad} samples)`, edgeBad === 0);
+  {
+    // A vent right at the west edge with the wind blowing off the map:
+    // its puffs must shrink to nothing past EDGE.
+    const g = SM.generate({ seed: 1337, width: 128, height: 128 });
+    const b = S.build(g, null);
+    if (b.vents.length) {
+      b.vents[0].x = 1.5;
+      b.vents[0].wind = [-1.2, 0];
+      let past = 0;
+      for (let k = 0; k < S.PUFFS; k++) {
+        for (let t = 0; t < S.LIFE * 2; t += 0.1) {
+          S.puffAt(b, 0, k, t, p);
+          if (-p.x >= S.EDGE) { past++; if (p.size > 0) edgeBad++; }
+        }
+      }
+      if (past < 50) edgeBad++;
+    } else edgeBad++;
+  }
+  push(`nothing past the map edge: a puff ${S.EDGE} tiles out has no size, even blown off the map (${edgeBad} samples)`, edgeBad === 0);
   push(`no puff reaches above the framed sky (SM.Sky.ceiling) at height scale 0.6-3 (closest ${worstTop.toFixed(2)})`,
     ceilBad === 0);
   {
@@ -2658,10 +2676,12 @@ function runFogChecks() {
       jump = Math.max(jump, Math.abs(F.amount(h + 0.01) - F.amount(h)));
       if (h >= 12 && h <= 16.5) afternoon = Math.max(afternoon, F.amount(h));
     }
+    let night = 0;
+    for (let h = 22; h <= 26.5; h += 0.01) night = Math.max(night, F.amount(h));
     push(`fog by the clock: full at dawn (6:00-8:00), thinning to none by 12:00, none all afternoon, ` +
-      `faint (${F.DUSK}) from dusk, continuous (largest step per 0.6 min ${jump.toFixed(4)}), wraps at midnight`,
+      `faint (${F.DUSK}) at dusk, none 22:00-2:30, continuous (largest step per 0.6 min ${jump.toFixed(4)}), wraps at midnight`,
       F.amount(6) === 1 && F.amount(7.5) === 1 && F.amount(9.5) > 0.2 && F.amount(9.5) < 0.8 && afternoon === 0 &&
-      Math.abs(F.amount(19.5) - F.DUSK) < 1e-9 && F.amount(22) <= F.DUSK + 1e-9 && jump < 0.01 &&
+      Math.abs(F.amount(19.5) - F.DUSK) < 1e-9 && night === 0 && F.amount(4) > 0.2 && jump < 0.01 &&
       Math.abs(F.amount(24) - F.amount(0)) < 1e-9 && Math.abs(F.amount(29.5) - F.amount(5.5)) < 1e-9);
   }
   let seaBad = 0, ridgeBad = 0, valleyN = 0, valleyFog = 0, ridgeN = 0, foggy = 0, land = 0;
