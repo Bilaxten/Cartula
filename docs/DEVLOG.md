@@ -1,5 +1,71 @@
 # DEVLOG
 
+## 2026-10-05 — Kulübeler, lavın ışığı, bulutlardan yağan yağmur, akan rüzgâr
+
+**Ne yapıldı:** Uğur yeni özelliklere kendi PC'sinde baktı ve dört şey
+istedi, sonra bir beşinci: lav neden parlamıyor; yağmur ve kar yarı saydam
+bulutlardan yağsın; rüzgâr hızlıysa uzun, yavaşsa kısa çizgi olsun, ani
+dönmesin, animasyonu bir tık sıklaşsın; ve "ev koymuyoruz ki niye
+parlamalar var": yerleşim tile'larındaki pencere ışıkları gitsin, yerine
+voxellerden yapılmış sabit bir kulübe gelsin, onun penceresi parlasın.
+Commit'ler: rüzgâr (`b63070b`), kulübeler (`7bc509d`), gece ışıkları
+(`d959a4c`), bulutlu yağmur/kar (`38aa281`), hava bulutu gölgesi kalktı
+(`e0355b6`).
+
+**Neden bu yaklaşım:** Rüzgârda "ani dönüş" bir ölçüye çevrildi: çizilen
+her çizginin ardışık iki parçası arasındaki açı bölü uzunluk. Eski kodda bu
+1100°/tile'ı geçiyordu; çoğu harita kenarında kenar boyunca kayan
+çizgilerden ve alanın tek hücrelik kırıklarından. Çözüm üç katman: alan
+daha geniş yumuşatıldı, entegrasyon tile başına en çok 14° dönebiliyor
+(alan ne yaparsa yapsın) ve çizilen noktalar iki kez yumuşatılıyor; kenarda
+yol bitiyor. Uzunluk zaten hıza bağlıydı ama hız alanı dardı (çoğu 0.5-0.7);
+şimdi çizgi yolunun sabit bir zaman penceresini kaplıyor ve hız alanı vadi
+tabanı, yamaç ve seed'li geniş esinti bölgeleriyle 0.32-1.35 arası. "Bir tık
+fazla kare" için baş artık tam adım atlamıyor: zaman 1/12 s'ye kuantize,
+çizgi entegrasyon noktaları arasında kesirli kayıyor (4.8 → 12 güncelleme/s),
+hâlâ zamanın saf fonksiyonu.
+
+Lav gece aslında ışıyordu ama ışıması gece renk düzeltmesinin İÇİNDE
+kalıyordu; düzeltme onu karartıyordu, bloom ise yalnız yerleşimi görüyordu.
+Gece varyantında lav ışığı düzeltmeden sonra ekleniyor ve bloom'a giriyor.
+Bloom kaynağının kamera durunca yeniden kullanılması korunmak istendi; lav
+nabzı zamanla değiştiği için kaynak renk yerine miktar yazıyor: R pencere,
+G lav, B/A lav × nabız fazının cos/sin'i. Bulanıklaştırma doğrusal olduğundan
+birleştirme sin(wt+φ) = sin wt·cos φ + cos wt·sin φ ile her tile'ın nabzını
+bulanık kanallardan geri kuruyor; 8 bit saklamayla hata 0.002.
+
+Kulübe tek bir sabit model (3×3, 5 kat, kazıklı); her parçası bir harita
+voxel'i. Yerleşim üretim hattının son pass'i: son kademeler belli olduktan
+sonra, düz, kuru, yaşanabilir, suya yakın yerler; seed'li. Mesh'e yalnız dış
+kabuk giriyor; pencere voksellerinin dış yüzü ışık bayrağını taşıyor, yani
+gece pencere varyantı yalnız 12 üçgen çiziyor.
+
+Yağmur bulutunda asıl soru bulut hareket edince ne olacağıydı. Açık hava
+bulutları haritayı geçiyor; bir kar bulutu aynı şeyi yapsa çöle giderdi.
+Hava bulutları yerinde, yavaşça salınıyor; parçacıklar buluta göre
+konumlanıyor ve altlarındaki zemini ve ne yağacağını küçük bir dokudan
+okuyorlar, böylece bulut nereye kayarsa yağmur oradan, doğru zemine düşüyor.
+Bulut, gölgesi ve yağmuru tek bir `cloudsAt` çağrısından besleniyor.
+
+**Dikkat çeken:** Hava bulutuna açık bir gölge verildi, sonra sayfa içinde
+aç/kapa ile ölçüldü: SwiftShader'da kare başına ~25-30 ms. Sebep arazi
+shader'ının bulut lob döngüsü: her fragmanda koşuyor ve lob sayısı ~12'den
+~19'a çıkmıştı. Bulut zaten saydam ve altını tonluyor; gölge kaldırıldı.
+Ölçümler gürültülü (aynı makinede başka işler de vardı); bu yüzden önce/sonra
+sayfaları dönüşümlü ve birden çok tur ölçüldü, maliyet kararları sayfa içi
+aç/kapa ile verildi.
+
+**Doğrulama:** her commit'te `bash scripts/checks.sh` → temiz. `--wind`'e
+büküm, uzunluk-hız ilişkisi ve güncelleme hızı; yeni `--huts`; `--night`
+(bayrak yalnız kulübe pencerelerinde, hiçbir yerleşim tile'ında değil, lav
+ışıması yalnız lavda, fazör geri kurma hatası); `--weather` yeniden yazıldı.
+Her yeni kontrol bilerek bozulup kırmızı görüldü. Headless Edge (SwiftShader,
+CDP, elle adımlanan saat): önce/sonra kare dizileri, gece/gündüz yakın
+çekimler, üstten kulübe, telefon düzeni.
+
+**Açık:** gerçek GPU ve telefon; rüzgârın 12 Hz'te gözle hissi; hava
+bulutlarının yoğunluğu/opaklığı ve kulübe renkleri Uğur'un gözüne kalmış.
+
 ## 2026-10-05 — Telefon: harita önce, iki parmak zoom, ☰ panel
 
 **Ne yapıldı:** Uğur telefonda canlı siteye baktı: kötü görünüyor, zoom

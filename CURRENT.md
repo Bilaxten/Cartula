@@ -11,7 +11,62 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — telefon: düzen, dokunmatik zoom, ☰ panel (2026-10-05)
+## Bu oturum — kulübeler, lav ışığı, bulutlu yağmur, rüzgâr akışı (2026-10-05)
+
+Uğur kendi PC'sinde yeni özelliklere baktı: *"bu parlamalar ne ve neden
+lavlar parlamıyor? yağmur ve kar yarı saydam bulutlardan yağsın. rüzgarı da
+hızına göre ... ani dönüşler yapmasın ... animasyon hızını bir tık
+arttırabiliriz"*; ardından *"biz ev koymuyoruz ki niye parlamalar var? sabit
+bir hut şeklinde ev yapalım ... minecrafttaki witch hut gibi ... voxelleri
+bölme"*. Kulübe tasarımı (3×3, 5 kat, kazıklı) ana oturumda kararlaştırıldı,
+birebir uygulandı. Altı commit, hepsi push'landı:
+
+1. **Rüzgâr** (`b63070b`): uzunluk = yerel hız × sabit zaman penceresi (hız
+   alanı 0.32-1.35, uzunlar kısaların ~3 katı); alan daha geniş yumuşatıldı,
+   yol tile başına en çok 14° döner, çizgi iki kez [1 2 1]; kenarda yol durur
+   ve söner; saniyede 4.8 yerine 12 güncelleme (zaman 1/12 s'ye kuantize,
+   noktalar arası kesirli adım). `--wind` en keskin bükümü ölçer: 14.7°/tile
+   (sınır 18; eski kod 1100+).
+2. **Kulübeler** (`7bc509d`): `src/huts.js`, pass 8c; ~8000 kara tile başına
+   bir, 3-12, en az 24 tile ara, suya yakın tercih, seed'li dönüş. Mesh'e kabuk
+   (kulübe başına 160 üçgen), üstten görünümde çatı rengi. Yeni `--huts`.
+   Mesh tabanı 124228 → 124708 (arazi aynı).
+3. **Gece ışıkları** (`d959a4c`): yerleşim tile'larındaki pencere noktaları
+   kalktı; yalnız kulübe pencere voksellerinin dış yüzü yanar. Lav gece
+   düzeltmesinden SONRA 1.3× eklenir ve bloom'a girer; bloom kaynağı miktar
+   yazar (R pencere, G lav, B/A lav nabız fazörü), kaynak zamandan bağımsız
+   kaldığı için kamera durunca önbellek hâlâ çalışır. Gündüz shader'ı aynı
+   (yorumlar hariç birebir, karşılaştırıldı).
+4. **Yağmur/kar bulutları** (`38aa281`): her bölgeye bir yarı saydam bulut
+   (yağmur 0.58, kar 0.48; kar beyazı → kaya grisi karışımı), parçacıklar
+   bulutun altından, lobları içinde; bulut x'te yavaşça salınır, yağmur onunla
+   gider (zemin seviyesi + ne yağar küçük bir dokudan). `--weather` yeniden.
+5. **Hava bulutu gölgesi kaldırıldı** (`e0355b6`): 0.6 güçte gölge
+   SwiftShader'da kare başına ~25-30 ms yiyordu.
+6. Belgeler (bu commit).
+
+**Kararlar (Uğur değiştirmek isteyebilir):** hava bulutu gölge düşürmez;
+hava bulutları haritayı geçmez, ±%25 yarıçap salınır (kar bulutu çöle
+gitmesin); kulübe yaşanabilir biyomları: çayır, ova, çalılık, orman,
+bataklık, yağmur ormanı, savan, yerleşim (tayga yok); renkler: kazık/kapı
+koyu mesa, tahta mesa, çatı volkanik kaya, cam derin deniz; lav gece 1.3×,
+lav bloom 1.8; rüzgâr 12 Hz (tam akıcı değil, "kare kare" görünüm korunsun
+diye; varsayılan zoom'da adım ~0.4 px, yakın zoom'da ~2 px).
+
+**Ölçüm (SwiftShader, 1280×800, seed 1337, 320²; gürültü ±10-15 ms):**
+GPU kare süresi önce/sonra dönüşümlü: gündüz sabit 156/154, 189/185 ms;
+gece sabit 181/192, 190/200 ms; dönen kamera gündüz 185/162, 153/155,
+154/155 ms; gece 197/199, 202/205, 203/200 ms. Sayfa içi aç/kapa: *Rain &
+snow* açık, kapalıya göre +11-15 ms (önceden +1-11). Çizim çağrısı gündüz
+6 → 12 (hava bulutu başına 2), üçgen 362k → 371k.
+
+**Kapsamadığı:** gerçek GPU, gerçek telefon, Firefox/Safari; rüzgârın 12 Hz
+akarken gözle hissi (yalnız sayısal: saniyede 11.9 güncelleme; kare
+dizisinde çizgiler bu ölçekte zor seçiliyor); kulübenin fırça düzenlemesiyle
+etkileşimi yalnız headless (`--huts`: zemini bozulan kulübe çizilmez).
+Yayınlanmadı: `publish-site.sh` koşulmadı.
+
+## Önceki oturum — telefon: düzen, dokunmatik zoom, ☰ panel (2026-10-05)
 
 Uğur'un isteği (telefonda canlı siteye baktı): *"cartula mobilde hem kötü
 gözüküyor hem de zoom kötü çalışıyor … 3 çizgi şeklinde yan paneli
