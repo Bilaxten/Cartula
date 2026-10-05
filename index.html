@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title data-i18n="app.title">Cartula</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
 <script>
@@ -258,6 +258,9 @@
       </div>
     </footer>
   </aside>
+  <!-- Phone layout only (style.css, compact block): the dimmed map beside
+       the open drawer; a tap on it closes the panel. -->
+  <div id="panelScrim" aria-hidden="true"></div>
 
   <main id="stage">
     <div id="hover" data-i18n-js></div>

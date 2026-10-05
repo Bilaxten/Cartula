@@ -1753,6 +1753,16 @@
     if (!open && focusInPanel) panelToggle.focus();
   }
   panelToggle.addEventListener('click', function () { setPanel(!panelOpen(), true); });
+  // On a compact screen the open panel is a drawer over the map, i.e. a
+  // popup: a tap beside it or Esc closes it (Uğur's rule: one open at a time,
+  // Esc / outside click closes). A docked desktop panel is not a popup and
+  // ignores both.
+  $('panelScrim').addEventListener('click', function () { setPanel(false, true); });
+  window.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' || !isCompact() || !panelOpen()) return;
+    setPanel(false, true);
+    panelToggle.focus();
+  });
   syncPanelToggle();
 
   /* Page pinch-zoom (allowed on the panel, for accessibility) scales and

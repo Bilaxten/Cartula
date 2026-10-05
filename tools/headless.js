@@ -2467,6 +2467,49 @@ function runLayoutChecks() {
     /new ResizeObserver\(onStageResize\)\.observe\(stage\)/.test(main) &&
     /voxelRenderer\.resize\(w, h, window\.devicePixelRatio \|\| 1\);\s*voxelRenderer\.render\(\);/.test(main), '');
 
+  // 6) Phone layout. Until 2026-10-05 there was none: the 312 px panel stayed
+  //    docked and a 390 px phone kept 78 px for the map (48 px at 360).
+  {
+    const inCompact = sel => cssRules(css, sel).filter(r => r.media === '@media ' + COMPACT);
+    const pan = inCompact(/^#panel$/);
+    push('compact screens: the panel is a fixed drawer over the map, so the map keeps the full width (78 px of 390 before)',
+      pan.length === 1 && /position:\s*fixed/.test(pan[0].body) && /left:\s*0/.test(pan[0].body) &&
+      /width:\s*min\(/.test(pan[0].body), pan.length ? '' : 'no #panel rule inside @media ' + COMPACT);
+    const meta = (html.match(/<meta name="viewport" content="([^"]+)"/) || [])[1] || '';
+    push('viewport: device width, viewport-fit=cover (safe areas), page zoom NOT disabled (accessibility)',
+      /width=device-width/.test(meta) && /viewport-fit=cover/.test(meta) &&
+      !/user-scalable\s*=\s*(no|0)/.test(meta) && !/maximum-scale/.test(meta), meta);
+    push('#app is as tall as the visible screen (100dvh, 100vh fallback first)',
+      cssRules(css, /^#app$/).some(r => /height:\s*100vh;\s*height:\s*100dvh/.test(r.body)), '');
+    // Every control on a compact screen is at least 44 px for a thumb.
+    const need = [
+      [/^#panelToggle$/, /width:\s*44px/, /height:\s*44px/],
+      [/#panel button,/, /min-height:\s*44px/],
+      [/#panel \.seg button/, /min-height:\s*44px/],
+      [/#panel \.lang-switch button/, /min-width:\s*44px/, /min-height:\s*44px/],
+      [/#panel #themeToggle,/, /width:\s*44px/, /height:\s*44px/],
+      [/#panel input\[type=number\],/, /min-height:\s*44px/, /font-size:\s*16px/],
+      [/#panel input\[type=range\],\s*#yawControl input\[type=range\]$/, /height:\s*44px/],
+      [/#panel label\.check$/, /min-height:\s*44px/],
+      [/details\.group > summary$/, /min-height:\s*(4[4-9]|[5-9]\d)px/],
+      [/^#autoRotateBtn, #centerViewBtn$/, /width:\s*44px/, /height:\s*44px/]
+    ];
+    const miss = need.filter(([sel, ...props]) => {
+      const rules = inCompact(sel);
+      return !rules.some(r => props.every(re => re.test(r.body)));
+    }).map(([sel]) => String(sel));
+    push('compact screens: ☰, buttons, tabs, TR/EN, inputs, sliders, checkboxes, group headers and chip buttons are >= 44 px; inputs 16 px (no iOS focus zoom)',
+      miss.length === 0, miss.join(' | '));
+    const safe = ['#panelToggle', '#brand', '#tools', '#yawControl'].filter(id =>
+      !inCompact(new RegExp('^' + id.replace(/[#]/g, '\\#') + '$')).some(r => /env\(safe-area-inset-/.test(r.body)));
+    push('compact screens keep the ☰, header, footer and angle chip clear of notches / the home bar (safe-area insets)',
+      safe.length === 0, safe.join(', '));
+    push('the open drawer is a popup: a tap on the scrim or Esc closes it (compact only)',
+      /id="panelScrim"/.test(html) &&
+      /\$\('panelScrim'\)\.addEventListener\('click', function \(\) \{ setPanel\(false, true\); \}\)/.test(main) &&
+      /ev\.key !== 'Escape' \|\| !isCompact\(\) \|\| !panelOpen\(\)/.test(main), '');
+  }
+
   console.log('layout checks (panel, phone, touch):');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);

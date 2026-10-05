@@ -78,7 +78,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-#app { display: flex; height: 100vh; }
+#app { display: flex; height: 100vh; height: 100dvh; }
 
 /* Panel */
 #panel {
@@ -111,7 +111,7 @@ body {
   align-items: center;
   column-gap: 9px;
   row-gap: 1px;
-  padding: 18px 19px 18px 15px;
+  padding: 18px 19px 18.25px 15px; /* 88.75 px tall, as before the ☰ */
   border-bottom: 1px solid var(--line-soft);
 }
 #brand > div { display: contents; }
@@ -171,9 +171,6 @@ body {
 }
 :root[data-panel="collapsed"] #panelToggle:focus-visible {
   box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 8px var(--card-shadow);
-}
-@media (prefers-reduced-motion: reduce) {
-  #panel, #panelToggle { transition: none; }
 }
 #panel #themeToggle,
 #panel #stageToggle {
@@ -715,3 +712,138 @@ body.iso #hover { display: none; }
 #perfPanel .perf-row { display: flex; gap: 10px; }
 #perfPanel .perf-row span:first-child { flex: 0 0 74px; color: var(--stage-hint); }
 #perfPanel .perf-note { margin-top: 3px; color: var(--stage-hint); }
+
+/* ---------- Compact screens: phones, portrait and landscape ----------
+ * Same media query as COMPACT_QUERY in src/main.js and the panel state
+ * script in index.html. Until 2026-10-05 there was no phone layout: the
+ * 312 px panel stayed docked and a 390 px phone kept 78 px for the map
+ * (48 px at 360). Here the map takes the whole screen and the panel is a
+ * drawer over it, opened and closed by the ☰ button; a tap on the dimmed
+ * map beside it or Esc closes it. Every control is at least 44 px for a
+ * thumb; inputs use 16 px text so iOS does not zoom the page on focus;
+ * notches and the home bar are kept clear with the safe-area insets. */
+#panelScrim { display: none; }
+@media (max-width: 700px), (max-height: 500px) {
+  #panel {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    width: min(340px, calc(100% - 48px));
+    padding-left: env(safe-area-inset-left, 0px);
+    box-shadow: 0 0 28px var(--card-shadow);
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+  }
+  :root[data-panel="collapsed"] #panel {
+    margin-left: 0;
+    transform: translateX(calc(-100% - 32px));
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+  #panelScrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    background: var(--card-shadow);
+    touch-action: none;
+    transition: opacity 0.2s ease, visibility 0s linear 0s;
+  }
+  :root[data-panel="collapsed"] #panelScrim {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  #panelToggle {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: calc(env(safe-area-inset-left, 0px) + 12px);
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius);
+  }
+
+  /* Header: ☰, logo and name on top, the TR / EN and theme buttons on a
+   * second row, so each button can be 44 px wide. */
+  #brand {
+    grid-template-columns: 44px 30px minmax(0, 1fr) auto auto auto;
+    grid-template-rows: 22px 22px auto;
+    grid-template-areas:
+      "menu logo title title title title"
+      "menu logo tag   tag   tag   tag"
+      ".    .    .     lang  stage theme";
+    column-gap: 8px;
+    row-gap: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px 6px;
+  }
+  #brand .mark { width: 30px; height: 30px; }
+  #brand h1 { align-self: end; }
+  #brand .tag { align-self: start; }
+  #panel #themeToggle,
+  #panel #stageToggle { width: 44px; height: 44px; margin: 0; }
+  .lang-switch { margin-right: 0; }
+  #panel .lang-switch button { min-width: 44px; min-height: 44px; }
+
+  .seg { margin: 10px 12px 6px; }
+  #panel .seg button { min-height: 44px; }
+
+  .scroll { overscroll-behavior: contain; }
+  details.group > summary { min-height: 48px; padding: 0 16px; }
+  details.group .body { padding: 0 16px 14px; }
+  #panel label { margin: 8px 0 0; }
+  #panel label:first-child { margin-top: 2px; }
+  #panel label.check { min-height: 44px; align-items: center; margin: 0; }
+  #panel label.check input { width: 20px; height: 20px; }
+  #panel input[type=number],
+  #panel select { min-height: 44px; font-size: 16px; }
+  #panel input[type=range],
+  #yawControl input[type=range] { height: 44px; }
+  #panel input[type=range]::-webkit-slider-thumb,
+  #yawControl input[type=range]::-webkit-slider-thumb { width: 24px; height: 24px; margin-top: -9px; }
+  #panel input[type=range]::-moz-range-thumb,
+  #yawControl input[type=range]::-moz-range-thumb { width: 24px; height: 24px; }
+  #panel button,
+  #tools .toolrow button { min-height: 44px; }
+  .gen-actions { margin: 10px 12px; }
+  #tools { padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 12px); }
+
+  /* Stage overlays: the angle chip with 44 px buttons, the hint centred
+   * above it, the hover card beside the ☰ button. */
+  #yawControl {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    width: min(340px, calc(100% - 24px));
+    gap: 6px;
+    padding: 4px 6px;
+  }
+  #autoRotateBtn, #centerViewBtn { width: 44px; height: 44px; border-radius: var(--radius); }
+  #autoRotateBtn svg, #centerViewBtn svg { width: 18px; height: 18px; }
+  #isohint,
+  body.iso #isohint {
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    width: max-content;
+    max-width: calc(100% - 32px);
+    text-align: center;
+    transform: translateX(-50%);
+  }
+  body.iso #isohint { bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); }
+  :root[data-panel] #hover {
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: calc(env(safe-area-inset-left, 0px) + 66px);
+    flex-wrap: wrap;
+    max-width: calc(100% - 78px);
+  }
+  #perfPanel { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+}
+/* Landscape phone: too short for a header, a scrolling middle and a footer,
+ * so the whole drawer scrolls as one. */
+@media (max-height: 500px) {
+  #panel { overflow-y: auto; overscroll-behavior: contain; }
+  #panel .scroll { flex: none; overflow: visible; }
+}
+/* Last in the file so it wins over the collapsed and compact rules. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-panel] #panel,
+  :root[data-panel] #panelToggle,
+  :root[data-panel] #panelScrim { transition: none; }
+}

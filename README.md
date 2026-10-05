@@ -148,6 +148,22 @@ kayarken harita ortasını ve ekrandaki ölçeğini korur; WebGL karesi
 `ResizeObserver` içinde aynı karede yeniden boyutlanıp çizilir (boş ya da
 gerilmiş kare yok). `node tools/headless.js --layout`.
 
+**Telefon düzeni** (Uğur 2026-10-05: *"mobilde kötü gözüküyor"*). Önceden
+telefon düzeni hiç yoktu: 312 px panel yerinde durdu, 390 px telefonda haritaya
+78 px kaldı (360 px'te 48 px), açı çipi 36 px'e ezilip ekrandan taştı.
+Şimdi **kompakt ekranda** (`(max-width: 700px), (max-height: 500px)`; aynı
+sorgu `index.html`, `main.js` `COMPACT_QUERY` ve `style.css`'te) harita bütün
+ekranı alır, panel üstüne açılan bir çekmecedir (`min(340px, %100 − 48px)`):
+yanındaki karartılmış haritaya dokunmak ya da Esc kapatır (açılır pencere
+kuralı; masaüstündeki sabit panel açılır pencere değil, ikisini de yok sayar).
+Her kontrol en az 44 px (☰, sekmeler, TR/EN, düğmeler, giriş alanları,
+slider'lar, kutucuklar, grup başlıkları, çip düğmeleri); giriş alanları 16 px
+yazı (iOS odakta sayfayı büyütmesin); çentik ve ev çubuğu için `safe-area`
+boşlukları (`viewport-fit=cover`); yükseklik `100dvh` (adres çubuğu). Yatay
+telefonda çekmecenin tamamı tek parça kayar. Masaüstü görünümü aynı kaldı:
+başlık dışında piksel piksel aynı (başlık yüksekliği 88.75 px korundu).
+`--layout` bu düzeni de denetler (kompakt blok silinince kırmızı).
+
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
 çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,
