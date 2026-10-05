@@ -6,6 +6,15 @@
   // A neutral rim makes the generated island read as a finished diorama.
   var BORD = [70, 80, 92];
 
+  /* How far an animated water surface sinks below its rest level, in voxel
+   * levels (before uVScale). The wave only ever DIPS: its crest is the rest
+   * level every other face is built against. Every wall that meets a water
+   * surface reaches this far below it (a skirt), so the surface can never
+   * drop out from under a neighbour and open a see-through slit -- the slit
+   * showed the clear colour as a black sliver at cliff bases (2026-10-05).
+   * The vertex shader and the --mesh harness read this same number. */
+  var WAVE_DIP = 0.072;
+
   function wrapYaw(yaw) {
     // A compact 0..359 range keeps camera state and shared links canonical.
     return ((+yaw % 360) + 360) % 360;
@@ -196,7 +205,9 @@
       cellUV.push((Math.max(0, Math.min(H - 1, cellY)) + 0.5) / H);
       // A scalar keeps lava emission independent from daylight in the shader.
       emissive.push(glow);
-      // Water moves only on its top face; shore weight softens its edge motion.
+      // 1 = this vertex rides the water surface: every vertex of a water top
+      // face, and the UPPER edge of a water tile's own walls so the wall's
+      // rim follows the surface instead of poking above it.
       water.push(waterTop);
       shore.push(shoreWeight);
       // AO remains a discrete 0..3 visibility count until fragment lighting.
@@ -230,25 +241,26 @@
       var base = pos.length / 3;
 
       // Duplicating the four vertices lets adjacent faces retain hard normals.
+      // waterTop is per vertex (a wall rides the surface only at its rim).
       addVertex(
         vertices[0], vertices[1], vertices[2],
         normal[0], normal[1], normal[2], faceColor, sideDepth[0],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[0], fallFlag
+        cellX, cellY, glow, waterTop[0], shoreWeight, vertexAo[0], fallFlag
       );
       addVertex(
         vertices[3], vertices[4], vertices[5],
         normal[0], normal[1], normal[2], faceColor, sideDepth[1],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[1], fallFlag
+        cellX, cellY, glow, waterTop[1], shoreWeight, vertexAo[1], fallFlag
       );
       addVertex(
         vertices[6], vertices[7], vertices[8],
         normal[0], normal[1], normal[2], faceColor, sideDepth[2],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[2], fallFlag
+        cellX, cellY, glow, waterTop[2], shoreWeight, vertexAo[2], fallFlag
       );
       addVertex(
         vertices[9], vertices[10], vertices[11],
         normal[0], normal[1], normal[2], faceColor, sideDepth[3],
-        cellX, cellY, glow, waterTop, shoreWeight, vertexAo[3], fallFlag
+        cellX, cellY, glow, waterTop[3], shoreWeight, vertexAo[3], fallFlag
       );
       if (shouldFlipVoxelQuad(vertexAo[0], vertexAo[1], vertexAo[2], vertexAo[3])) {
         indices.push(base, base + 1, base + 3);
@@ -383,13 +395,16 @@
         x,
         y,
         glow,
-        waterTop,
+        [waterTop, waterTop, waterTop, waterTop],
         shoreWeight,
         topAO(x, y, L)
       );
     }
 
-    function addSide(x, y, L, NL, dir, c, glow, fall) {
+    /* `surface` 1: this is a water tile's own wall, so its upper edge rides
+     * the animated surface (vertex order is upper, lower, lower, upper in
+     * every branch). `NL` is already the wall's bottom, skirt included. */
+    function addSide(x, y, L, NL, dir, c, glow, fall, surface) {
       var x0 = x - W / 2;
       var x1 = x0 + 1;
       var z0 = y - H / 2;
@@ -397,6 +412,8 @@
       // The gradient follows the visible drop instead of the absolute altitude.
       var d = L - NL;
       var vertexAo = sideAO(x, y, L, dir);
+      var rim = surface ? 1 : 0;
+      var ride = [rim, 0, 0, rim];
 
       // Each branch preserves the outward normal and matching CCW winding.
       if (dir === 0) {
@@ -408,7 +425,7 @@
           x,
           y,
           glow,
-          0,
+          ride,
           0,
           vertexAo,
           fall
@@ -422,7 +439,7 @@
           x,
           y,
           glow,
-          0,
+          ride,
           0,
           vertexAo,
           fall
@@ -436,7 +453,7 @@
           x,
           y,
           glow,
-          0,
+          ride,
           0,
           vertexAo,
           fall
@@ -450,7 +467,7 @@
           x,
           y,
           glow,
-          0,
+          ride,
           0,
           vertexAo,
           fall
@@ -458,22 +475,49 @@
       }
     }
 
-    /* A cell's top is always visible. Its wall reaches down to the neighbour's
-     * level, because every exposed step between the two columns needs a face.
-     * When NL >= L the neighbour already hides the full side, so no quad exists. */
+    function wetAt(x, y) {
+      return x >= 0 && y >= 0 && x < W && y < H && !!grid.water[y * W + x];
+    }
+
+    /* One wall of cell i toward its neighbour (dx, dy). It reaches down to the
+     * neighbour's top, because every exposed step between two columns needs a
+     * face; when NL >= L the neighbour hides the whole side and no quad exists.
+     * When the neighbour's top is a water SURFACE the wall reaches WAVE_DIP
+     * further (a skirt), so the dipping wave still meets a face of this column
+     * and never opens a slit into its hollow interior. A land column exactly
+     * level with the water therefore gets a skirt alone. Water beside water at
+     * one level needs none: both surfaces follow the same continuous wave. */
+    function addWall(i, x, y, L, dx, dy, dir, material, glow, surface) {
+      var NL = levelAt(x + dx, y + dy);
+      var wet = wetAt(x + dx, y + dy);
+      var fallFace;
+
+      if (!(NL < L || (wet && !surface && NL === L))) return;
+      // A falling-water face is drawn in the water's OWN colour (material.top,
+      // the same tone its top surface uses), not the cliff's material.side --
+      // requirement is "rendered as WATER, not terrain".
+      fallFace = isFallFace(i, x, y, L, dx, dy, NL);
+      addSide(x, y, L, wet ? NL - WAVE_DIP : NL, dir,
+        fallFace ? material.top : material.side, glow, fallFace, surface);
+    }
+
+    function addRingSkirt(x, y, L, dx, dy, dir) {
+      // The plinth meets an edge water tile flush, so the dipping surface needs
+      // the ring's inner wall below it too.
+      var nx = x + dx;
+      var ny = y + dy;
+
+      if (!wetAt(nx, ny) || level[ny * W + nx] > L) return;
+      addSide(x, y, L, level[ny * W + nx] - WAVE_DIP, dir, BORD, 0);
+    }
+
+    /* A cell's top is always visible; addWall decides each of its four walls. */
     for (var y = 0; y < H; y++) {
       for (var x = 0; x < W; x++) {
         var i = y * W + x;
         var L = level[i];
         var material = terrainColor(x, y, i, L);
-        var west;
-        var east;
-        var north;
-        var south;
-        var fallWest;
-        var fallEast;
-        var fallNorth;
-        var fallSouth;
+        var surface = grid.water[i] ? 1 : 0;
         var glow = lava[i] ? 1 : 0;
 
         // A plunge pool churns even though its own biome/neighbours give it
@@ -485,36 +529,11 @@
         }
 
         // Top and sides share one material decision so biome seams stay sharp.
-        addTop(
-          x, y, L, material.top, glow, grid.water[i] ? 1 : 0, material.shore
-        );
-        west = levelAt(x - 1, y);
-        east = levelAt(x + 1, y);
-        north = levelAt(x, y - 1);
-        south = levelAt(x, y + 1);
-        // A falling-water face is drawn in the water's OWN colour (material.top,
-        // the same tone its top surface uses), not the cliff's material.side --
-        // requirement is "rendered as WATER, not terrain".
-        fallWest = isFallFace(i, x, y, L, -1, 0, west);
-        fallEast = isFallFace(i, x, y, L, 1, 0, east);
-        fallNorth = isFallFace(i, x, y, L, 0, -1, north);
-        fallSouth = isFallFace(i, x, y, L, 0, 1, south);
-        if (west < L) {
-          addSide(x, y, L, west, 0, fallWest ? material.top : material.side,
-            glow, fallWest);
-        }
-        if (east < L) {
-          addSide(x, y, L, east, 1, fallEast ? material.top : material.side,
-            glow, fallEast);
-        }
-        if (north < L) {
-          addSide(x, y, L, north, 2, fallNorth ? material.top : material.side,
-            glow, fallNorth);
-        }
-        if (south < L) {
-          addSide(x, y, L, south, 3, fallSouth ? material.top : material.side,
-            glow, fallSouth);
-        }
+        addTop(x, y, L, material.top, glow, surface, material.shore);
+        addWall(i, x, y, L, -1, 0, 0, material, glow, surface);
+        addWall(i, x, y, L, 1, 0, 1, material, glow, surface);
+        addWall(i, x, y, L, 0, -1, 2, material, glow, surface);
+        addWall(i, x, y, L, 0, 1, 3, material, glow, surface);
       }
     }
 
@@ -551,6 +570,10 @@
         if (!edgeSouth && borderTop(x, y + 1) < L) {
           addSide(x, y, L, borderTop(x, y + 1), 3, BORD, 0);
         }
+        if (edgeWest) addRingSkirt(x, y, L, 1, 0, 1);
+        if (edgeEast) addRingSkirt(x, y, L, -1, 0, 0);
+        if (edgeNorth) addRingSkirt(x, y, L, 0, 1, 3);
+        if (edgeSouth) addRingSkirt(x, y, L, 0, -1, 2);
       }
     }
 
@@ -573,7 +596,7 @@
       0,
       0,
       0,
-      0,
+      [0, 0, 0, 0],
       0,
       [3, 3, 3, 3]
     );
@@ -589,6 +612,8 @@
       ao: new Uint8Array(ao),
       fall: new Uint8Array(fall),
       indices: new Uint32Array(indices),
+      // The vertex shader turns aCellUV back into a tile centre with this.
+      gridSize: [W, H],
       vertexCount: pos.length / 3,
       triangleCount: indices.length / 3,
       bounds: {
@@ -752,6 +777,12 @@
     return shader;
   }
 
+  function glslFloat(value) {
+    // A JS number spliced into GLSL must keep its decimal point (0 -> 0.0).
+    var text = String(value);
+    return text.indexOf('.') < 0 ? text + '.0' : text;
+  }
+
   function makeProgram(gl) {
     // Arrays preserve GLSL's own line structure without a template dependency.
     var vertexSource = [
@@ -797,9 +828,15 @@
       '  vFallCoord = aPosition.x + aPosition.z;',
       '  // Keep Y raw in the mesh so isoexag changes need no mesh rebuild.',
       '  // Axis-aligned faces keep their normals valid under this Y-only scale.',
-      '  // Shore damping keeps a deliberately small wave from opening a seam.',
-      '  float wave = sin(uTime * 1.40 + aPosition.x * 0.72 +',
-      '    aPosition.z * 0.48) * 0.036 * aWater * (1.0 - aShore);',
+      '  // The surface only DIPS, from its rest level (crest) down to',
+      '  // WAVE_DIP (trough): every wall meeting water reaches that far below',
+      '  // it (buildVoxelMesh skirts), so no trough opens a slit to the clear',
+      '  // colour. One continuous function of world position, undamped: two',
+      '  // water tiles share their edge vertices and must move together, or',
+      '  // a seam opens between them (the old per-tile shore damping did).',
+      '  float wave = -' + glslFloat(WAVE_DIP) + ' * aWater *',
+      '    (0.5 - 0.5 * sin(uTime * 1.40 + aPosition.x * 0.72 +',
+      '    aPosition.z * 0.48));',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
       '    (aPosition.y + wave) * uVScale,',
@@ -1734,6 +1771,7 @@
   }
 
   SM.buildVoxelMesh = buildVoxelMesh;
+  SM.VOXEL_WAVE_DIP = WAVE_DIP;
   SM.buildShadowMap = buildShadowMap;
   SM.shouldFlipVoxelQuad = shouldFlipVoxelQuad;
   SM.VoxelCamera = {

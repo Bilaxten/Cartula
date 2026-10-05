@@ -219,6 +219,68 @@ function raisedColumnAffectsNeighbourAO() {
   return true;
 }
 
+// Animated water only DIPS below its rest level, by up to SM.VOXEL_WAVE_DIP
+// (vertex shader). Every edge of a water surface must therefore stay closed
+// down to the trough, or the trough opens a slit through which the clear
+// colour shows as a black sliver (owner report 2026-10-05: cliff bases).
+// Per water tile and side:
+//   - neighbour top at or above the surface (land, higher water, the plinth
+//     ring): that neighbour's wall facing this tile reaches the trough;
+//   - neighbour below: this tile's own wall exists and its rim vertices ride
+//     the surface (water flag 1), so the rim never pokes above the water;
+//   - water at the same level: nothing -- one continuous wave moves both.
+function waveSkirtCheck(grid, mesh) {
+  const W = grid.width, H = grid.height, level = grid.level;
+  const DIP = SM.VOXEL_WAVE_DIP || 0.072;
+  const walls = new Map();
+  const quads = mesh.vertexCount / 4;
+  for (let q = 0; q < quads; q++) {
+    const v = q * 4, nx = mesh.normals[v * 3], nz = mesh.normals[v * 3 + 2];
+    if (mesh.normals[v * 3 + 1] !== 0) continue;
+    let plane = null, span = Infinity, minY = Infinity, maxY = -Infinity;
+    for (let k = 0; k < 4; k++) {
+      const p = (v + k) * 3;
+      plane = nx ? mesh.positions[p] : mesh.positions[p + 2];
+      span = Math.min(span, nx ? mesh.positions[p + 2] : mesh.positions[p]);
+      minY = Math.min(minY, mesh.positions[p + 1]);
+      maxY = Math.max(maxY, mesh.positions[p + 1]);
+    }
+    walls.set(`${nx}|${nz}|${plane}|${span}`, { v, minY, maxY });
+  }
+  const trough = L => Math.fround(L - DIP);
+  let holes = 0, rims = 0, edges = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!grid.water[i]) continue;
+      const L = level[i];
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const ox = x + dx, oy = y + dy;
+        const inside = ox >= 0 && oy >= 0 && ox < W && oy < H;
+        // Off the map the neighbour is the plinth ring, flush with this tile.
+        const T = inside ? level[oy * W + ox] : Math.max(0, L);
+        if (inside && grid.water[oy * W + ox] && T === L) continue;
+        edges++;
+        const plane = dx ? x - W / 2 + (dx > 0 ? 1 : 0) : y - H / 2 + (dy > 0 ? 1 : 0);
+        const span = dx ? y - H / 2 : x - W / 2;
+        if (T >= L) {
+          const w = walls.get(`${-dx}|${-dy}|${plane}|${span}`);
+          if (!w || w.minY > trough(L) || w.maxY < L) holes++;
+        } else {
+          const w = walls.get(`${dx}|${dy}|${plane}|${span}`);
+          let ok = !!w;
+          for (let k = 0; ok && k < 4; k++) {
+            const vy = mesh.positions[(w.v + k) * 3 + 1];
+            if (vy === L && mesh.water[w.v + k] !== 1) ok = false;
+          }
+          if (!ok) rims++;
+        }
+      }
+    }
+  }
+  return { ok: holes === 0 && rims === 0 && edges > 0, holes, rims, edges };
+}
+
 function runMeshChecks() {
   const a = run(1337, 192, 0.38).grid;
   const t0 = performance.now();
@@ -253,14 +315,21 @@ function runMeshChecks() {
     typedEqual(mesh.shore, meshB.shore);
   const waterFlags = mesh.water.length === mesh.vertexCount &&
     Array.prototype.every.call(mesh.water, value => value === 0 || value === 1);
-  const waterOnTopFaces = Array.prototype.every.call(mesh.water, (value, i) => {
+  // Flagged = rides the wave: a water tile's top face, or the rim (upper
+  // edge, at the tile's own level) of one of its walls. Never land, never a
+  // wall's lower edge.
+  const waterOnSurfaces = Array.prototype.every.call(mesh.water, (value, i) => {
     if (!value) return true;
     const uv = i * 2;
     const x = Math.floor(mesh.cellUV[uv] * a.width);
     const y = Math.floor(mesh.cellUV[uv + 1] * a.height);
     const cell = y * a.width + x;
-    return mesh.normals[i * 3 + 1] === 1 && !!a.water[cell];
+    if (!a.water[cell]) return false;
+    if (mesh.normals[i * 3 + 1] === 1) return true;
+    return mesh.normals[i * 3 + 1] === 0 &&
+      mesh.positions[i * 3 + 1] === a.level[cell];
   });
+  const skirts = waveSkirtCheck(a, mesh);
   const shoreRange = mesh.shore.length === mesh.vertexCount &&
     Array.prototype.every.call(mesh.shore, value => value >= 0 && value <= 1);
   const shoreDeterministic = typedEqual(mesh.shore, meshB.shore);
@@ -284,7 +353,9 @@ function runMeshChecks() {
   // in checks.sh. It is now. 124392 → 124430: river bed grading (tarama
   // 2026-09-22 #2, 2-level steps carved, one-tile pits filled). 124430 →
   // 123314: sea is one flat surface at level 0, depth drawn as colour.
-  const triangleCount = mesh.triangleCount === 123314;
+  // 123314 → 124228: wave skirts (2026-10-05) -- a land column level with
+  // the water and the plinth ring beside edge water each gain a skirt quad.
+  const triangleCount = mesh.triangleCount === 124228;
   const cameraHelpers = SM.VoxelCamera.wrapYaw(-30) === 330 &&
     SM.VoxelCamera.wrapYaw(400) === 40 &&
     SM.VoxelCamera.clampPitch(5) === 10 &&
@@ -324,7 +395,9 @@ function runMeshChecks() {
     ['flat-grid face culling', flat],
     ['determinism (mesh attributes)', deterministic],
     ['water flag length and binary range', waterFlags],
-    ['water flags occur only on water top faces', waterOnTopFaces],
+    ['water flags only on water surfaces (tops, wall rims)', waterOnSurfaces],
+    [`wave trough never opens a slit (${skirts.edges} water edges, ` +
+      `${skirts.holes} holes, ${skirts.rims} bare rims)`, skirts.ok],
     ['shore length and range', shoreRange],
     ['shore determinism', shoreDeterministic],
     ['AO type, length, integer range', aoRange],
@@ -408,7 +481,9 @@ function runFallsChecks() {
     push('lip (L6) next to landing (L2): exactly one fall quad',
       stats.count === 4, `fall-flagged vertices: ${stats.count}`);
     push('fall quad spans the full lip-to-landing height difference',
-      stats.count > 0 && stats.minY === 2 && stats.maxY === 6,
+      // The landing is water, so the face goes on below it by the wave dip.
+      stats.count > 0 && stats.maxY === 6 &&
+        stats.minY === Math.fround(2 - (SM.VOXEL_WAVE_DIP || 0)),
       `y range: ${stats.minY}..${stats.maxY}`);
   }
 
