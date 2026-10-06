@@ -518,7 +518,7 @@
    * while it runs simply replaces the spans (restoring skips detached ones);
    * the performance panel and the hover card are left out because they
    * repaint on their own. Instant with prefers-reduced-motion. */
-  var TYPE_MS = 650;
+  var TYPE_MS = 1100;   // 650 felt too fast (Uğur 2026-10-06: "biraz yavaşlatalım")
   var typing = [];
   var typingTimer = 0;
 
@@ -574,7 +574,7 @@
       t.parentNode.replaceChild(wrap, t);
       typing.push({ node: t, wrap: wrap });
     });
-    typingTimer = setTimeout(finishTyping, TYPE_MS + 260);
+    typingTimer = setTimeout(finishTyping, TYPE_MS + 360);
   }
 
   function setLang(next) {
