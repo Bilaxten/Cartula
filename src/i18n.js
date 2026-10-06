@@ -513,12 +513,20 @@
 
   /* Re-typing on a language switch, as on bilaxten.art: every visible text
    * node on screen is split into one span per character and the characters
-   * fade in left to right over TYPE_MS; then the original text node is put
-   * back. Opacity only, so layout does not move. Text that main.js rewrites
+   * fade in left to right; then the original text node is put back. Opacity
+   * only, so layout does not move. Order is by paragraph, top to bottom (Uğur
+   * 2026-10-06: "paragraf paragraf ... en üstten en alta"): each paragraph
+   * (nearest non-inline ancestor) types on its own clock, paragraphs on the
+   * same row start together, each row PARA_GAP after the one above (squeezed
+   * so the last row starts within ROWS_MS). Short text takes CHAR_MS per
+   * character, a long paragraph at most TYPE_MS. Text that main.js rewrites
    * while it runs simply replaces the spans (restoring skips detached ones);
    * the performance panel and the hover card are left out because they
    * repaint on their own. Instant with prefers-reduced-motion. */
-  var TYPE_MS = 1100;   // 650 felt too fast (Uğur 2026-10-06: "biraz yavaşlatalım")
+  var TYPE_MS = 1100;
+  var CHAR_MS = 22;
+  var PARA_GAP = 140;
+  var ROWS_MS = 600;
   var typing = [];
   var typingTimer = 0;
 
@@ -530,13 +538,24 @@
     typing = [];
   }
 
+  function paragraphOf(el) {
+    var d;
+    while (el.parentElement && el !== document.body) {
+      d = getComputedStyle(el).display;
+      if (d !== 'inline' && d !== 'contents') return el;
+      el = el.parentElement;
+    }
+    return el;
+  }
+
   function typeIn() {
     var vh;
     var walker;
-    var nodes = [];
-    var total = 0;
-    var step;
-    var i = 0;
+    var paras = [];
+    var rows = 0;
+    var rowTop = -Infinity;
+    var gap;
+    var end = 0;
     var n;
 
     finishTyping();
@@ -556,25 +575,48 @@
         return NodeFilter.FILTER_ACCEPT;
       }
     });
-    while ((n = walker.nextNode())) nodes.push(n);
-    nodes.forEach(function (t) { total += t.nodeValue.length; });
-    if (!total) return;
-    step = TYPE_MS / Math.max(total, 40);
-    nodes.forEach(function (t) {
-      var wrap = document.createElement('span');
-      var text = t.nodeValue;
-      wrap.className = 'typing';
-      for (var k = 0; k < text.length; k++) {
-        var c = document.createElement('span');
-        c.textContent = text[k];
-        c.style.animationDelay = Math.round(i * step) + 'ms';
-        wrap.appendChild(c);
-        i++;
+    while ((n = walker.nextNode())) {
+      var el = paragraphOf(n.parentElement);
+      var p = null;
+      var r;
+      for (var j = 0; j < paras.length; j++) if (paras[j].el === el) { p = paras[j]; break; }
+      if (!p) {
+        r = el.getBoundingClientRect();
+        p = { el: el, top: r.top, left: r.left, nodes: [], length: 0 };
+        paras.push(p);
       }
-      t.parentNode.replaceChild(wrap, t);
-      typing.push({ node: t, wrap: wrap });
+      p.nodes.push(n);
+      p.length += n.nodeValue.length;
+    }
+    if (!paras.length) return;
+    // Rows: paragraphs whose tops are within 8px share one.
+    paras.sort(function (a, b) { return a.top - b.top || a.left - b.left; });
+    paras.forEach(function (p) {
+      if (p.top - rowTop > 8) { rows++; rowTop = p.top; }
+      p.row = rows - 1;
     });
-    typingTimer = setTimeout(finishTyping, TYPE_MS + 360);
+    gap = rows > 1 ? Math.min(PARA_GAP, ROWS_MS / (rows - 1)) : 0;
+    paras.forEach(function (p) {
+      var begin = p.row * gap;
+      var step = Math.min(TYPE_MS, Math.max(300, p.length * CHAR_MS)) / p.length;
+      var i = 0;
+      p.nodes.forEach(function (t) {
+        var wrap = document.createElement('span');
+        var text = t.nodeValue;
+        wrap.className = 'typing';
+        for (var k = 0; k < text.length; k++) {
+          var c = document.createElement('span');
+          c.textContent = text[k];
+          c.style.animationDelay = Math.round(begin + i * step) + 'ms';
+          wrap.appendChild(c);
+          i++;
+        }
+        t.parentNode.replaceChild(wrap, t);
+        typing.push({ node: t, wrap: wrap });
+      });
+      end = Math.max(end, begin + p.length * step);
+    });
+    typingTimer = setTimeout(finishTyping, Math.ceil(end) + 360);
   }
 
   function setLang(next) {
