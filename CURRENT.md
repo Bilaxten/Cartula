@@ -20,6 +20,8 @@ değişen her JS/CSS dosyası canlıda bayt bayt doğrulandı (CR atılarak sha2
 ⚠️ `publish-site.sh`'nin kendi canlı kontrolü yalnız `index.html`'e bakıyor:
 `index.html` değişmeyen bir yayında (`ebf56b9`) "canlı = …" hemen ok dedi,
 oysa `fog.js` canlıda ~15 sn daha eskiydi; JS'i ayrıca kontrol etmek gerek.
+**Düzeltildi (2026-10-06):** betik artık uygulamanın 25 dosyasının hepsini canlıyla karşılaştırıyor;
+`--check` farklı olanları tek tek yazar (yerel bir JS değişikliğiyle sınandı: `FARK  src/time.js`, çıkış 1).
 Özellikler:
 
 1. **Akan nehirler** (`840100e`, `src/render/flow.js`): nehir + basamak

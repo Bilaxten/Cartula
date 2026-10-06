@@ -134,7 +134,8 @@ alındı). İkisini senkron tutmaya çalışma — vault depoya *işaret eder*.
 
 Canlı demo `https://bilaxten.art/cartula/`. Commit + push sonrası `scripts/publish-site.sh` uygulamayı
 (`index.html`, `css/`, `src/`, `assets/`) bilaxten.art `master`'ında `cartula/` altına kopyalar, push eder ve
-canlı baytları doğrular; yalnız `cartula/` değişir. bilaxten.art'ın yayın betiği bu klasörü korur
+canlı baytları doğrular (2026-10-06'dan beri uygulamanın her dosyası, yalnız `index.html` değil; `--check` farklı dosyaları
+listeler); yalnız `cartula/` değişir. bilaxten.art'ın yayın betiği bu klasörü korur
 (`scripts/external-dirs.txt`). bilaxten.art'ta `cartula/`'yı elle düzenleme; kaynak bu repo.
 Sitede görünen her metin TR + EN olmalı (Uğur 2026-10-05). Uygulama arayüzü 2026-10-05'ten beri iki dilli:
 **görünür her yeni metin `src/i18n.js`'te iki dilde de anahtar alır** — `index.html`'de `data-i18n*` kancasıyla,

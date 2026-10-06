@@ -8,7 +8,7 @@
 # keeps cartula/ on release because it is listed in its scripts/external-dirs.txt.
 #
 #   scripts/publish-site.sh           checks, publish, verify live
-#   scripts/publish-site.sh --check   only compare live with local
+#   scripts/publish-site.sh --check   only compare live with local (every app file)
 #
 # Site repo location: $BILAXTEN_ART_DIR, else ~/bilaxten.art, else ~/Desktop/bilaxten.art.
 set -euo pipefail
@@ -21,17 +21,26 @@ say() { printf '\033[1m%s\033[0m\n' "$*"; }
 die() { printf 'HATA  %s\n' "$*" >&2; exit 1; }
 sha() { if command -v sha256sum >/dev/null; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
+# Every published app file must match live, not only index.html: a release that changes only JS kept
+# index.html identical and the old check said ok while fog.js was still stale live (2026-10-06).
+# Line endings ignored: a Windows checkout holds CRLF, git (and so the live copy) LF.
 live_matches() {
-  local want got
-  # Line endings ignored: a Windows checkout holds CRLF, git (and so the live copy) LF.
-  want="$(tr -d '\r' < "$repo/index.html" | sha)"
-  got="$(curl -fsS -H 'Cache-Control: no-cache' "$url?v=$(date +%s)" 2>/dev/null | tr -d '\r' | sha || true)"
-  [ "$want" = "$got" ]
+  local f want got stamp bad=0
+  stamp="$(date +%s)"
+  while IFS= read -r -d '' f; do
+    want="$(tr -d '\r' < "$repo/$f" | sha)"
+    got="$(curl -fsS -H 'Cache-Control: no-cache' "$url$f?v=$stamp" 2>/dev/null | tr -d '\r' | sha || true)"
+    if [ "$want" != "$got" ]; then
+      [ "${1:-}" = "-v" ] && echo "FARK  $f"
+      bad=1
+    fi
+  done < <(git -C "$repo" ls-files -z -- "${APP[@]}")
+  [ "$bad" = 0 ]
 }
 
 if [ "${1:-}" = "--check" ]; then
-  if live_matches; then echo "ok    canlı = yerel index.html"; exit 0; fi
-  echo "FARK  canlı Cartula yereldeki index.html ile aynı değil"; exit 1
+  if live_matches -v; then echo "ok    canlı = yerel (uygulamanın tüm dosyaları)"; exit 0; fi
+  echo "FARK  canlı Cartula yereldekiyle aynı değil (yukarıdaki dosyalar)"; exit 1
 fi
 [ -z "${1:-}" ] || die "bilinmeyen argüman: $1 (geçerli: --check ya da argümansız)"
 
@@ -88,7 +97,8 @@ fi
 # 4. Wait for Vercel and verify the live bytes equal the local file.
 say "4. canlı doğrulama — $url"
 for i in 1 2 3 4 5 6 7 8 9; do
-  if live_matches; then echo "ok    canlı = Cartula @ $rev"; exit 0; fi
+  if live_matches; then echo "ok    canlı = Cartula @ $rev (tüm dosyalar)"; exit 0; fi
   sleep 15
 done
+live_matches -v || true
 die "~2 dk sonra canlı hâlâ farklı — Vercel deploy'unu elle kontrol et"
