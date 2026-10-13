@@ -3462,10 +3462,11 @@ function runLayoutChecks() {
       /ev\.target !== stage && ev\.target !== map && ev\.target !== glCanvas/.test(main) &&
       /ev\.preventDefault\(\); \/\/ no compatibility mouse events/.test(main) &&
       /stage\.addEventListener\('pointercancel'/.test(main) && /'gesturestart'/.test(main), '');
-    push('a second finger re-bases the gesture and ends the one-finger drag; a lifted finger leaves the other panning',
-      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*var wasTwo = touch\.mode === 'two';[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);\s*if \(!wasTwo\) touch\.g = SM\.Touch\.gesture\(touch\.frame\);/.test(main) &&
-      /touchNavigate\(touch\.frame, SM\.Touch\.gestureStep\(touch\.g, touch\.frame, f\)\);/.test(main) &&
-      /touch\.mode = touch\.order\.length === 1 \? 'rest' : null;/.test(main), '');
+    push('a second finger ends the one-finger drag and starts a zoom-only pinch about a fixed anchor; a lifted finger leaves the others doing nothing until all are up',
+      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*if \(touch\.mode === 'dead'\) return;[^\n]*\s*var wasTwo = touch\.mode === 'two';[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);\s*if \(!wasTwo\) touch\.anchor = \{ x: touch\.frame\.x, y: touch\.frame\.y \};/.test(main) &&
+      /touchNavigate\(\{ x: a\.x, y: a\.y, d: touch\.frame\.d \}, \{ x: a\.x, y: a\.y, d: f\.d \}\);/.test(main) &&
+      /touch\.mode = touch\.order\.length \? 'dead' : null;/.test(main) &&
+      /if \(touch\.mode === 'dead'\) return;/.test(main), '');
     // Real phone, 2026-10-13: the first finger of a pinch drifted into an
     // isometric orbit, and a second finger on the angle bar moved its slider.
     push('isometric one-finger orbit waits for TOUCH_TAP_PX and starts from there; an orbit younger than TOUCH_STROKE_UNDO_MS is taken back when a second finger lands',
@@ -3501,73 +3502,6 @@ function runLayoutChecks() {
     push('top-down pinch: the map point under the fingers stays under them (200 random gestures, clamped scale too); same spread = pure pan',
       worstTop < 1e-6 && panTop < 1e-9, `worst ${worstTop.toExponential(2)} px, pan error ${panTop}`);
 
-    // Pan or pinch (real phone, 2026-10-13: two-finger pans also zoomed).
-    // Fingers are fed one event at a time, as a browser does, through
-    // gestureStep + pinchTop, the same path as main.js.
-    const runGesture = (fingersAt, steps) => {
-      let cam = { scale: 0.5 + rnd(), x: rnd() * 200 - 100, y: rnd() * 200 - 100 };
-      let pts = fingersAt(0);
-      let f = Tch.frame(pts[0], pts[1]);
-      const g = Tch.gesture(f);
-      const u = (f.x - cam.x) / cam.scale, v = (f.y - cam.y) / cam.scale;
-      const scale0 = cam.scale;
-      let worst = 0, engagedAt = -1, jump = 0, engagedD = 0, engagedScale = 0;
-      for (let i = 1; i <= steps; i++) {
-        const target = fingersAt(i / steps);
-        for (let k = 0; k < 2; k++) {
-          pts = k === 0 ? [target[0], pts[1]] : [pts[0], target[1]];
-          const nf = Tch.frame(pts[0], pts[1]);
-          cam = Tch.pinchTop(cam, f, Tch.gestureStep(g, f, nf), 0.01, 100);
-          f = nf;
-          worst = Math.max(worst, Math.hypot(cam.x + u * cam.scale - f.x, cam.y + v * cam.scale - f.y));
-        }
-        // main.js decides once per animation frame, on the whole frame.
-        if (!g.pinch && Tch.decide(g, f)) { engagedAt = i / steps; engagedD = f.d; engagedScale = cam.scale; }
-      }
-      // From the engaging frame on, zoom = spread ratio exactly: no jump, no loss.
-      if (g.pinch) jump = Math.abs(cam.scale / engagedScale - f.d / engagedD);
-      return { worst, ratio: cam.scale / scale0, engagedAt, jump, g };
-    };
-    let panZoom = 0, panWorst = 0, panEngaged = 0;
-    for (let i = 0; i < 200; i++) {
-      // Two fingers 120-300 px apart pan 40-500 px; their distance wobbles
-      // up to +-5 % (two sines + noise), as real fingers do.
-      const a0 = { x: 50 + rnd() * 300, y: 200 + rnd() * 400 }, sep = 120 + rnd() * 180, ang = rnd() * Math.PI;
-      const tx = (rnd() * 2 - 1) * 500, ty = (rnd() * 2 - 1) * 500, ph = rnd() * 6, amp = 0.05 * (0.6 + 0.4 * rnd());
-      const r = run => runGesture(t => {
-        const w = 1 + amp * Math.max(-1, Math.min(1, 0.7 * Math.sin(ph + t * 9) + 0.3 * Math.sin(t * 23)));
-        const cx = a0.x + tx * t, cy = a0.y + ty * t, h = sep * w / 2;
-        return [{ x: cx - Math.cos(ang) * h, y: cy - Math.sin(ang) * h }, { x: cx + Math.cos(ang) * h, y: cy + Math.sin(ang) * h }];
-      }, 40);
-      const res = r();
-      panZoom = Math.max(panZoom, Math.abs(res.ratio - 1)); panWorst = Math.max(panWorst, res.worst);
-      if (res.g.pinch) panEngaged++;
-    }
-    push('two-finger pan with a +-5 % wobble in finger distance never zooms (200 pans, 40-500 px); the centroid point stays under the fingers',
-      panZoom === 0 && panEngaged === 0 && panWorst < 1e-6, `zoom change ${panZoom}, pinch engaged in ${panEngaged}, worst ${panWorst.toExponential(2)} px`);
-    let pinchMiss = 0, pinchWorst = 0, pinchJump = 0, pinchLate = 0, comboMiss = 0;
-    for (let i = 0; i < 200; i++) {
-      const c0 = { x: 100 + rnd() * 200, y: 300 + rnd() * 300 }, sep = 100 + rnd() * 100, ang = rnd() * Math.PI;
-      const k = rnd() < 0.5 ? 1.6 + rnd() : 1 / (1.6 + rnd()); // spread or squeeze
-      const drift = rnd() * 20;                                   // a pinch barely moves the centroid
-      const res = runGesture(t => {
-        const h = sep * (1 + (k - 1) * t) / 2, cx = c0.x + drift * t, cy = c0.y;
-        return [{ x: cx - Math.cos(ang) * h, y: cy - Math.sin(ang) * h }, { x: cx + Math.cos(ang) * h, y: cy + Math.sin(ang) * h }];
-      }, 30);
-      if (!res.g.pinch) pinchMiss++;
-      pinchWorst = Math.max(pinchWorst, res.worst); pinchJump = Math.max(pinchJump, res.jump);
-      if (res.engagedAt > 0.4) pinchLate++;
-      // pinch while panning far: the hard threshold takes it
-      const res2 = runGesture(t => {
-        const h = sep * (1 + (k - 1) * t) / 2, cx = c0.x + 300 * t, cy = c0.y - 200 * t;
-        return [{ x: cx - Math.cos(ang) * h, y: cy - Math.sin(ang) * h }, { x: cx + Math.cos(ang) * h, y: cy + Math.sin(ang) * h }];
-      }, 30);
-      if (!res2.g.pinch || Math.abs(Math.log(res2.ratio)) < Math.abs(Math.log(k)) - Tch.PINCH_HARD - 0.05) comboMiss++;
-      pinchWorst = Math.max(pinchWorst, res2.worst);
-    }
-    push('a deliberate pinch zooms about the fingers: engages within the first 40 % of the pinch, then zoom = spread ratio from that frame (no jump), point under the fingers kept; a pinch during a long pan engages too',
-      pinchMiss === 0 && pinchLate === 0 && pinchJump < 1e-9 && pinchWorst < 1e-6 && comboMiss === 0,
-      `missed ${pinchMiss}, late ${pinchLate}, jump ${pinchJump}, worst ${pinchWorst.toExponential(2)} px, pinch+pan missed ${comboMiss}`);
     // Isometric: project with an orthographic camera built independently of
     // panVector (lookAt basis of renderScene: eye on the yaw/pitch sphere,
     // world up), so a sign error in either shows up here.

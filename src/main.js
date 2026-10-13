@@ -2004,9 +2004,16 @@
   //   - while a map gesture is on, a finger landing on the angle bar is a
   //     map finger; its touch events are cancelled so the slider and the
   //     two buttons never see it (touch.barClaim).
-  //   - a two-finger gesture pans first and zooms only once it is clearly a
-  //     pinch (touch.g, SM.Touch.gestureStep in src/touch.js).
-  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false, g: null, decideRaf: 0 };
+  //
+  // Uğur 2026-10-13, third round on the phone ("kaydırma olmasın, zoom
+  // in/zoom out yaparak çözeriz, iki parmak sadece zoom yapabilsin"): two
+  // fingers only ZOOM. The map does not follow the fingers' midpoint; the
+  // zoom is anchored at the midpoint where the pinch started (touch.anchor,
+  // fixed for the whole gesture) and follows the finger-distance ratio, no
+  // dead zone. You travel by zooming out and in again elsewhere. When a
+  // finger of a pinch lifts, the others do nothing until every finger is up
+  // (mode 'dead'): no stray pan or orbit at the end of a pinch.
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false, anchor: null };
   var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
 
   function stageXY(ev) {
@@ -2032,10 +2039,6 @@
       cam.y = c.y;
       applyCam();
     }
-  }
-  function touchDecide() {
-    touch.decideRaf = 0;
-    if (touch.mode === 'two' && touch.g && touch.order.length >= 2) SM.Touch.decide(touch.g, touchFrame());
   }
   function endOneFinger() {
     if (editStroke && performance.now() - touch.strokeAt < TOUCH_STROKE_UNDO_MS) {
@@ -2087,17 +2090,16 @@
       return;
     }
     if (touch.mode === 'one') endOneFinger();
+    if (touch.mode === 'dead') return; // after a pinch: nothing until all fingers are up
     var wasTwo = touch.mode === 'two'; // a third finger rides along
     touch.mode = 'two';
     touch.start = null;
     touch.frame = touchFrame();
-    if (!wasTwo) touch.g = SM.Touch.gesture(touch.frame);
+    if (!wasTwo) touch.anchor = { x: touch.frame.x, y: touch.frame.y };
   });
   stage.addEventListener('pointermove', function (ev) {
     if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
-    var prev = touch.pts[ev.pointerId];
-    var p = stageXY(ev);
-    touch.pts[ev.pointerId] = p;
+    touch.pts[ev.pointerId] = stageXY(ev);
     if (touch.mode === 'one') {
       if (touch.start && !touch.start.moved &&
           Math.abs(ev.clientX - touch.start.x) + Math.abs(ev.clientY - touch.start.y) > TOUCH_TAP_PX) {
@@ -2109,13 +2111,11 @@
       onMove(mouseLike(ev));
     } else if (touch.mode === 'two') {
       if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
-      var f = touchFrame();
-      touchNavigate(touch.frame, SM.Touch.gestureStep(touch.g, touch.frame, f));
+      // Zoom only, about the fixed anchor: same point before and after, so
+      // the pinch math moves nothing but the scale.
+      var f = touchFrame(), a = touch.anchor;
+      touchNavigate({ x: a.x, y: a.y, d: touch.frame.d }, { x: a.x, y: a.y, d: f.d });
       touch.frame = f;
-      // Pan or pinch is decided once per frame, on both fingers' new places.
-      if (!touch.g.pinch && !touch.decideRaf) touch.decideRaf = requestAnimationFrame(touchDecide);
-    } else if (touch.mode === 'rest') {
-      touchNavigate({ x: prev.x, y: prev.y, d: 1 }, { x: p.x, y: p.y, d: 1 });
     }
   });
   function touchEnd(ev, cancelled) {
@@ -2129,12 +2129,10 @@
       endOneFinger();
       if (!cancelled && s && !s.moved && performance.now() - s.t < TOUCH_TAP_MS &&
           view === 'top' && $('editTool').value === 'pan') onHover(mouseLike(ev));
-    } else if (touch.order.length >= 2) {
-      touch.frame = touchFrame();
-      // Another pair of fingers: an undecided gesture measures from them.
-      if (!touch.g.pinch) touch.g = SM.Touch.gesture(touch.frame);
+    } else if (touch.mode === 'two' && touch.order.length >= 2) {
+      touch.frame = touchFrame(); // another pair: the ratio measures from it, same anchor
     } else {
-      touch.mode = touch.order.length === 1 ? 'rest' : null;
+      touch.mode = touch.order.length ? 'dead' : null;
     }
   }
   stage.addEventListener('pointerup', function (ev) { touchEnd(ev, false); });

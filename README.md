@@ -183,7 +183,7 @@ parmakların ortasına doğru yakınlaş (`SM.Touch`, `src/touch.js`, DOM'suz:
 parmakların altındaki harita noktası parmakların altında kalır; izometrikte
 `panVector` ile, yaw/eğim değişmez). İkinci parmak tek parmak hareketini olduğu
 yerde bitirir (300 ms'den genç fırça darbesi geri alınır: kıstırmanın başıydı);
-kıstırmadan bir parmak kalkınca kalan parmak kaldığı yerden **kaydırır**, asla
+kıstırmadan bir parmak kalkınca kalan parmak (2026-10-13'ten beri) **hiçbir şey yapmaz**, asla
 döndürmez ya da boyamaz. Parmak kümesi her değiştiğinde hareket yeniden
 tabanlanır, sıçrama yok. Üstten görünümde Pan aracıyla kısa dokunuş tile
 kartını gösterir. iOS'un kendi `gesturestart`'ı engellenir. Dokunmatik
@@ -205,23 +205,18 @@ fırça darbesi gibi geri alınır; harita hareketi sürerken açı çubuğuna i
 parmak haritanındır (dokunma olayları iptal: slider ve düğmeler onu görmez).
 Kasıtlı döndürme (300 ms'den uzun) korunur, çubuk tek başına dokunmayla çalışır.
 
-**Kaydırma mı kıstırma mı** (Uğur 2026-10-13, ikinci deneme: *"iki parmak
-kaydırma kötü çalışıyor, muhtemelen zoom ile çakışıyorlar"*). Birlikte kayan iki
-parmağın arası hep birkaç yüzde oynar; oran her karede uygulandığı için her
-kaydırma biraz da yakınlaştırıyordu (CDP: ±%5 oynamada zoom kaydırma boyunca
-±%5 nefes alıyordu). Şimdi harita uygulamalarındaki gibi iki parmak hareketi
-**kaydırma olarak başlar**: orta nokta haritayı hemen 1:1 taşır, zoom sabit.
-Zoom bir kez devreye girer ve parmaklar kalkana kadar açık kalır; ölçüt hareketin
-başına göre parmak arası değişimi: **%15** ya da daha fazla (ne olursa olsun),
-ya da **%6** ya da daha fazla **ve** piksel olarak orta noktanın net yolundan
-büyük (kaydırma değil, kıstırma). Devreye girdiği kareden başlar, sıçrama yok
-(öncesindeki birkaç yüzde uygulanmaz). Karar her animasyon karesinde bir kez,
-iki parmağın da yeni yeriyle verilir: tarayıcı her parmak için ayrı olay
-yolladığı için aradaki "yarım kayan" çift hızlı kaydırmada %10-15'lik sahte
-bir açılma gibi görünür. Gezinme yine her olayda (gecikme eklenmedi). Aynı
-aralık oranı artık önce bölünüyor: değişmeyen aralık tam 1, kayan nokta
-sürüklenmesi yok. `--layout` 200 rastgele kaydırma (±%5 oynama, 40-500 px) ve
-200 kıstırmayla sınar.
+**İki parmak yalnız yakınlaştırır** (Uğur 2026-10-13, üçüncü deneme: *"kaydırma
+olmasın, zoom in/zoom out yaparak çözeriz, iki parmak sadece zoom yapabilsin"*).
+Önce kaydırıp zoom'u eşikle kilitleyen ara çözüm (aynı gün) telefonda kötü
+hissettirdi, kaldırıldı. Şimdi iki parmak **yalnız zoom** yapar: parmakların
+orta noktası kayınca harita kaymaz; zoom, kıstırmanın **başladığı** orta noktaya
+sabitlenir (hareket boyunca değişmez) ve parmak arası oranını eşiksiz izler.
+Başka yere gitmek için uzaklaşıp orada yakınlaşılır. Kıstırmadan bir parmak
+kalkınca kalan parmak(lar) bütün parmaklar kalkana kadar **hiçbir şey yapmaz**
+(sona doğru kazara kaydırma ya da döndürme yok). Tek parmak aynı: izometrikte
+döndürür (8 px eşik, ikinci parmak inince 300 ms'den genç döndürme geri alınır),
+üstten görünümde kaydırır. Sayfa yine hiç büyümez/kaymaz; hareket sürerken açı
+çubuğuna inen parmak haritanındır. Oran önce bölünür: değişmeyen aralık tam 1.
 
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
