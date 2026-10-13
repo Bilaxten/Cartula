@@ -1972,7 +1972,24 @@
   // never starts an orbit or a stroke. Every change in the set of fingers
   // re-bases the gesture, so nothing jumps. A short tap in top-down view with
   // the Pan tool shows the tile card, as hovering does with a mouse.
-  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0 };
+  //
+  // Uğur 2026-10-13 (real phone): "çalışıyor ama garip, istediğim gibi
+  // kaydırıp yakınlaştıramıyorum". The pinch math was exact; the gesture
+  // around it was not. Real fingers never land together: the first one is
+  // down 30-100 ms early and drifts, and in isometric view that drift was
+  // an orbit (0.87 deg per px on a 412 px phone), so most pinches began by
+  // swinging the map a few degrees about the screen centre -- the point
+  // under the fingers slid away, and again on every re-grab. And a second
+  // finger that landed on the angle bar moved its slider (160 deg in the
+  // CDP check) instead of joining the pinch. Now:
+  //   - an isometric one-finger orbit starts only past TOUCH_TAP_PX, from
+  //     where the finger is then (no jump), and an orbit younger than
+  //     TOUCH_STROKE_UNDO_MS is taken back when a second finger lands, as a
+  //     brush stroke is;
+  //   - while a map gesture is on, a finger landing on the angle bar is a
+  //     map finger; its touch events are cancelled so the slider and the
+  //     two buttons never see it (touch.barClaim).
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false };
   var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
 
   function stageXY(ev) {
@@ -2011,13 +2028,29 @@
         scheduleEditedTopRender();
       }
     }
+    // Same rule for an isometric orbit: one that young was the first finger
+    // of a pinch drifting before the second landed.
+    var o = touch.orbit0;
+    touch.orbit0 = null;
+    if (o && voxelCamera && performance.now() - touch.strokeAt < TOUCH_STROKE_UNDO_MS &&
+        (voxelCamera.yaw !== o.yaw || voxelCamera.pitch !== o.pitch)) {
+      setVoxelCamera({ yaw: o.yaw, pitch: o.pitch, zoom: voxelCamera.zoom,
+        tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz });
+    }
     onUp();
     hideBrushCursor();
   }
   stage.addEventListener('pointerdown', function (ev) {
     if (ev.pointerType !== 'touch') return;
-    // The angle chip's own controls handle their touches.
-    if (ev.target !== stage && ev.target !== map && ev.target !== glCanvas) return;
+    // A new gesture: the claim of the last one ends here, not at its last
+    // pointerup, because that finger's touchend comes after it.
+    if (!touch.order.length) touch.barClaim = false;
+    // The angle chip's own controls handle their touches -- unless a map
+    // gesture is already on: then this finger is part of it (barClaim).
+    if (ev.target !== stage && ev.target !== map && ev.target !== glCanvas) {
+      if (!touch.order.length) return;
+      touch.barClaim = true;
+    }
     ev.preventDefault(); // no compatibility mouse events after this
     try { stage.setPointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
     touch.pts[ev.pointerId] = stageXY(ev);
@@ -2027,6 +2060,7 @@
       touch.mode = 'one';
       touch.start = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: false };
       touch.strokeAt = performance.now();
+      touch.orbit0 = isVoxelMode() && voxelCamera ? { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch } : null;
       onDown(mouseLike(ev));
       return;
     }
@@ -2041,9 +2075,13 @@
     var p = stageXY(ev);
     touch.pts[ev.pointerId] = p;
     if (touch.mode === 'one') {
-      if (touch.start && Math.abs(ev.clientX - touch.start.x) + Math.abs(ev.clientY - touch.start.y) > TOUCH_TAP_PX) {
+      if (touch.start && !touch.start.moved &&
+          Math.abs(ev.clientX - touch.start.x) + Math.abs(ev.clientY - touch.start.y) > TOUCH_TAP_PX) {
         touch.start.moved = true;
+        // The orbit starts here, from where the finger is now: no jump.
+        if (drag && drag.voxel) { drag.x = ev.clientX; drag.y = ev.clientY; }
       }
+      if (drag && drag.voxel && !(touch.start && touch.start.moved)) return;
       onMove(mouseLike(ev));
     } else if (touch.mode === 'two') {
       if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
@@ -2073,6 +2111,13 @@
   }
   stage.addEventListener('pointerup', function (ev) { touchEnd(ev, false); });
   stage.addEventListener('pointercancel', function (ev) { touchEnd(ev, true); });
+  // Pointer events come first, so by a claimed finger's touchstart the
+  // pointerdown above has set barClaim. Cancelling its touch events keeps
+  // the slider from moving and the buttons from getting a click.
+  function blockClaimedBarTouch(ev) { if (touch.barClaim) ev.preventDefault(); }
+  ['touchstart', 'touchmove', 'touchend'].forEach(function (type) {
+    $('yawControl').addEventListener(type, blockClaimedBarTouch, { passive: false });
+  });
   // iOS Safari's own pinch events: the map handles its pinches itself.
   stage.addEventListener('gesturestart', function (ev) { ev.preventDefault(); });
 

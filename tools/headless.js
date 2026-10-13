@@ -3338,6 +3338,18 @@ function runLayoutChecks() {
     push('a second finger re-bases the gesture and ends the one-finger drag; a lifted finger leaves the other panning',
       /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);/.test(main) &&
       /touch\.mode = touch\.order\.length === 1 \? 'rest' : null;/.test(main), '');
+    // Real phone, 2026-10-13: the first finger of a pinch drifted into an
+    // isometric orbit, and a second finger on the angle bar moved its slider.
+    push('isometric one-finger orbit waits for TOUCH_TAP_PX and starts from there; an orbit younger than TOUCH_STROKE_UNDO_MS is taken back when a second finger lands',
+      /if \(drag && drag\.voxel\) \{ drag\.x = ev\.clientX; drag\.y = ev\.clientY; \}/.test(main) &&
+      /if \(drag && drag\.voxel && !\(touch\.start && touch\.start\.moved\)\) return;/.test(main) &&
+      /touch\.orbit0 = isVoxelMode\(\) && voxelCamera \?/.test(main) &&
+      /performance\.now\(\) - touch\.strokeAt < TOUCH_STROKE_UNDO_MS &&\s*\(voxelCamera\.yaw !== o\.yaw/.test(main), '');
+    push('a finger landing on the angle bar during a map gesture joins it; its touch events are cancelled (no slider move, no button click)',
+      /if \(!touch\.order\.length\) return;\s*touch\.barClaim = true;/.test(main) &&
+      /if \(!touch\.order\.length\) touch\.barClaim = false;/.test(main) &&
+      /function blockClaimedBarTouch\(ev\) \{ if \(touch\.barClaim\) ev\.preventDefault\(\); \}/.test(main) &&
+      /\['touchstart', 'touchmove', 'touchend'\]\.forEach[\s\S]{0,120}\$\('yawControl'\)\.addEventListener\(type, blockClaimedBarTouch, \{ passive: false \}\)/.test(main), '');
     push('src/touch.js loads before main.js; touch hints exist in both languages',
       /<script src="src\/touch\.js"><\/script>[\s\S]*<script src="src\/main\.js"><\/script>/.test(html2) &&
       !!(en['hint.top.touch'] && tr['hint.top.touch'] && en['hint.iso.touch'] && tr['hint.iso.touch']), '');
