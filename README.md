@@ -205,6 +205,24 @@ fırça darbesi gibi geri alınır; harita hareketi sürerken açı çubuğuna i
 parmak haritanındır (dokunma olayları iptal: slider ve düğmeler onu görmez).
 Kasıtlı döndürme (300 ms'den uzun) korunur, çubuk tek başına dokunmayla çalışır.
 
+**Kaydırma mı kıstırma mı** (Uğur 2026-10-13, ikinci deneme: *"iki parmak
+kaydırma kötü çalışıyor, muhtemelen zoom ile çakışıyorlar"*). Birlikte kayan iki
+parmağın arası hep birkaç yüzde oynar; oran her karede uygulandığı için her
+kaydırma biraz da yakınlaştırıyordu (CDP: ±%5 oynamada zoom kaydırma boyunca
+±%5 nefes alıyordu). Şimdi harita uygulamalarındaki gibi iki parmak hareketi
+**kaydırma olarak başlar**: orta nokta haritayı hemen 1:1 taşır, zoom sabit.
+Zoom bir kez devreye girer ve parmaklar kalkana kadar açık kalır; ölçüt hareketin
+başına göre parmak arası değişimi: **%15** ya da daha fazla (ne olursa olsun),
+ya da **%6** ya da daha fazla **ve** piksel olarak orta noktanın net yolundan
+büyük (kaydırma değil, kıstırma). Devreye girdiği kareden başlar, sıçrama yok
+(öncesindeki birkaç yüzde uygulanmaz). Karar her animasyon karesinde bir kez,
+iki parmağın da yeni yeriyle verilir: tarayıcı her parmak için ayrı olay
+yolladığı için aradaki "yarım kayan" çift hızlı kaydırmada %10-15'lik sahte
+bir açılma gibi görünür. Gezinme yine her olayda (gecikme eklenmedi). Aynı
+aralık oranı artık önce bölünüyor: değişmeyen aralık tam 1, kayan nokta
+sürüklenmesi yok. `--layout` 200 rastgele kaydırma (±%5 oynama, 40-500 px) ve
+200 kıstırmayla sınar.
+
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
 çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,

@@ -22,7 +22,8 @@
    * content * cam.scale. The content point under prev's centroid lands under
    * next's centroid at the new scale. */
   function pinchTop(cam, prev, next, minScale, maxScale) {
-    var scale = clamp(cam.scale * next.d / prev.d, minScale, maxScale);
+    // Ratio first: an unchanged spread is then exactly 1, not a float drift.
+    var scale = clamp(cam.scale * (next.d / prev.d), minScale, maxScale);
     var k = scale / cam.scale;
     return {
       scale: scale,
@@ -40,7 +41,7 @@
    * zoom. Yaw and pitch are untouched (one finger orbits, two never do). */
   function pinchVoxel(camera, prev, next, width, height, minZoom, maxZoom) {
     var pv = SM.VoxelCamera.panVector;
-    var zoom = clamp(camera.zoom * prev.d / next.d, minZoom, maxZoom);
+    var zoom = clamp(camera.zoom * (prev.d / next.d), minZoom, maxZoom);
     var p0 = pv(camera.yaw, camera.pitch, camera.zoom, width, prev.x - width / 2, prev.y - height / 2);
     var p1 = pv(camera.yaw, camera.pitch, zoom, width, next.x - width / 2, next.y - height / 2);
     return {
@@ -59,5 +60,50 @@
     return { x: camera.tx - p.x, z: camera.tz - p.z };
   }
 
-  SM.Touch = { frame: frame, pinchTop: pinchTop, pinchVoxel: pinchVoxel, voxelGroundAt: voxelGroundAt };
+  /* Pan or pinch? (Uğur 2026-10-13, real phone: "iki parmak kaydırma kötü
+   * çalışıyor, muhtemelen zoom ile çakışıyorlar".) Two fingers that pan
+   * together never keep their distance: it wobbles a few per cent, and with
+   * the distance ratio applied every frame each pan also zoomed a little
+   * (anchored, but the map breathed under the fingers). Like a map app, a
+   * two-finger gesture now starts as a pan: the centroid moves the map 1:1
+   * at once, the zoom stays put. The zoom engages, once, when the spread has
+   * changed from where the gesture started by
+   *   - PINCH_HARD (15 %) or more, whatever the fingers did, or
+   *   - PINCH_SOFT (6 %) or more AND by at least as many pixels as the
+   *     centroid has travelled from its start (a pinch, not a pan),
+   * and stays on until the gesture ends; from then on pan and zoom run
+   * together. It starts from the frame where it engaged, so nothing jumps
+   * (the spread change before it is not applied). Net centroid travel, not
+   * path length: in a pure pinch the centroid barely moves.
+   *
+   * The decision is taken on whole frames only (main.js calls decide once
+   * per animation frame, after every finger's pointermove of that frame).
+   * A browser sends one event per finger, so between them one finger has
+   * moved and the other not yet: in a fast pan (15-20 px per frame) that
+   * half-moved pair looks like a 10-15 % spread change that is not there.
+   * Navigation itself still runs on every event (no added latency): the pan
+   * is exact on half-moved pairs too. */
+  var PINCH_SOFT = Math.log(1.06), PINCH_HARD = Math.log(1.15);
+
+  function gesture(f) {
+    return { x0: f.x, y0: f.y, d0: f.d, pinch: false };
+  }
+
+  // Engage the zoom if the whole frame f says pinch; returns g.pinch.
+  function decide(g, f) {
+    if (g.pinch) return true;
+    var s = Math.abs(Math.log(f.d / g.d0));
+    var travel = Math.sqrt((f.x - g.x0) * (f.x - g.x0) + (f.y - g.y0) * (f.y - g.y0));
+    if (s >= PINCH_HARD || (s >= PINCH_SOFT && Math.abs(f.d - g.d0) >= travel)) g.pinch = true;
+    return g.pinch;
+  }
+
+  // The frame to navigate to from prev: next itself once the pinch is on,
+  // else next with prev's spread (a pure pan).
+  function gestureStep(g, prev, next) {
+    return g.pinch ? next : { x: next.x, y: next.y, d: prev.d };
+  }
+
+  SM.Touch = { frame: frame, pinchTop: pinchTop, pinchVoxel: pinchVoxel, voxelGroundAt: voxelGroundAt,
+    gesture: gesture, decide: decide, gestureStep: gestureStep, PINCH_SOFT: PINCH_SOFT, PINCH_HARD: PINCH_HARD };
 })(window.SM = window.SM || {});
