@@ -35,6 +35,11 @@
   var MAX_WEATHER_CLOUDS = 3;
   var MAX_SHADOW_LOBES = MAX_CLOUDS * MAX_LOBES;
 
+  // Opacity of a fair-weather cloud (times its fade). Every cloud is
+  // translucent (owner, 2026-10-13); the weather clouds, thinner still, have
+  // their own (weather.js CLOUD_ALPHA). voxel3d.js drawClouds sorts them.
+  var CLOUD_ALPHA = 0.78;
+
   // Cube edge of one cloud voxel, in grid cells. Big enough that a cloud reads
   // as a handful of chunky blocks rather than a smooth blob — same visual
   // language as the terrain it floats over.
@@ -612,6 +617,7 @@
   SM.Sky = {
     cloudFade: cloudFade,
     cloudShape: cloudShape,
+    CLOUD_ALPHA: CLOUD_ALPHA,
     lobeReach: lobeReach,
     rasterShadow: rasterShadow,
     ARCHETYPES: ARCHETYPES,

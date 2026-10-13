@@ -2855,7 +2855,56 @@ function runLightningChecks() {
     for (let t = 0; t < 600; t += 0.05) if (L.strikeAt(b, 4242, t, st).active) any = true;
     push('no weather, or only snow clouds: no strike ever', !L.strikeAt(null, 1, 10, st).active && !any);
     push('the pulses: a stroke, a weaker re-strike PULSE_GAP later, dark again within WINDOW',
-      L.pulse(0) === 1 && L.pulse(L.PULSE_GAP) > 0.6 && L.pulse(L.PULSE_GAP) < 1 && L.pulse(L.WINDOW) < 0.02 && L.pulse(-0.1) === 0);
+      L.pulse(0) === 1 && L.pulse(L.PULSE_GAP) > 0.6 && L.pulse(L.PULSE_GAP) < 1 && L.pulse(L.WINDOW - L.DESCENT) < 0.02 && L.pulse(-0.1) === 0);
+  }
+  {
+    // The fall (owner, 2026-10-13: the bolt seen falling from the cloud to
+    // the ground): over DESCENT the bolt reaches down monotonically, no
+    // light on the ground until it lands; on arrival the flash and the
+    // impact flare peak; the bolt holds, then fades out inside WINDOW; the
+    // shake is a few pixels from the arrival, gone after SHAKE_TIME.
+    const seed = 1337;
+    const g = SM.generate({ seed, width: 256, height: 256 });
+    const b = SM.Weather.build(g, seed);
+    const st = {};
+    let t0 = null;
+    for (let t = 0; t < 600 && t0 === null; t += 0.001) {
+      if (L.strikeAt(b, seed, t, st).active) t0 = t;
+    }
+    let mono = true, darkFall = true, prevReach = -1, maxShake = 0, shakeEarly = 0, shakeLate = 0, alphaEnd = 1;
+    let arrival = null, faded = null;
+    const sh = [0, 0];
+    for (let dt = 0; t0 !== null && dt < L.WINDOW; dt += 0.002) {
+      L.strikeAt(b, seed, t0 + dt, st);
+      if (!st.active) break;
+      if (st.reach < prevReach - 1e-9) mono = false;
+      prevReach = st.reach;
+      const since = st.since;
+      if (since < L.DESCENT - 1e-6 && (st.flash > 0 || st.hit > 0 || st.boltAlpha !== 1)) darkFall = false;
+      if (arrival === null && st.reach >= 1) arrival = st;
+      L.shakeAt(st, sh);
+      const m = Math.hypot(sh[0], sh[1]);
+      maxShake = Math.max(maxShake, m);
+      if (since < L.DESCENT - 1e-6 && m > 0) shakeEarly++;
+      if (since > L.DESCENT + L.SHAKE_TIME + 1e-6 && m > 0) shakeLate++;
+      if (faded === null && since > L.DESCENT && st.boltAlpha === 0) faded = since;
+      alphaEnd = st.boltAlpha;
+    }
+    const peak = {};
+    if (t0 !== null) L.strikeAt(b, seed, t0 + L.DESCENT + 1e-4, peak);
+    push(`the bolt falls from the cloud over ${Math.round(L.DESCENT * 1000)} ms (reach grows 0 -> 1 monotonically), solid, with no ground light before it lands`,
+      t0 !== null && mono && darkFall && L.DESCENT >= 0.08 && L.DESCENT <= 0.15);
+    push(`on arrival the flash and the impact flare peak (flash ${peak.flash != null ? peak.flash.toFixed(2) : '-'}, flare ${peak.hit != null ? peak.hit.toFixed(2) : '-'})`,
+      peak.flash > 0.95 && peak.hit > 0.95);
+    push(`the bolt holds, then fades out inside the strike (gone ${faded != null ? Math.round(faded * 1000) : '-'} ms after it began)`,
+      faded !== null && faded < L.WINDOW && alphaEnd === 0 && L.boltAlpha(0) === 1 && L.boltAlpha(L.PULSE_GAP) === 1);
+    push(`the shake: at most ${maxShake.toFixed(2)} px (${L.SHAKE_PX} px per axis), only from the arrival, gone after ${Math.round(L.SHAKE_TIME * 1000)} ms`,
+      maxShake > 0.5 && maxShake <= L.SHAKE_PX * 1.25 + 1e-9 && shakeEarly === 0 && shakeLate === 0 && L.SHAKE_TIME <= 0.3);
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    push('reduced motion: the shake, flare and cloud glow follow the flash switch (flashLight)',
+      /if \(strike\.active && flashLight\) \{\s*SM\.Lightning\.shakeAt\(strike, shake\);/.test(voxel) &&
+      /strike\.active && flashLight && !debugView \? strike\.hit \* SM\.Lightning\.HIT_LIGHT : 0/.test(voxel) &&
+      /strike\.active && flashLight && strike\.cloud === c\.n \?/.test(voxel));
   }
   {
     const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
@@ -3484,7 +3533,7 @@ function runWeatherChecks() {
     const bad = [];
     for (const cl of a.clouds) {
       kinds.add(cl.kind);
-      if (!(cl.alpha >= 0.45 && cl.alpha <= 0.6)) bad.push('alpha ' + cl.alpha);
+      if (!(cl.alpha >= 0.45 && cl.alpha <= 0.7)) bad.push('alpha ' + cl.alpha);
       const sum = cl.color.reduce((x, y) => x + y, 0);
       if (!(sum < white.reduce((x, y) => x + y, 0))) bad.push('not greyer');
       // It drifts across the whole map: every row it covers, every column.
@@ -3502,7 +3551,7 @@ function runWeatherChecks() {
       if (cl.lobes.length < 4 || !cl.lobes.some(L => L.h >= 4)) bad.push('not a nimbus');
     }
     const rainC = Wx.cloudColor('rain'), snowCl = Wx.cloudColor('snow');
-    push(`seed ${seed}: clouds semi-transparent (alpha 0.45-0.6), greyer than snow-white, puffy (nimbus: base + towers, >= 4 layers), 40-60% of a fair cloud's speed, underside above the highest ground they drift over; snow clouds lighter than rain clouds`,
+    push(`seed ${seed}: clouds semi-transparent (alpha 0.45-0.7), greyer than snow-white, puffy (nimbus: base + towers, >= 4 layers), 40-60% of a fair cloud's speed, underside above the highest ground they drift over; snow clouds lighter than rain clouds`,
       bad.length === 0 && snowCl.reduce((x, y) => x + y) > rainC.reduce((x, y) => x + y), bad.join(', '));
     // Drift: along +x only, wraps like the fair clouds (fade 0 at the jump,
     // 1 over the middle of the map), never a sudden opacity step, and starts
@@ -3567,8 +3616,30 @@ function runWeatherChecks() {
       (vsrc.match(/SM\.Sky\.cloudShadowUniforms\(/g) || []).length === 1 &&
       /SM\.Sky\.cloudShadowUniforms\(cloudNow, meshBounds/.test(vsrc) &&
       /if \(weather && showWeather && !debugView && weatherNow\.length\) \{/.test(vsrc) &&
-      /if \(weatherNow\.length && sky\.weatherCount\) drawWeatherClouds\(\);/.test(vsrc) &&
+      /if \(weatherNow\.length && sky\.weatherCount\) \{/.test(vsrc) &&
       /weatherDraw\.centres = weatherCentres;/.test(vsrc), '');
+  }
+
+  {
+    // Every cloud is translucent (owner, 2026-10-13), drawn back to front
+    // one by one so a near cloud blends over a far one; weather clouds are
+    // clearly greyer than the fair ones, mixed from palette entries only.
+    const vsrc = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const fairMatch = vsrc.match(/FAIR_CLOUD_COLOR = new Float32Array\(\[([\d., ]+)\]\)/);
+    const fair = fairMatch ? fairMatch[1].split(',').map(Number) : [1, 1, 1];
+    const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    const rainL = lum(Wx.cloudColor('rain'));
+    const snowL = lum(Wx.cloudColor('snow'));
+    const alphas = [SM.Sky.CLOUD_ALPHA, Wx.CLOUD_ALPHA.rain, Wx.CLOUD_ALPHA.snow];
+    push(`every cloud is translucent (fair ${SM.Sky.CLOUD_ALPHA}, rain ${Wx.CLOUD_ALPHA.rain}, snow ${Wx.CLOUD_ALPHA.snow}), yet readable as a cloud (>= 0.4)`,
+      alphas.every(a => a < 0.95 && a >= 0.4) &&
+      /cloudFadeData\[n\] = cloudNow\[n\]\.fade \* SM\.Sky\.CLOUD_ALPHA;/.test(vsrc), alphas.join(' / '));
+    push('clouds are drawn one by one, back to front along the view, each with its own depth pass',
+      /cloudSorted\.sort\(byDepth\);/.test(vsrc) && /return a\.depth - b\.depth;/.test(vsrc) &&
+      (vsrc.match(/acct\.drawElements\(gl\.TRIANGLES, range\[1\], gl\.UNSIGNED_INT, range\[0\] \* 4\);/g) || []).length === 2 &&
+      !/drawWeatherClouds/.test(vsrc), '');
+    push(`rain and snow clouds are clearly greyer than fair clouds (luminance fair ${lum(fair).toFixed(2)}, rain ${rainL.toFixed(2)}, snow ${snowL.toFixed(2)})`,
+      lum(fair) - rainL >= 0.25 && lum(fair) - snowL >= 0.15 && rainL < snowL, '');
   }
 
   console.log('rain and snow checks:');
