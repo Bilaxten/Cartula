@@ -150,10 +150,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       (3 seed × üstten/voxel PNG + orbit klip) Uğur'da:
       `docs/measurements/README.md`.
 
-- [ ] **Fırça cilası (M3 sonrası, küçük):** fırçalar yalnız üstten görünümde
-      çalışıyor ama VARSAYILAN açılış voxel. Araç seçilince sekmeye otomatik
-      geçmek ya da voxel'de düzenlemeyi açmak daha iyi olur. Karar verilmedi.
-
 ## NEXT
 
 - [ ] **Mevsim × yağış (2026-10-06, yapılmadı):** kışın kar çizgisi iniyor
@@ -161,7 +157,7 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       yağmur). İstenirse `weather.js` `ground` dokusundaki tür baytı mevsimle
       yeniden yazılır (slider bırakılınca, tek `texSubImage2D`).
 
-- [ ] **Fırça sonrası komşu hücreler** 450 ms'lik tam render'a kadar eski
+- [ ] **Fırça sonrası komşu hücreler** (özellik 2026-10-13'ten beri gizli) 450 ms'lik tam render'a kadar eski
       hillshade/kıyı tonunda kalıyor (boyanan hücrenin kendisi artık doğru).
       Küçük; istenirse `paintEditedTiles` komşu halkayı da boyar.
 

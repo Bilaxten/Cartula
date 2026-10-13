@@ -187,7 +187,10 @@
         </div>
       </details>
 
-      <details class="group" id="editGroup" open>
+      <!-- Brush editing: OFF for now (Uğur 2026-10-13, "edit bölümünü gizleyelim").
+           The group stays in the markup, hidden; main.js shows nothing and forces
+           the Pan tool unless EDIT_ENABLED is true. See README "Edit paneli şimdilik gizli". -->
+      <details class="group" id="editGroup" hidden open>
         <summary data-i18n="group.edit">Edit</summary>
         <div class="body">
           <label for="editTool" data-i18n="edit.tool">Tool</label>
