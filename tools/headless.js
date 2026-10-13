@@ -3332,6 +3332,20 @@ function runLayoutChecks() {
       !inCompact(new RegExp('^' + id.replace(/[#]/g, '\\#') + '$')).some(r => /env\(safe-area-inset-/.test(r.body)));
     push('compact screens keep the ☰, header, footer and angle chip clear of notches / the home bar (safe-area insets)',
       safe.length === 0, safe.join(', '));
+    // The angle bar (Uğur 2026-10-13, phone: icons crowded the slider): one
+    // grid, equal buttons, fixed gaps and readout, the slider takes the rest.
+    {
+      const bar = cssRules(css, /^#yawControl$/);
+      const base = bar.find(r => !r.media), compact = bar.find(r => r.media === '@media ' + COMPACT);
+      const cols = base ? (base.body.match(/grid-template-columns:\s*([^;]+);/) || [])[1] || '' : '';
+      push('angle bar: a grid of button | slider (minmax(0, 1fr)) | fixed readout | button, fixed gap; compact = 44 px buttons, centred between the safe-area insets',
+        !!base && /display:\s*grid/.test(base.body) &&
+        /^var\(--yaw-btn\) minmax\(0, 1fr\) [\d.]+(ch|px) var\(--yaw-btn\)$/.test(cols.trim()) &&
+        /column-gap:\s*var\(--yaw-gap\)/.test(base.body) &&
+        !!compact && /--yaw-btn:\s*44px/.test(compact.body) &&
+        /left:\s*calc\(env\(safe-area-inset-left/.test(compact.body) && /right:\s*calc\(env\(safe-area-inset-right/.test(compact.body) &&
+        /margin:\s*0 auto/.test(compact.body) && /transform:\s*none/.test(compact.body), cols);
+    }
     push('the open drawer is a popup: a tap on the scrim or Esc closes it (compact only)',
       /id="panelScrim"/.test(html) &&
       /\$\('panelScrim'\)\.addEventListener\('click', function \(\) \{ setPanel\(false, true\); \}\)/.test(main) &&
@@ -3353,6 +3367,18 @@ function runLayoutChecks() {
     push('a second finger re-bases the gesture and ends the one-finger drag; a lifted finger leaves the other panning',
       /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);/.test(main) &&
       /touch\.mode = touch\.order\.length === 1 \? 'rest' : null;/.test(main), '');
+    // Real phone, 2026-10-13: the first finger of a pinch drifted into an
+    // isometric orbit, and a second finger on the angle bar moved its slider.
+    push('isometric one-finger orbit waits for TOUCH_TAP_PX and starts from there; an orbit younger than TOUCH_STROKE_UNDO_MS is taken back when a second finger lands',
+      /if \(drag && drag\.voxel\) \{ drag\.x = ev\.clientX; drag\.y = ev\.clientY; \}/.test(main) &&
+      /if \(drag && drag\.voxel && !\(touch\.start && touch\.start\.moved\)\) return;/.test(main) &&
+      /touch\.orbit0 = isVoxelMode\(\) && voxelCamera \?/.test(main) &&
+      /performance\.now\(\) - touch\.strokeAt < TOUCH_STROKE_UNDO_MS &&\s*\(voxelCamera\.yaw !== o\.yaw/.test(main), '');
+    push('a finger landing on the angle bar during a map gesture joins it; its touch events are cancelled (no slider move, no button click)',
+      /if \(!touch\.order\.length\) return;\s*touch\.barClaim = true;/.test(main) &&
+      /if \(!touch\.order\.length\) touch\.barClaim = false;/.test(main) &&
+      /function blockClaimedBarTouch\(ev\) \{ if \(touch\.barClaim\) ev\.preventDefault\(\); \}/.test(main) &&
+      /\['touchstart', 'touchmove', 'touchend'\]\.forEach[\s\S]{0,120}\$\('yawControl'\)\.addEventListener\(type, blockClaimedBarTouch, \{ passive: false \}\)/.test(main), '');
     push('src/touch.js loads before main.js; touch hints exist in both languages',
       /<script src="src\/touch\.js"><\/script>[\s\S]*<script src="src\/main\.js"><\/script>/.test(html2) &&
       !!(en['hint.top.touch'] && tr['hint.top.touch'] && en['hint.iso.touch'] && tr['hint.iso.touch']), '');

@@ -165,6 +165,12 @@ boşlukları (`viewport-fit=cover`); yükseklik `100dvh` (adres çubuğu). Yatay
 telefonda çekmecenin tamamı tek parça kayar. Masaüstü görünümü aynı kaldı:
 başlık dışında piksel piksel aynı (başlık yüksekliği 88.75 px korundu).
 `--layout` bu düzeni de denetler (kompakt blok silinince kırmızı).
+Açı çubuğu (Uğur 2026-10-13: *"iconlar sliderın üstüne gelecek kadar
+yaklaşmış"*) her ekranda tek bir grid: düğme | slider | açı | düğme. İki düğme
+aynı boyda (telefonda 44 px yuvarlak, hapın içinde her yandan 4 px), boşluklar
+sabit 10 px, açı yazısı sabit genişlikte (`4.5ch`), slider kalan yeri alır;
+grid sütunları üst üste binemez. Telefonda çubuk safe-area boşlukları arasında
+ortalanır (yatayda çentiğe girmez), en fazla 360 px.
 
 **Dokunmatik gezinme** (Uğur 2026-10-05: *"zoom kötü çalışıyor"*). Önceden
 haritada yalnız fare dinleyicileri vardı: telefonda tek parmak sürüklemek hiçbir
@@ -184,6 +190,20 @@ kartını gösterir. iOS'un kendi `gesturestart`'ı engellenir. Dokunmatik
 cihazda ipucu da dokunmatik (`hint.*.touch`). `--layout` matematiği koşar:
 200 rastgele hareket, izometrikte panVector'dan bağımsız bir ortografik
 izdüşümle.
+
+**Gerçek telefonda kıstırma** (Uğur 2026-10-13, Galaxy S25 FE: *"çalışıyor ama
+garip"*). Matematik doğruydu (parmak altındaki nokta CDP'de 0 px kayıyor);
+garip olan hareketin etrafıydı. Gerçek parmaklar birlikte inmez: ilki 30-100 ms
+önce iner ve kayar; izometrikte bu kayma **döndürmeydi** (412 px telefonda
+0.87°/px). Kıstırmaların çoğu haritayı ekran ortası etrafında birkaç derece
+çevirerek başlıyordu (CDP: 12 px kaymada yaw 10.5°, eğim 1.2°), parmakların
+altındaki nokta kayıp gidiyordu, her yeniden tutuşta yine. İkinci parmak açı
+çubuğuna denk gelirse kıstırmaya katılmak yerine slider'ı itiyordu (CDP: 160°).
+Şimdi izometrikte tek parmak döndürmesi 8 px eşiği geçince, parmağın o anki
+yerinden başlar (sıçrama yok); ikinci parmak inince 300 ms'den genç döndürme
+fırça darbesi gibi geri alınır; harita hareketi sürerken açı çubuğuna inen
+parmak haritanındır (dokunma olayları iptal: slider ve düğmeler onu görmez).
+Kasıtlı döndürme (300 ms'den uzun) korunur, çubuk tek başına dokunmayla çalışır.
 
 **Bulutlar fade in/out:** bulutlar haritaya girerken belirir, çıkarken solar
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
