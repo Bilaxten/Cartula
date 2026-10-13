@@ -2004,7 +2004,9 @@
   //   - while a map gesture is on, a finger landing on the angle bar is a
   //     map finger; its touch events are cancelled so the slider and the
   //     two buttons never see it (touch.barClaim).
-  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false };
+  //   - a two-finger gesture pans first and zooms only once it is clearly a
+  //     pinch (touch.g, SM.Touch.gestureStep in src/touch.js).
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false, g: null, decideRaf: 0 };
   var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
 
   function stageXY(ev) {
@@ -2030,6 +2032,10 @@
       cam.y = c.y;
       applyCam();
     }
+  }
+  function touchDecide() {
+    touch.decideRaf = 0;
+    if (touch.mode === 'two' && touch.g && touch.order.length >= 2) SM.Touch.decide(touch.g, touchFrame());
   }
   function endOneFinger() {
     if (editStroke && performance.now() - touch.strokeAt < TOUCH_STROKE_UNDO_MS) {
@@ -2081,9 +2087,11 @@
       return;
     }
     if (touch.mode === 'one') endOneFinger();
+    var wasTwo = touch.mode === 'two'; // a third finger rides along
     touch.mode = 'two';
     touch.start = null;
     touch.frame = touchFrame();
+    if (!wasTwo) touch.g = SM.Touch.gesture(touch.frame);
   });
   stage.addEventListener('pointermove', function (ev) {
     if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
@@ -2102,8 +2110,10 @@
     } else if (touch.mode === 'two') {
       if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
       var f = touchFrame();
-      touchNavigate(touch.frame, f);
+      touchNavigate(touch.frame, SM.Touch.gestureStep(touch.g, touch.frame, f));
       touch.frame = f;
+      // Pan or pinch is decided once per frame, on both fingers' new places.
+      if (!touch.g.pinch && !touch.decideRaf) touch.decideRaf = requestAnimationFrame(touchDecide);
     } else if (touch.mode === 'rest') {
       touchNavigate({ x: prev.x, y: prev.y, d: 1 }, { x: p.x, y: p.y, d: 1 });
     }
@@ -2121,6 +2131,8 @@
           view === 'top' && $('editTool').value === 'pan') onHover(mouseLike(ev));
     } else if (touch.order.length >= 2) {
       touch.frame = touchFrame();
+      // Another pair of fingers: an undecided gesture measures from them.
+      if (!touch.g.pinch) touch.g = SM.Touch.gesture(touch.frame);
     } else {
       touch.mode = touch.order.length === 1 ? 'rest' : null;
     }
