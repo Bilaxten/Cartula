@@ -576,6 +576,10 @@
         topC = SM.seaColor(grid, i);
         c = topC;
         wt = SM.seaShoreWeight(grid, i);
+      } else if (grid.biome[i] === LAKE && SM.lakeColor) {
+        // A lake beside marsh: the moss tint, same definition as top-down.
+        topC = SM.lakeColor(grid, i);
+        c = topC;
       }
 
       sv = SM.biomeShade(grid, i);

@@ -509,6 +509,19 @@ pahalıydı), slider yazdan ilk çıktığında derlenir, yalnız yaz dışında
 kullanılır. Üstten görünüm JS ikizini (`SM.Season.tileColor`) boyar, slider
 bırakılınca yeniden çizer; Unity albedo'su mevsimsiz kalır. `--season`.
 
+**Yosunlu göller** (2026-10-13, `grid.js tagMossyLakes`, `biome.js lakeColor`):
+bataklığın (`marsh`, haritanın tek sulak alan sınıfı; yağmur ormanı dahil
+değil) yanındaki göl tile'ları yeşilimsi, yosunlu bir ton alır. Kural, son
+biyomlardan, rastgelelik yok (seed başına aynı): Chebyshev uzaklığı en çok 2
+olan göl tile'ı tam, en çok 4 olan hafif; küçük göl (≤150 tile) tam bir
+tile'a sahipse bütünü en az hafif (bataklıktaki gölet bütünüyle yosunlu, büyük
+göl yalnız bataklık kıyısında). `grid.moss` (0/1/2) üretimin sonunda
+şelalelerle birlikte etiketlenir, fırça ve geri alma yeniden etiketler. Renk
+yeni bir aile değil: paletin Göl'ü paletin Bataklık'ına doğru %35 / %65.
+İki görünüm de `SM.lakeColor`'dan okur; mevsimin buzu üstüne biner (donma
+yalnız *Season*'a bağlı), akış benekleri ve şelaleler tabanın üstünde çalışır.
+Maliyet üretimde ~3 ms (320²), karede sıfır. `--season`.
+
 **Varsayılan harita 320²** (2026-10-05, önceden 192²). Paylaşım linkindeki
 `size` hâlâ kazanır, *Random* boyuta dokunmaz. Bedeli (seed 1337,
 SwiftShader): üretim 396 ms (192²: 198), 362k üçgen (140k), GPU 184 ms/kare

@@ -20,7 +20,7 @@
  *   node tools/headless.js --smoke      # volcano smoke: vents on craters, wind field, rise/bend/shrink, under the sky
  *   node tools/headless.js --fog        # valley fog: clock curve, valleys not ridges or sea, free while off
  *   node tools/headless.js --lightning  # lightning: rain clouds only, rare, calm pulses, axis-aligned bolt
- *   node tools/headless.js --season     # season slider: render only, snow line, frozen fresh water, autumn forest
+ *   node tools/headless.js --season     # season slider: render only, snow line, frozen fresh water, autumn forest, mossy lakes
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
  */
 'use strict';
@@ -3028,6 +3028,55 @@ function runSeasonChecks() {
     push('the top-down view paints the same season (SM.Season.tileColor); the Unity albedo export stays seasonless',
       /SM\.Season\.tileColor\(grid, i, c, season\)/.test(topdown) &&
       /SM\.renderTopDown\(big, grid, \{ tile: 1, grid: false, shade: false, markers: false \}\)/.test(main));
+  }
+  {
+    // Mossy lakes (grid.js tagMossyLakes, biome.js lakeColor; 2026-10-13):
+    // lake tiles beside marsh get a tint between the palette's Lake and
+    // Marsh; nothing else is tinted; deterministic per seed; winter ice is
+    // laid over it like over any lake; both views use the one definition.
+    const hex = id => SM.BIOME_LIST[B[id]].color.match(/\w\w/g).map(h => parseInt(h, 16));
+    const lake = hex('lake'), marsh = hex('marsh');
+    let nonLake = 0, fullFar = 0, toneBad = 0, plainBad = 0, mossy = 0, detBad = 0;
+    for (const seed of [4242, 90210]) {
+      const g = SM.generate({ seed, width: 256, height: 256 });
+      const g2 = SM.generate({ seed, width: 256, height: 256 });
+      if (Buffer.from(g.moss).toString('base64') !== Buffer.from(g2.moss).toString('base64')) detBad++;
+      const W = g.width, H = g.height, F = SM.MOSS_FULL;
+      for (let i = 0; i < W * H; i++) {
+        const m = g.moss[i];
+        if (m && g.biome[i] !== B.lake) nonLake++;
+        if (g.biome[i] !== B.lake) continue;
+        const c = SM.lakeColor(g, i);
+        if (!m) { if (c.join() !== lake.join()) plainBad++; continue; }
+        mossy++;
+        for (let j = 0; j < 3; j++) {
+          if (c[j] < Math.min(lake[j], marsh[j]) - 1e-9 || c[j] > Math.max(lake[j], marsh[j]) + 1e-9) toneBad++;
+        }
+        if (m === 2) {
+          const x = i % W, y = (i / W) | 0;
+          let near = false;
+          for (let yy = Math.max(0, y - F); yy <= Math.min(H - 1, y + F) && !near; yy++)
+            for (let xx = Math.max(0, x - F); xx <= Math.min(W - 1, x + F); xx++)
+              if (g.biome[yy * W + xx] === B.marsh) { near = true; break; }
+          if (!near) fullFar++;
+        }
+      }
+    }
+    push(`moss sits on lake tiles only (${nonLake} elsewhere), full moss only within ${SM.MOSS_FULL} tiles of marsh (${fullFar} wrong), same moss for the same seed (${detBad} differ); ${mossy} mossy lake tiles on 2 seeds`,
+      nonLake === 0 && fullFar === 0 && detBad === 0 && mossy > 50);
+    push(`a mossy lake is a tone between palette Lake and Marsh (${toneBad} off); a plain lake keeps the palette Lake (${plainBad} off)`,
+      toneBad === 0 && plainBad === 0);
+    const cold = { width: 1, height: 1, water: [1], biome: [B.lake], temperature: [0], elevation: [0.5],
+      seaThresh: 0.4, landSpan: 0.5, moss: [2] };
+    const iced = S.tileColor(cold, 0, SM.lakeColor(cold, 0), 3);
+    push('a frozen mossy lake is plain ice in deep winter (the season decides freezing, not the moss)',
+      iced.every((v, j) => Math.abs(v - C.ice[j]) < 1e-6));
+    const topdown = fs.readFileSync(path.join(root, 'render', 'topdown.js'), 'utf8');
+    const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    push('both views take the lake colour from SM.lakeColor; brush edits and undo re-tag the moss',
+      /SM\.lakeColor\(grid, i\)/.test(topdown) && /SM\.lakeColor\(grid, i\)/.test(voxel) &&
+      (main.match(/SM\.tagMossyLakes\(grid\)/g) || []).length === (main.match(/SM\.tagWaterfalls\(grid\)/g) || []).length);
   }
 
   console.log('season checks:');

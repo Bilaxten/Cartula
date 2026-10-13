@@ -1073,8 +1073,11 @@
     editStroke = null;
     clampEditedTowers(record);
     // Waterfalls are geometry on the final levels: a stroke can create or
-    // flatten one, and the voxel mesh reads the tags.
+    // flatten one, and the voxel mesh reads the tags. Likewise the moss on
+    // lakes beside marsh (a stroke can paint marsh or dig a lake); the idle
+    // re-render repaints lake tiles outside the stroke.
     SM.tagWaterfalls(grid);
+    SM.tagMossyLakes(grid);
     if (record.indices.length) {
       paintEditedTiles(record.indices);
       delete record.seen;
@@ -1093,6 +1096,7 @@
   // (tarama 2026-09-22 #4).
   function afterHistoryStep(record) {
     SM.tagWaterfalls(grid);
+    SM.tagMossyLakes(grid);
     paintEditedTiles(record.indices);
     updateUndoButtons(); updateEditedStats(); scheduleEditedTopRender();
     if (isVoxelMode() && voxelRenderer) rebuildVoxelMesh(false);
@@ -2033,6 +2037,7 @@
       editStroke = null;
       restoreRecord(record);
       SM.tagWaterfalls(grid);
+      SM.tagMossyLakes(grid);
       if (record.indices.length) {
         paintEditedTiles(record.indices);
         updateEditedStats();

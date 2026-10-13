@@ -190,6 +190,95 @@
     return count;
   }
 
+  // --- mossy lakes (pure) ---
+  //
+  // A lake beside a marsh is still, weedy water: it gets a greenish, algae
+  // tint (Uğur 2026-10-13: "yosunlu gibi, yeşilimsi"). The rest of a big lake
+  // and every lake away from marsh keep the plain lake colour; the sea and
+  // rivers are never tinted. Marsh is the map's one wetland class --
+  // rainforest is wet climate, not standing water, and is left out.
+  //
+  // Contract read by both views (via SM.lakeColor, biome.js):
+  //   moss[i]   0 = plain, 1 = light, 2 = full; non-zero on `lake` tiles only
+  //   full  : the lake tile is within MOSS_FULL tiles of a marsh tile
+  //   light : within MOSS_REACH tiles, or anywhere in a small lake
+  //           (<= MOSS_POND tiles) that has a full tile -- a pond in a marsh
+  //           reads mossy as a whole, a big lake only along its marshy shore
+  // Distance is Chebyshev (8-neighbour steps, over land and water alike).
+  // Derived from the final biomes, so it holds after generation AND after
+  // brush edits (main.js re-tags next to tagWaterfalls). Deterministic: a
+  // pure function of the grid, no randomness.
+  var MOSS_FULL = 2;
+  var MOSS_REACH = 4;
+  var MOSS_POND = 150;
+
+  function tagMossyLakes(grid) {
+    var w = grid.width, h = grid.height, n = w * h, B = SM.BIOME_IDX;
+    var moss = grid.moss instanceof Uint8Array && grid.moss.length === n
+      ? grid.moss : new Uint8Array(n);
+    moss.fill(0);
+    grid.moss = moss;
+    if (B.marsh == null || B.lake == null) return 0;
+    var i, x, y, head = 0, any = false;
+    for (i = 0; i < n; i++) if (grid.biome[i] === B.lake) { any = true; break; }
+    if (!any) return 0;
+
+    // Multi-source BFS from every marsh tile, out to MOSS_REACH.
+    var dist = new Uint8Array(n).fill(255);
+    var queue = new Int32Array(n);
+    var tail = 0;
+    for (i = 0; i < n; i++) if (grid.biome[i] === B.marsh) { dist[i] = 0; queue[tail++] = i; }
+    while (head < tail) {
+      var c = queue[head++], d = dist[c] + 1;
+      if (d > MOSS_REACH) continue;
+      var cx = c % w, cy = (c / w) | 0;
+      for (y = cy - 1; y <= cy + 1; y++) {
+        if (y < 0 || y >= h) continue;
+        for (x = cx - 1; x <= cx + 1; x++) {
+          if (x < 0 || x >= w) continue;
+          var ni = y * w + x;
+          if (dist[ni] > d) { dist[ni] = d; queue[tail++] = ni; }
+        }
+      }
+    }
+
+    var count = 0;
+    for (i = 0; i < n; i++) {
+      if (grid.biome[i] !== B.lake || !grid.water[i] || dist[i] > MOSS_REACH) continue;
+      moss[i] = dist[i] <= MOSS_FULL ? 2 : 1;
+      count++;
+    }
+
+    // Small lakes with a full tile: the whole pond at least light. Flood
+    // fill over 4-neighbour lake tiles; `queue` is reused.
+    var seen = new Uint8Array(n);
+    for (var s = 0; s < n; s++) {
+      if (seen[s] || grid.biome[s] !== B.lake || !grid.water[s]) continue;
+      seen[s] = 1;
+      head = 0; tail = 0; queue[tail++] = s;
+      var full = false;
+      while (head < tail) {
+        var p = queue[head++], px = p % w, py = (p / w) | 0;
+        if (moss[p] === 2) full = true;
+        var nb0 = px > 0 ? p - 1 : -1, nb1 = px < w - 1 ? p + 1 : -1;
+        var nb2 = py > 0 ? p - w : -1, nb3 = py < h - 1 ? p + w : -1;
+        var nbs = [nb0, nb1, nb2, nb3];
+        for (var k = 0; k < 4; k++) {
+          var q = nbs[k];
+          if (q < 0 || seen[q] || grid.biome[q] !== B.lake || !grid.water[q]) continue;
+          seen[q] = 1; queue[tail++] = q;
+        }
+      }
+      if (!full || tail > MOSS_POND) continue;
+      for (var t = 0; t < tail; t++) if (!moss[queue[t]]) { moss[queue[t]] = 1; count++; }
+    }
+    return count;
+  }
+
+  SM.MOSS_FULL = MOSS_FULL;
+  SM.MOSS_REACH = MOSS_REACH;
+  SM.MOSS_POND = MOSS_POND;
+  SM.tagMossyLakes = tagMossyLakes;
   SM.WATERFALL_MIN_DROP = WATERFALL_MIN_DROP;
   SM.tagWaterfalls = tagWaterfalls;
   SM.quantLandLevel = quantLandLevel;
