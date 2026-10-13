@@ -9,6 +9,23 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-13 Uğur'un kararlarından sonra gözle bak** (Uğur 7 bekleyen
+      kararı canlıda verdi: gölge yönü, iç denizler, Shift-pan kalsın; TR terimleri
+      önerildiği gibi; şimşek karar A = bulutun arkasında). Yeni işler, hepsi
+      headless'ta (SwiftShader/CDP) doğrulandı, gerçek GPU ve gerçek parmakla değil:
+      - `6a3e9db` + `75f4960` **sert, köşeli, daha koyu güneş gölgesi** (Lit'te
+        gölgede kara ×0.5-0.6; 06:30'da hafif).
+      - `5cba895` **şimşek**: buluttan yere 130 ms iniş, daha parlak çakma, 3 px /
+        250 ms sarsıntı (reduced-motion'da yok), bütün bulutlar yarı saydam,
+        yağmur/kar bulutu daha gri. ⚠️ Gündüz yıldırım bulut arkasında hâlâ
+        zayıf (A'nın bedeli) — yetmezse yağmur bulutu saydamlığı düşer.
+      - `02ec2b9` **yosunlu göl**: bataklığa ≤2 tile göl tam, ≤4 hafif yeşil ton.
+      - `90ca3d3` + `8dd7e12` **telefon** (Galaxy S25 FE'de bakılacak): iki
+        parmak pan/zoom artık ilk parmağın kaymasıyla dönmüyor (8 px eşik,
+        300 ms geri alma); alttaki açı çubuğu eşit 44 px düğme, sabit boşluk.
+      - `5cd6c51` **Edit paneli gizli** (`EDIT_ENABLED = false`).
+      - `87c0401` TR terimleri (Seed, Ortam gölgesi, Kıyı kıvrımı, Arazi ölçeği…).
+
 - [ ] **2026-10-06 beş harita özelliğine gözle bak** (her biri canlıda,
       her biri `git revert <hash>` ile tek başına geri alınır; sonra
       `bash scripts/publish-site.sh`). Headless Edge'de (SwiftShader) sabit
@@ -49,15 +66,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
         (yalnız 229 sn'de kenara varamayanlar 4 sn'de söner).
       - *Time of day* 22:00: yalnız lav ışıyor, halesi atıyor; kulübe yok.
 
-- [ ] **2026-10-05 telefonda gerçek cihazda bak** (`7b76615` ☰ panel,
-      `e5c1fc4` telefon düzeni, `bb2caae` dokunmatik). Edge öykünmesi + CDP
-      dokunmatikle ölçüldü; gerçek telefon ve iOS Safari denenmedi. **Bak:**
-      telefonda aç → harita tam ekran, ☰ sol üstte yarı saydam turuncu;
-      tek parmak döndürür, iki parmak kaydırır + yakınlaştırır, sayfa
-      büyümez; ☰ → çekmece, yanına dokun ya da geri → kapanır. iPhone'da
-      çentik/ev çubuğu boşlukları ve adres çubuğu (100dvh) özellikle.
-      Masaüstünde ☰ ile panel kapanıp açılırken harita ortada kalıyor mu.
-
 - [ ] **2026-10-05 sekiz isteğe gözle bak** (her biri tek commit, `git revert
       <hash>` yalnız onu geri alır). Headless Edge'de (SwiftShader) bakıldı;
       gerçek GPU, telefon, Firefox/Safari denenmedi; animasyon yalnız sabit
@@ -90,45 +98,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       sonra çipteki ortala düğmesi. Bulutlar akarken birbirinden farklı mı,
       gölgeleri şekillerine uyuyor mu; birkaç seed dene. Türkçe ipucunda
       *boşluk* (Space) kelimesi yerinde mi?
-
-- [ ] **TR / EN arayüzüne gözle bak (2026-10-05, `ab8e83b`):** headless'ta
-      doğrulandı, gerçek tıklamayla ve telefon genişliğinde denenmedi.
-      Emin olunmayan Türkçe terimler (`src/i18n.js`): *Kabartma gölgesi*
-      (Hillshade), *Ortam kapatma (AO)*, *Tohum* (Seed), *Kıyı bükümü* (Coast
-      warp), *Şekil ölçeği* (Feature scale), *Nehir yatağı düzeltme* (River
-      grading), *Kıyı şeridi ve değişmezler* (Riparian & invariants), iso
-      ipucundaki *tekerlek: yakınlaş* ve *Q/E: 90°* (kısa tutuldu: daha uzunu
-      1280 px'te yaw denetimine çarpıyordu). Her biri sözlükte tek satır.
-
-- [ ] **2026-10-05 gece düzeltmelerine gözle bak (Uğur yokken karar verildi;
-      her biri tek commit, `git revert <hash>` yalnız onu geri alır):**
-      - ✅ Düşen gölgenin yönü (`afeb6d5`; burada `1cd3abb` yazıyordu, o
-        hash rebase'den önceydi — bu listedeki diğer hash'ler de artık yok,
-        commit'leri mesajından bul): **Uğur 2026-10-13 onayladı.** Aynı gün
-        isteği: "daha belirgin ve köşeli gölgeler" → gölge sertleştirildi
-        (commit *Cast shadows: hard, voxel-aligned*): tile başına tam gölge
-        ya da tam ışık, mesafeyle solma yok, gölge geometri bitince biter.
-        **Bak:** Isometric, seed 1337, 08:00 ve 17:00, *Lit* ve *Sun
-        shadow*, bir de 06:30 (uzun gölgeler hafif kalmalı). Ardından
-        koyuluk da artırıldı (*Cast shadows: darker, readable in Lit*):
-        gündüz ×0.5, 17:00 ×0.55, 06:30 ×0.72, su ×0.7. Ayar:
-        `voxel3d.js` `SHADOW_DEPTH` / `SHADOW_LOW_SUN` / `SHADOW_WATER`.
-      - `8dcc9c6` Shift+sürükle dikey pan artık imleci birebir izliyor
-        (varsayılan pitch'te ~2.2 kat hızlı). Diğer seçenek: eski yavaş his.
-        **Bak:** Isometric'te bir kıyı noktasını Shift+sürükle ile yukarı-
-        aşağı çek; nokta imlecin altında kalmalı. Kamerayı çok yatırınca
-        (pitch 10°'ye yakın) pan fazla hızlı geliyorsa geri al.
-      - `e9cf0dc` doldurulan iç denizler artık `beach` değil, iklimine göre
-        biyom (1337/192²: beach 4329 → 1400). Diğer seçenek: büyük havzayı
-        göl bırakmak (2026-09-01'de bilerek kaldırılmıştı).
-        **Bak:** Top-down, seed 1337 / 4242 / 90210 (448²): kum rengi yalnız
-        kıyı şeridinde mi; iç kısımdaki dümdüz yeşil ovalar (1. kademe) göze
-        batıyor mu? Batıyorsa geri al — eski hâli aynı ovaları kum boyuyordu.
-      - `9d69dce` Unity `albedo.png` hillshade'siz ve yerleşim işaretsiz.
-        Diğer seçenek: ekrandaki render'ın aynısı.
-      - `6ee275d` fırça boyaması ile tam render tek boyayıcı kullanıyor.
-      Headless Edge'de sayfa iki görünümde de hatasız açıldı ve ekran
-      görüntüsüne bakıldı; etkileşim (pan, fırça, export düğmesi) denenmedi.
 
 - [ ] **Portfolyo yol haritasından kalanlar (2026-09-22 sırası; 1-5 bitti):**
       - Vaka çalışması (`bilaxten.art`): `[SES]` cümleleri, şelale/gökyüzü
