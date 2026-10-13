@@ -33,7 +33,14 @@ gölge artık `SHADOW_DEPTH` 0.5 → gündüz ×0.5 (çarpım, ton korunuyor);
 06:30 ×0.72 — uzun sabah gölgeleri siyah şerit olmuyor, gece 0, alacakaranlık
 çamurlaşmıyor); su derinliğin 0.6'sını alıyor (×0.7, koyu deniz kararmıyor).
 Ölçülen (headless, seed 1337): gölgedeki kara aynı karanın ışıktakine göre
-08:00 ×0.50-0.59 (vadi sisi kaldırıyor), 17:00 ×0.56. Push ve yayın ana oturumda.
+08:00 ×0.50-0.59 (vadi sisi kaldırıyor), 17:00 ×0.56. **Üçüncü commit (canlıdan
+sonra, Uğur "daha da belirgin"):** `SHADOW_DEPTH` 0.66, `SHADOW_LOW_SUN`
+[0.40, 0.56] → 07:00-17:00 kara ×0.34-0.37 (ölçülen ×0.35-0.42 / ×0.37-0.38),
+duvar ×0.54, su ×0.6; 06:30/17:30 ×0.78 (06:30 ile 07:00 arası rampa bilerek
+dik: güneş neredeyse aynı, gölge boyu çok farklı). Bulut gölgesi ile arazi
+gölgesi artık çarpılmıyor, `min()`: ikisi de aynı güneşi kesiyor; çarpım bulut
+altındaki gölgeyi ×0.22'ye indiriyordu. Yosunlu göller su yolundan geçiyor
+(×0.6), ayrıca bakılmadı. Push ve yayın ana oturumda.
 
 ## Bu oturum — beş harita özelliği, her biri canlıda (2026-10-06)
 

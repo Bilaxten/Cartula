@@ -36,19 +36,20 @@
   var LAVA_BLOOM = 1.8;
 
   /* Cast sun shadow depth: a shaded top face is (1 - SHADOW_DEPTH) of the
-   * same face in sun, a wall 0.7 of that depth. Uğur 2026-10-13: "daha
-   * belirgin" -- the shadow was 1 - uSunStrength * 1.14, i.e. x0.67 at 08:00
-   * and x0.74 at 17:00, barely readable once the edges were hard. Now x0.5
-   * by day (a multiply, so the hue stays). The depth fades in with
-   * `daylight` (uSunStrength / 0.42) between SHADOW_LOW_SUN: 08:00 (0.69)
-   * full, x0.5; 17:00 (0.54) 0.90 of it, x0.55; 06:30 / 17:30 (0.46) 0.56
-   * of it, x0.72, so the long low-sun shadows stay light; none at night
-   * (0.12) -- no muddy dusk. Water takes SHADOW_WATER of the depth (x0.7 by
-   * day): it is dark already, and a full x0.5 turned shaded sea near black.
-   * Measured in headless Chrome, seed 1337: shaded land x0.55-0.6 of the
-   * same land lit at 08:00 (valley fog lifts it) and 17:00. */
-  var SHADOW_DEPTH = 0.5;
-  var SHADOW_LOW_SUN = [0.30, 0.60];
+   * same face in sun, a wall 0.7 of that depth (a multiply, so the hue
+   * stays). History (Uğur 2026-10-13, "daha belirgin", twice): the shadow was
+   * 1 - uSunStrength * 1.14 (x0.67 at 08:00, x0.74 at 17:00), then x0.5, now
+   * x0.34 by day. The depth fades in with `daylight` (uSunStrength / 0.42)
+   * between SHADOW_LOW_SUN: 07:00-17:00 (daylight >= 0.54) ~full, x0.34 to
+   * x0.37; 06:30 / 17:30 (0.46) a third of it, x0.78, so the long dawn and
+   * dusk shadows never turn into black streaks; none at night (0.12) -- no
+   * muddy dusk. The ramp is steep between 06:30 and 07:00 on purpose: those
+   * two slider stops have nearly the same sun (0.46 vs 0.54) but very
+   * different shadow lengths. Water takes SHADOW_WATER of the depth (x0.6 by
+   * day): it is dark already, and the full depth turns shaded sea black.
+   * Measured in headless Chrome, seed 1337 (valley fog lifts 08:00 a bit). */
+  var SHADOW_DEPTH = 0.66;
+  var SHADOW_LOW_SUN = [0.40, 0.56];
   var SHADOW_WATER = 0.6;
 
 
@@ -1444,17 +1445,22 @@
       '    outColor = vec4(GRADE(dbg), 1.0);',
       '    return;',
       '  }',
+      '  // Terrain shadow and cloud shadow both block the same sun: ground',
+      '  // already under a cloud is not darkened again by a hill, so the',
+      '  // deeper of the two wins (multiplying them took shaded ground under',
+      '  // a cloud to ~x0.22 once the cast shadow went to x0.34).',
+      '  float sunShade = min(shadowFactor, cloudFactor);',
       '  // Graded like the rest of the world; at night the lava light is added',
       '  // after the grade so the night wash cannot grey it out.',
       '#ifdef NIGHT',
       '  vec3 color = GRADE(FOGGED(',
-      '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
+      '    baseColor * lambert * gradient * sunShade * aoFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
       '      emission * (1.0 - uNightLight) + foamColor)) +',
       '    emission * (uNightLight * ' + glslFloat(LAVA_NIGHT) + ');',
       '#else',
       '  vec3 color = GRADE(FOGGED(',
-      '    baseColor * lambert * gradient * shadowFactor * aoFactor * cloudFactor *',
+      '    baseColor * lambert * gradient * sunShade * aoFactor *',
       '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
       '      emission + foamColor));',
       '#endif',

@@ -13,8 +13,10 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       kararı canlıda verdi: gölge yönü, iç denizler, Shift-pan kalsın; TR terimleri
       önerildiği gibi; şimşek karar A = bulutun arkasında). Yeni işler, hepsi
       headless'ta (SwiftShader/CDP) doğrulandı, gerçek GPU ve gerçek parmakla değil:
-      - `6a3e9db` + `75f4960` **sert, köşeli, daha koyu güneş gölgesi** (Lit'te
-        gölgede kara ×0.5-0.6; 06:30'da hafif).
+      - `6a3e9db` + `75f4960` + *Cast shadows: stronger* **sert, köşeli, koyu
+        güneş gölgesi** (Uğur 2026-10-13 "daha da belirgin": Lit'te gölgede kara
+        ×0.34-0.38, duvar ×0.54, su ×0.6; 06:30 hafif ×0.78; bulut gölgesiyle
+        çarpılmıyor, koyusu geçerli).
       - `5cba895` **şimşek**: buluttan yere 130 ms iniş, daha parlak çakma, 3 px /
         250 ms sarsıntı (reduced-motion'da yok), bütün bulutlar yarı saydam,
         yağmur/kar bulutu daha gri. ⚠️ Gündüz yıldırım bulut arkasında hâlâ
