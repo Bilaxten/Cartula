@@ -1032,6 +1032,12 @@
     return shader;
   }
 
+  // Lightning terms the terrain shader bakes in (src/render/lightning.js):
+  // the whole map's share of the flash, and how tight the impact flare is
+  // in units of the flash's reach (exp(-r^2 * HIT_SHARP), r in reaches).
+  var FLASH_MAP = SM.Lightning ? SM.Lightning.FLASH_MAP : 0.4;
+  var HIT_SHARP = SM.Lightning ? Math.pow(SM.Lightning.REACH / SM.Lightning.HIT_RADIUS, 2) : 256;
+
   function glslFloat(value) {
     // A JS number spliced into GLSL must keep its decimal point (0 -> 0.0).
     var text = String(value);
@@ -1245,8 +1251,10 @@
       'uniform float uDebugView;',
       // Shore foam colour (snow, from the biome palette).
       'uniform vec3 uFoamColor;',
-      // Lightning flash (fragment-only).
+      // Lightning flash (fragment-only): uFlash as below, uFlashHit the
+      // impact tile's flare.
       'uniform vec4 uFlash;',
+      'uniform float uFlashHit;',
       // Flowing water (src/render/flow.js): only the river draw compiles it.
       '#if defined(SEASON) && defined(RIVER)',
       'in float vFrozen;',
@@ -1298,11 +1306,15 @@
       '  float lambert = ambient + 0.61 * daylight * ndl;',
       '  float topFace = step(0.5, vNormal.y);',
       '  // Lightning (src/render/lightning.js): light from above around the',
-      '  // strike, fainter over the whole map. uFlash: strike (cell UV),',
-      '  // reach (cell UV), strength; strength 0 between strikes.',
+      '  // strike, fainter over the whole map (FLASH_MAP of it), and a tight',
+      '  // flare on the impact tile. uFlash: strike (cell UV), reach (cell UV),',
+      '  // strength; strength and uFlashHit 0 between strikes.',
       '  vec2 flashD = (vCellUV - uFlash.xy) / uFlash.z;',
-      '  float flashNear = max(0.0, 1.0 - dot(flashD, flashD));',
-      '  lambert += uFlash.w * (0.25 + 0.75 * flashNear * flashNear) * mix(0.45, 1.0, topFace);',
+      '  float flashR2 = dot(flashD, flashD);',
+      '  float flashNear = max(0.0, 1.0 - flashR2);',
+      '  lambert += uFlash.w * (' + glslFloat(FLASH_MAP) + ' + ' + glslFloat(1 - FLASH_MAP) +
+        ' * flashNear * flashNear) * mix(0.45, 1.0, topFace);',
+      '  lambert += uFlashHit * exp(-flashR2 * ' + glslFloat(HIT_SHARP) + ');',
       '  float shadow = texture(uShadowMap, vCellUV).r;',
       '  // AO reaches 0.60 at a buried corner: distinct form without black pits.',
       '  const float AO_STRENGTH = 0.40;',
@@ -1696,6 +1708,7 @@
         fogAmount: 'uFogAmount',
         fogColor: 'uFogColor',
         flash: 'uFlash',
+        flashHit: 'uFlashHit',
         seasonMap: 'uSeasonMap',
         season: 'uSeason',
         snowColor: 'uSnowColor',
@@ -1770,8 +1783,10 @@
     // Lightning (src/render/lightning.js): this frame's strike from the rain
     // clouds, its light in the terrain shader, the bolt as its own layer.
     var lightning = SM.Lightning ? SM.Lightning.createLayer(gl, acct) : null;
-    var strike = { active: false, flash: 0, bolt: false };
-    var flashLight = true;            // off with prefers-reduced-motion
+    var strike = { active: false, flash: 0, hit: 0, glow: 0, bolt: false };
+    // Off with prefers-reduced-motion: the flash, flare, cloud glow, shake.
+    var flashLight = true;
+    var shake = [0, 0];
     var boltDraw = {
       combined: null, vScale: 1, eye: null, pixelWorld: 1, strike: strike, width: 1, height: 1
     };
@@ -1809,6 +1824,7 @@
     var indexCount = 0;
     var clearColor = [0.055, 0.075, 0.11, 1];
     var width = 1;
+    var cssWidth = 0;                 // CSS pixels (the strike's shake is in them)
     var height = 1;
     var disposed = false;
     // Sky state. `cloudInstances` is the immutable per-map layout; `cloudNow`
@@ -1834,6 +1850,11 @@
     var cloudWorldData = new Float32Array(SM.Sky.MAX_CLOUDS * 3);
     // Per-cloud opacity for both programs; zero-padded, reused every frame.
     var cloudFadeData = new Float32Array(SM.Sky.MAX_CLOUDS);
+    // drawClouds' back-to-front order (reused entries: no per-frame garbage).
+    var cloudOrder = [];
+    var cloudSorted = [];
+    // Fair-weather cloud colour (the weather clouds carry their own).
+    var FAIR_CLOUD_COLOR = new Float32Array([0.93, 0.95, 0.99]);
     var meshBounds = null;
     var showSky = true;
     var debugView = 0;
@@ -1950,6 +1971,7 @@
     function resize(cssW, cssH, dpr) {
       if (disposed) return;
       // Canvas pixels follow DPR so orthographic edges stay crisp on Retina.
+      cssWidth = Math.max(1, +cssW || 1);
       width = Math.max(1, Math.round(cssW * (dpr || 1)));
       height = Math.max(1, Math.round(cssH * (dpr || 1)));
       canvas.width = width;
@@ -2006,6 +2028,7 @@
           cloudIdx: gl.createBuffer(),
           cloudIndex: gl.createBuffer(),
           cloudCount: 0,
+          cloudRanges: [],
           birdVao: gl.createVertexArray(),
           birdPos: gl.createBuffer(),
           birdIdx: gl.createBuffer(),
@@ -2047,6 +2070,7 @@
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sky.cloudIndex);
       acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, sky.cloudIndex, clouds.indices, gl.STATIC_DRAW);
       sky.cloudCount = clouds.indices.length;
+      sky.cloudRanges = clouds.ranges;
 
       gl.bindVertexArray(sky.birdVao);
       uploadSkyAttrib(sky.birdPos, 'aPosition', birds.positions, 3);
@@ -2124,8 +2148,6 @@
     }
 
     function drawSky() {
-      var flat;
-      var i;
       var spanX;
 
       // Debug views show the terrain terms alone: clouds would only hide them.
@@ -2139,36 +2161,7 @@
       gl.uniform1f(sky.sunStrength, strength);
       setGradeUniforms(sky.gradeTint, sky.gradeBS, sky.gradeOn);
 
-      if (showSky && sky.cloudCount && cloudNow.length) {
-        flat = cloudWorldData;
-        for (i = 0; i < cloudNow.length && i < SM.Sky.MAX_CLOUDS; i++) {
-          flat[i * 3] = cloudNow[i].x;
-          flat[i * 3 + 1] = cloudNow[i].y;
-          flat[i * 3 + 2] = cloudNow[i].z;
-        }
-        gl.uniform3fv(sky.cloudPosUniform, flat);
-        gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
-        gl.uniform1i(sky.mode, 0);
-        gl.uniform3f(sky.color, 0.93, 0.95, 0.99);
-        gl.bindVertexArray(sky.cloudVao);
-        // Fading clouds are translucent, and a voxel cloud is many touching
-        // boxes: plain alpha would show every inner face through the others.
-        // Pass 1 writes depth only, pass 2 colours only the front-most
-        // surface (LEQUAL) with blending -- each pixel is blended once.
-        gl.colorMask(false, false, false, false);
-        acct.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
-        gl.colorMask(true, true, true, true);
-        gl.enable(gl.BLEND);
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-        gl.depthFunc(gl.LEQUAL);
-        gl.depthMask(false);
-        acct.drawElements(gl.TRIANGLES, sky.cloudCount, gl.UNSIGNED_INT, 0);
-        gl.depthMask(true);
-        gl.depthFunc(gl.LESS);
-        gl.disable(gl.BLEND);
-      }
-
-      if (weatherNow.length && sky.weatherCount) drawWeatherClouds();
+      drawClouds();
 
       if (showSky && sky.birdCount) {
         gl.uniform1i(sky.mode, 1);
@@ -2192,32 +2185,66 @@
       gl.bindVertexArray(null);
     }
 
-    /* The weather clouds: semi-transparent (their own alpha through
-     * uCloudFade), one draw pair per cloud for its colour, with the same
-     * depth-prepass trick as the fair clouds so each pixel blends once. */
-    function drawWeatherClouds() {
-      var flat = cloudWorldData;
-      var n;
+    /* Every cloud, fair and weather, is translucent (owner, 2026-10-13: all
+     * of them): fair ones at SM.Sky.CLOUD_ALPHA, weather ones at their own
+     * (weather.js CLOUD_ALPHA), all times their fade. A voxel cloud is many
+     * touching boxes, so plain alpha would show every inner face through
+     * the others: each cloud gets a depth-only pass, then a colour pass that
+     * colours only its front-most surface (LEQUAL) with blending -- each of
+     * its pixels is blended once. Two translucent clouds over each other
+     * need the far one first, so the clouds are drawn one by one, sorted
+     * back to front along the view (by centre: they do not interpenetrate
+     * much). The near one's depth pass then lies over the far one's colour
+     * and blends over it, instead of cutting it out. */
+    function drawClouds() {
+      var k = 0;
+      var i;
+      var c;
+      var group = -1;
 
-      flat.fill(0);
-      cloudFadeData.fill(0);
-      for (n = 0; n < weatherNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
-        flat[n * 3] = weatherNow[n].x;
-        flat[n * 3 + 1] = weatherNow[n].y;
-        flat[n * 3 + 2] = weatherNow[n].z;
-        cloudFadeData[n] = weatherNow[n].fade;
+      if (showSky && sky.cloudCount && cloudNow.length) {
+        for (i = 0; i < cloudNow.length && i < SM.Sky.MAX_CLOUDS && i < sky.cloudRanges.length; i++) {
+          if (cloudNow[i].fade < 0.004 || !sky.cloudRanges[i][1]) continue;
+          c = cloudOrder[k] || (cloudOrder[k] = { weather: 0, n: 0, depth: 0 });
+          c.weather = 0;
+          c.n = i;
+          c.depth = cloudNow[i].x * viewDir[0] + cloudNow[i].y * viewDir[1] + cloudNow[i].z * viewDir[2];
+          k++;
+        }
       }
-      gl.uniform3fv(sky.cloudPosUniform, flat);
-      gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
+      if (weatherNow.length && sky.weatherCount) {
+        for (i = 0; i < weatherNow.length && i < sky.weatherRanges.length; i++) {
+          if (weatherNow[i].fade < 0.004 || !sky.weatherRanges[i][1]) continue;
+          c = cloudOrder[k] || (cloudOrder[k] = { weather: 0, n: 0, depth: 0 });
+          c.weather = 1;
+          c.n = i;
+          c.depth = weatherNow[i].x * viewDir[0] + weatherNow[i].y * viewDir[1] + weatherNow[i].z * viewDir[2];
+          k++;
+        }
+      }
+      if (!k) return;
+      cloudSorted.length = k;
+      for (i = 0; i < k; i++) cloudSorted[i] = cloudOrder[i];
+      // viewDir points at the eye: smaller depth is farther away.
+      cloudSorted.sort(byDepth);
+
       gl.uniform1i(sky.mode, 0);
-      gl.bindVertexArray(sky.weatherVao);
-      for (n = 0; n < weatherNow.length && n < sky.weatherRanges.length; n++) {
-        var range = sky.weatherRanges[n];
-        var color = weatherBuilt.clouds[n].color;
-        if (!range[1]) continue;
-        // The cloud a strike comes from lights up with it.
-        var lit = strike.active && flashLight && strike.cloud === n ? 1 + 1.4 * strike.flash : 1;
-        gl.uniform3f(sky.color, color[0] * lit, color[1] * lit, color[2] * lit);
+      for (i = 0; i < k; i++) {
+        c = cloudSorted[i];
+        if (c.weather !== group) {
+          group = c.weather;
+          setCloudGroup(group);
+        }
+        var range = group ? sky.weatherRanges[c.n] : sky.cloudRanges[c.n];
+        if (group) {
+          var color = weatherBuilt.clouds[c.n].color;
+          // The cloud a strike comes from lights up with it.
+          var lit = strike.active && flashLight && strike.cloud === c.n ?
+            1 + SM.Lightning.CLOUD_GLOW * strike.glow : 1;
+          gl.uniform3f(sky.color, color[0] * lit, color[1] * lit, color[2] * lit);
+        } else {
+          gl.uniform3fv(sky.color, FAIR_CLOUD_COLOR);
+        }
         gl.colorMask(false, false, false, false);
         acct.drawElements(gl.TRIANGLES, range[1], gl.UNSIGNED_INT, range[0] * 4);
         gl.colorMask(true, true, true, true);
@@ -2230,10 +2257,41 @@
         gl.depthFunc(gl.LESS);
         gl.disable(gl.BLEND);
       }
-      // The fair clouds' fades again (they are read next frame anyway; keep
-      // the shared buffer honest).
+    }
+
+    function byDepth(a, b) {
+      return a.depth - b.depth;
+    }
+
+    /* Positions and opacities of one group (0 fair, 1 weather) into the sky
+     * program's cloud uniforms, and its mesh. */
+    function setCloudGroup(weatherGroup) {
+      var flat = cloudWorldData;
+      var n;
+
+      flat.fill(0);
       cloudFadeData.fill(0);
-      for (n = 0; n < cloudNow.length && n < SM.Sky.MAX_CLOUDS; n++) cloudFadeData[n] = cloudNow[n].fade;
+      if (weatherGroup) {
+        for (n = 0; n < weatherNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
+          flat[n * 3] = weatherNow[n].x;
+          flat[n * 3 + 1] = weatherNow[n].y;
+          flat[n * 3 + 2] = weatherNow[n].z;
+          // A glowing cloud keeps its opacity: the bolt behind it must
+          // still show through.
+          cloudFadeData[n] = weatherNow[n].fade;
+        }
+        gl.bindVertexArray(sky.weatherVao);
+      } else {
+        for (n = 0; n < cloudNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
+          flat[n * 3] = cloudNow[n].x;
+          flat[n * 3 + 1] = cloudNow[n].y;
+          flat[n * 3 + 2] = cloudNow[n].z;
+          cloudFadeData[n] = cloudNow[n].fade * SM.Sky.CLOUD_ALPHA;
+        }
+        gl.bindVertexArray(sky.cloudVao);
+      }
+      gl.uniform3fv(sky.cloudPosUniform, flat);
+      gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
     }
 
     function setSky(enabled) {
@@ -2520,6 +2578,17 @@
       } else {
         strike.active = false;
       }
+      // The strike's shake: a few pixels as the bolt lands, the whole view
+      // (a clip-space shift of the ortho projection; the camera itself and
+      // picking are untouched). Not for reduced motion.
+      if (strike.active && flashLight) {
+        SM.Lightning.shakeAt(strike, shake);
+        if (shake[0] || shake[1]) {
+          var dpr = cssWidth > 0 ? width / cssWidth : 1;
+          combined[12] += 2 * shake[0] * dpr / width;
+          combined[13] += 2 * shake[1] * dpr / height;
+        }
+      }
       gl.bindVertexArray(vao);
       var night = nightLight > 0.001 && nightU;
       // Flowing water's tops (the end of the index buffer) are drawn by the
@@ -2609,6 +2678,7 @@
       gl.uniform4f(U.flash, strike.active ? strike.x / gridSize[0] : 0, strike.active ? strike.y / gridSize[1] : 0,
         SM.Lightning ? SM.Lightning.REACH / gridSize[0] : 1,
         strike.active && flashLight && !debugView ? strike.flash * SM.Lightning.FLASH_LIGHT : 0);
+      gl.uniform1f(U.flashHit, strike.active && flashLight && !debugView ? strike.hit * SM.Lightning.HIT_LIGHT : 0);
       if (U.fogMap) {
         gl.activeTexture(gl.TEXTURE3);
         gl.bindTexture(gl.TEXTURE_2D, fogTexture);

@@ -50,10 +50,11 @@
   var SEEDS = ['forest', 'jungle', 'marsh', 'taiga', 'tundra', 'snow'];
   // Opacity of a weather cloud, rain and snow (the map under it must stay
   // readable).
-  var CLOUD_ALPHA = { rain: 0.58, snow: 0.48 };
+  var CLOUD_ALPHA = { rain: 0.64, snow: 0.54 };
   // How far below snow-white the cloud is mixed toward the palette's rock
-  // grey: rain clouds are heavier.
-  var GREY = { rain: 0.42, snow: 0.16 };
+  // grey: rain clouds are heavier. Both clearly greyer than the fair
+  // clouds (owner, 2026-10-13; was 0.42 / 0.16).
+  var GREY = { rain: 0.62, snow: 0.4 };
   // Drift speed as a share of a fair cloud's typical speed (sky.js
   // cloudInstances: spanX x 0.011 per second), seeded per cloud.
   var DRIFT = [0.4, 0.6];

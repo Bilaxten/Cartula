@@ -187,9 +187,14 @@ izdüşümle.
 (`SM.Sky.cloudFade`); solma bulutun kendi erimi boyunca sürer, kenarı haritadan
 çıkınca tamamen gitmiş olur (2026-10-05'e kadar iki yarıçap öteye uzuyordu,
 uzun bulutlar haritanın yanında gri bir hayalet bırakıyordu). Başa dönme
-noktasında opaklık tam 0, gölge de bulutla birlikte solar. Saydam voxel bulut
+noktasında opaklık tam 0, gölge de bulutla birlikte solar. **Bütün bulutlar
+yarı saydam** (2026-10-13, Uğur): açık hava bulutu 0.78 (`SM.Sky.CLOUD_ALPHA`),
+hava bulutları kendi değerinde, hepsi solmayla çarpılır. Saydam voxel bulut
 iki geçişle çizilir (önce yalnız derinlik, sonra en öndeki yüzey
-karıştırılarak). `--sky`.
+karıştırılarak); iki saydam bulut üst üste binince uzaktaki önce çizilmeli, o
+yüzden bulutlar (açık + hava) **tek tek, bakış yönünde arkadan öne
+sıralanarak** çizilir, her biri kendi derinlik geçişiyle (`drawClouds`). Bedeli:
+bulut çizim çağrısı 2 + 2×hava → 2×(açık + hava), en çok 18. `--sky`, `--weather`.
 
 **Bulut çeşitliliği** (2026-10-05, Uğur: bulutlar birbirine benziyordu): her
 harita kendi gökyüzünü haritanın **seed**'inden alır (`mesh.seed` →
@@ -356,10 +361,12 @@ harita seed'inden 2-3 hava bölgesi; ilki haritada soğuk kara varsa ona,
 diğerleri ıslak karaya (orman, yağmur ormanı, bataklık). İkinci tur (aynı gün,
 Uğur: *"yağmur ve kar yarı saydam bulutlardan yağsın"*): **her bölgenin kendi
 bulutu var** ve bölge = bulutun ayak izi. Bulut, açık hava bulutlarıyla aynı
-voxel lob yapısında (`SM.Sky.buildCloudMesh`) ama **yarı saydam** (yağmur 0.58,
-kar 0.48: altındaki harita okunur), daha alçakta (geçtiği satır bandındaki en yüksek
-zeminin 4 kademe üstü) ve daha gri: paletin kar beyazı kaya grisine karıştırılır
-(yağmur bulutu daha ağır, kar bulutu daha açık; yeni renk yok). Her parçacık bir
+voxel lob yapısında (`SM.Sky.buildCloudMesh`) ama **yarı saydam** (yağmur 0.64,
+kar 0.54: altındaki harita okunur; 2026-10-13'e kadar 0.58 / 0.48), daha alçakta
+(geçtiği satır bandındaki en yüksek zeminin 4 kademe üstü) ve belirgin biçimde
+daha gri: paletin kar beyazı kaya grisine karıştırılır — yağmur %62, kar %40
+(2026-10-13, Uğur: açık hava bulutlarından belirgin gri olsun; önce %42 / %16);
+yeni renk yok. Her parçacık bir
 buluta ait, bulutun altından başlar, lobları içinde düşer, değdiği zeminde söner.
 Hava bulutları (üçüncü tur, Uğur: *"yağış yapan bulutlar da daha yavaş şekilde
 hareket edebilir diğer bulutlar gibi"*) açık hava bulutları gibi haritayı x
@@ -435,18 +442,27 @@ gün ışığıyla kısılmış) renk düzeltmesinden ÖNCE karıştırır (saba
 tonu, gecenin mavisi uygulanır). Varyant saat ilk kez sis getirdiğinde
 derlenir, yalnız sis varken kullanılır: öğleden sonra bedava. `--fog`.
 
-**Şimşek** (2026-10-06, `src/render/lightning.js`): yağmur bulutları (kar
-bulutu asla; yalnız *Rain & snow* açıkken) arada bir çakar: çakma yerinin
-çevresi (ve hafifçe bütün harita) yukarıdan aydınlanır, bulutun kendisi
-parlar, bulutun altından zemine bloklu bir yıldırım iner (ızgara eksenleri
-boyunca dikey düşüşler + kısa yatay kırıklar, bir yan dal). İki nabız: vuruş
-ve 0.16 sn sonra daha zayıf bir ikinci vuruş; yıldırım yalnız nabızlarda
-görünür. Seyrek ve sakin: zaman 12 sn'lik dilimlere bölünür, dilimde seed'li
-0.42 olasılıkla, dilim başından en az 3 sn sonra bir çakma — dakikada en çok
-5, ortalama ~2, hiçbir saniyede ikiden fazla parlama yok, ışık en çok 0.5
-artar. `prefers-reduced-motion`'da ışık parlaması yok (yıldırım kalır).
-Durumsuz: çakma (harita seed'i, hava, zaman)'ın saf fonksiyonu, kare başına
-birkaç hash, ayırma yok; arazi shader'ında tek uniform (`uFlash`, lambert
+**Şimşek** (2026-10-06, `src/render/lightning.js`; 2026-10-13 elden geçti,
+Uğur: daha parlak, çok hafif sarsıntı, yıldırımın buluttan yere düştüğü
+görünsün): yağmur bulutları (kar bulutu asla; yalnız *Rain & snow* açıkken)
+arada bir çakar. Önce **iniş** (130 ms): bloklu yıldırım (ızgara eksenleri
+boyunca dikey düşüşler + kısa yatay kırıklar, bir yan dal) bulutun altından
+zemine kademe kademe uzar (shader cephenin altını kırpar), bulut hafifçe
+parlamaya başlar; zemine henüz ışık düşmez. **Varış**ta çakma yerinin çevresi
+yukarıdan aydınlanır (en çok +0.9), bütün harita bunun %40'ını alır, vuruş
+noktası ~2.5 tile'lık bir parlamayla yanar (`uFlashHit`), bulut parlar (renk
+×2.3'e kadar), görüntü birkaç piksel sarsılır (eksen başına en çok 3 CSS px,
+250 ms'de söner; ortho izdüşümün kırpma uzayında kaydırma, kamera ve seçim
+etkilenmez). İki nabız: vuruş ve 0.16 sn sonra daha zayıf bir ikinci vuruş;
+yıldırım her nabızdan sonra 90 ms tam kalır, 140 ms'de solar (vuruştan ~0.5 sn
+sonra yok). Yıldırım bulutun ARKASINDA çizilir (saydam bulut önünden geçer).
+Seyrek ve sakin: zaman 12 sn'lik dilimlere bölünür, dilimde seed'li 0.42
+olasılıkla, dilim başından en az 3 sn sonra bir çakma — dakikada en çok 5,
+ortalama ~2, hiçbir saniyede ikiden fazla parlama yok, her nabız 0.1 sn'nin
+altında söner. `prefers-reduced-motion`'da ışık parlaması, vuruş parlaması,
+bulut parıltısı ve sarsıntı yok (yıldırım, inişiyle, kalır). Durumsuz: çakma
+(harita seed'i, hava, zaman)'ın saf fonksiyonu, kare başına birkaç hash,
+ayırma yok; arazi shader'ında iki uniform (`uFlash`, `uFlashHit`, lambert
 terimine eklenir). `--lightning`.
 
 **Mevsim** (2026-10-06, `src/render/season.js`; View → *Season*, TR

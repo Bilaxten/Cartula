@@ -1,29 +1,36 @@
 /* Lightning: rain clouds now and then flash, a blocky bolt to the ground.
  *
- * Owner-approved (2026-10-06). Only the rain clouds of src/render/weather.js
- * (never the snow clouds), only while *Rain & snow* is on. A strike is:
- *   - a brief light: the ground around the strike (and, fainter, the whole
- *     map) lights up from above -- the terrain shader's `uFlash` -- and the
- *     cloud itself brightens; two pulses (a stroke and one re-strike
- *     PULSE_GAP later), each decaying in under a tenth of a second;
- *   - the bolt, from the cloud's underside down to the ground under it, a
- *     staircase of vertical drops and short horizontal jogs along the
- *     grid axes (blocky, like the voxels) with one short side branch,
- *     visible during the two pulses only.
+ * Owner-approved (2026-10-06), reworked 2026-10-13 (owner: brighter, a
+ * slight shake, the bolt seen falling from the cloud to the ground). Only
+ * the rain clouds of src/render/weather.js (never the snow clouds), only
+ * while *Rain & snow* is on. A strike, from its start `te`:
+ *   - the descent (DESCENT s): the bolt grows from the cloud's underside
+ *     down to the ground, level by level (`reach` 0..1; the bolt shader
+ *     clips everything below the front); the cloud starts to glow;
+ *   - the arrival (te + DESCENT): the light -- the ground around the
+ *     strike and, fainter, the whole map light up from above (the terrain
+ *     shader's `uFlash`), the impact tile flares (`hit`), the cloud
+ *     brightens (`glow`), the view shakes a few pixels (`shakeAt`); two
+ *     pulses (a stroke and one re-strike PULSE_GAP later), each decaying
+ *     in under a tenth of a second;
+ *   - the bolt, a staircase of vertical drops and short horizontal jogs
+ *     along the grid axes (blocky, like the voxels) with one short side
+ *     branch, holds BOLT_HOLD after each pulse and fades over BOLT_FADE
+ *     (`boltAlpha`).
  *
  * Rare and calm (not seizure-inducing): time is cut into SLOT-second
  * slots, a slot holds a strike with probability CHANCE (seeded), at a
  * seeded moment that keeps strikes at least MIN_GAP seconds apart -- at
  * most 60 / SLOT strikes a minute (5), about 2 on average, each two
  * pulses within 0.3 s, so never more than two flashes in any second. The
- * flash brightens the light by at most FLASH_LIGHT; nothing goes white.
- * With prefers-reduced-motion the light flash is left out (main.js); the
- * bolt still shows.
+ * flash brightens the light by at most FLASH_LIGHT and decays fast.
+ * With prefers-reduced-motion the light flash, the flare, the cloud glow
+ * and the shake are left out (main.js); the bolt still shows.
  *
  * Stateless: everything is a pure function of (map seed, weather, time),
- * so a frame at time t is reproducible and costs a few hashes. `strikeAt`
- * and `boltPath` are DOM- and GL-free (`--lightning` in tools/headless.js);
- * only `createLayer` touches WebGL.
+ * so a frame at time t is reproducible and costs a few hashes. `strikeAt`,
+ * `boltPath` and `shakeAt` are DOM- and GL-free (`--lightning` in
+ * tools/headless.js); only `createLayer` touches WebGL.
  */
 (function (SM) {
   'use strict';
@@ -31,16 +38,26 @@
   var SLOT = 12;                // seconds per possible strike
   var CHANCE = 0.42;            // a slot's chance of a strike
   var MIN_GAP = 3;              // seconds between strikes, at least
-  var PULSE_GAP = 0.16;         // stroke -> re-strike, seconds
+  var DESCENT = 0.13;           // the bolt falls from cloud to ground, seconds
+  var PULSE_GAP = 0.16;         // stroke -> re-strike, seconds (after arrival)
   var DECAY = [0.07, 0.09];     // e-folding time of each pulse, seconds
   var RESTRIKE = 0.65;          // the re-strike's strength
-  var WINDOW = 0.7;             // a strike is over after this, seconds
-  var BOLT_ON = 0.11;           // bolt visible this long after each pulse
-  var FLASH_LIGHT = 0.5;        // added light at the strike, full flash
+  var WINDOW = DESCENT + 0.7;   // a strike is over after this, seconds
+  var BOLT_HOLD = 0.09;         // the bolt at full strength after each pulse
+  var BOLT_FADE = 0.14;         // ...then fades out over this
+  var PRE_GLOW = 0.35;          // cloud glow at the end of the descent
+  var FLASH_LIGHT = 0.9;        // added light at the strike, full flash
+  var FLASH_MAP = 0.4;          // share of it the whole map gets
+  var HIT_LIGHT = 0.9;          // extra light on the impact tile, full flash
+  var HIT_RADIUS = 2.5;         // tiles: the impact flare's radius
+  var HIT_DECAY = 0.16;         // e-folding time of the flare, seconds
+  var CLOUD_GLOW = 1.3;         // the striking cloud's colour gain at full glow
+  var SHAKE_PX = 3;             // view shake at the arrival, CSS pixels
+  var SHAKE_TIME = 0.25;        // ...gone after this, seconds
   var REACH = 40;               // tiles: the light's falloff radius
   var MAX_SEGMENTS = 24;
-  var WIDTH = 0.28;             // bolt width, tiles
-  var MIN_PIXELS = 2.6;         // ...but never thinner than this on screen
+  var WIDTH = 0.36;             // bolt width, tiles
+  var MIN_PIXELS = 3.2;         // ...but never thinner than this on screen
   var FLOATS = 7;               // per vertex: position xyz, tangent xyz, side
 
   function hash(a, b, c) {
@@ -52,6 +69,7 @@
   var centres = new Float32Array(8);
   var fades = new Float32Array(4);
 
+  /* Light of the two pulses, dt seconds after the bolt's arrival. */
   function pulse(dt) {
     if (dt < 0) return 0;
     var f = Math.exp(-dt / DECAY[0]);
@@ -59,15 +77,34 @@
     return Math.min(1, f);
   }
 
+  /* The bolt's opacity, dt seconds after its arrival: full while it lands
+   * and BOLT_HOLD after each pulse, then fading over BOLT_FADE. */
+  function boltAlpha(dt) {
+    var a = 0;
+    var starts = [0, PULSE_GAP];
+    for (var k = 0; k < 2; k++) {
+      var d = dt - starts[k];
+      if (d < 0) continue;
+      a = Math.max(a, d <= BOLT_HOLD ? 1 : Math.max(0, 1 - (d - BOLT_HOLD) / BOLT_FADE));
+    }
+    return a;
+  }
+
   /* The strike at time t, into `out`: { active, cloud (index into the
    * weather clouds), x, y (grid, the bolt's foot), top, ground (levels:
-   * cloud underside, ground), flash (0..1), bolt (true while visible),
-   * id (the slot) }. `built` is SM.Weather.build's output; `seed` the
-   * map's. */
+   * cloud underside, ground), since (seconds since the strike began),
+   * reach (0..1: how far the bolt has fallen), flash (0..1, the light,
+   * from the arrival on), hit (0..1, the impact flare), glow (0..1, the
+   * cloud), boltAlpha (0..1), bolt (true while visible), id (the slot) }.
+   * `built` is SM.Weather.build's output; `seed` the map's. */
   function strikeAt(built, seed, t, out) {
     out = out || {};
     out.active = false;
     out.flash = 0;
+    out.hit = 0;
+    out.glow = 0;
+    out.reach = 0;
+    out.boltAlpha = 0;
     out.bolt = false;
     if (!built || !built.clouds.length) return out;
     var rainCount = 0;
@@ -110,8 +147,14 @@
       out.y = Math.floor(py) + 0.5;
       out.top = cl.bottom;
       out.ground = built.ground[gi * 2];
-      out.flash = pulse(dt);
-      out.bolt = dt < BOLT_ON || (dt >= PULSE_GAP && dt < PULSE_GAP + BOLT_ON);
+      var da = dt - DESCENT;    // since the arrival (negative: falling)
+      out.since = dt;
+      out.reach = Math.min(1, dt / DESCENT);
+      out.flash = pulse(da);
+      out.hit = da < 0 ? 0 : Math.max(out.flash, Math.exp(-da / HIT_DECAY));
+      out.glow = da < 0 ? PRE_GLOW * out.reach : Math.max(PRE_GLOW * Math.exp(-da / HIT_DECAY), out.flash);
+      out.boltAlpha = da < 0 ? 1 : boltAlpha(da);
+      out.bolt = out.boltAlpha > 0;
       out.id = s;
       out.seed = seed;
       return out;
@@ -158,6 +201,25 @@
     return segs;
   }
 
+  /* The view's shake for a strike, into `out` [x, y] in CSS pixels: from
+   * the bolt's arrival, SHAKE_PX at most, an uneven jitter that dies out
+   * over SHAKE_TIME. [0, 0] otherwise. Seeded per strike. */
+  function shakeAt(st, out) {
+    out = out || [0, 0];
+    out[0] = 0;
+    out[1] = 0;
+    if (!st || !st.active) return out;
+    var da = st.since - DESCENT;
+    if (!(da >= 0 && da < SHAKE_TIME)) return out;
+    var env = 1 - da / SHAKE_TIME;
+    env *= env;
+    var px = hash(st.seed, st.id, 140) * 6.2831853;
+    var py = hash(st.seed, st.id, 141) * 6.2831853;
+    out[0] = SHAKE_PX * env * Math.sin(da * 2 * Math.PI * 23 + px);
+    out[1] = SHAKE_PX * env * 0.7 * Math.sin(da * 2 * Math.PI * 17 + py);
+    return out;
+  }
+
   function makeBoltProgram(gl) {
     var vertexSource = [
       '#version 300 es',
@@ -168,7 +230,9 @@
       'uniform float uVScale;',
       'uniform vec3 uEye;',
       'uniform float uPixelWorld;',
+      'out highp float vLevel;',
       'void main() {',
+      '  vLevel = aPosition.y;',
       '  vec3 p = vec3(aPosition.x, aPosition.y * uVScale, aPosition.z);',
       '  vec3 t = vec3(aTangent.x, aTangent.y * uVScale, aTangent.z);',
       '  // Camera-facing strip across the segment, like the wind lines.',
@@ -182,11 +246,17 @@
     var fragmentSource = [
       '#version 300 es',
       'precision mediump float;',
+      'in highp float vLevel;',
       'uniform vec3 uColor;',
+      // The falling bolt: everything below the front level is not there
+      // yet (highp: levels reach a few dozen, a fraction matters).
+      'uniform highp float uFront;',
+      'uniform float uAlpha;',
       'out vec4 outColor;',
       'void main() {',
+      '  if (vLevel < uFront) discard;',
       '  // A light source: not graded (it stays bright at night).',
-      '  outColor = vec4(uColor, 1.0);',
+      '  outColor = vec4(uColor, uAlpha);',
       '}'
     ].join('\n');
     return SM.buildGLProgram(gl, 'lightning', vertexSource, fragmentSource,
@@ -229,7 +299,7 @@
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
     acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ibo, idx, gl.STATIC_DRAW);
     gl.bindVertexArray(null);
-    ['uViewProjection', 'uVScale', 'uEye', 'uPixelWorld', 'uColor'].forEach(function (n) {
+    ['uViewProjection', 'uVScale', 'uEye', 'uPixelWorld', 'uColor', 'uFront', 'uAlpha'].forEach(function (n) {
       loc[n] = gl.getUniformLocation(program, n);
     });
 
@@ -264,7 +334,8 @@
       gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, o);
     }
 
-    /* `o`: { combined, vScale, eye[3], pixelWorld, strike, width, height } */
+    /* `o`: { combined, vScale, eye[3], pixelWorld, strike, width, height }.
+     * Drawn before the clouds: the translucent cloud passes over it. */
     function draw(o) {
       var st = o.strike;
       if (!st || !st.active || !st.bolt) return;
@@ -280,9 +351,21 @@
       gl.uniform3fv(loc.uEye, o.eye);
       gl.uniform1f(loc.uPixelWorld, o.pixelWorld);
       gl.uniform3fv(loc.uColor, color);
+      // The front falls from the cloud's underside to the ground; once it
+      // lands nothing is clipped (the foot's half-width end included).
+      var top = Math.max(1, st.top - 0.3 - st.ground) + st.ground;
+      gl.uniform1f(loc.uFront, st.reach >= 1 ? -1e4 : top - (top - st.ground) * st.reach);
+      gl.uniform1f(loc.uAlpha, st.boltAlpha);
       gl.bindVertexArray(vao);
       gl.disable(gl.CULL_FACE);
+      // Fading, it blends; it writes depth only while solid, so a faint
+      // bolt never cuts a cloud behind it.
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(st.boltAlpha >= 0.99);
       acct.drawElements(gl.TRIANGLES, count * 6, gl.UNSIGNED_INT, 0);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
       gl.enable(gl.CULL_FACE);
       gl.bindVertexArray(null);
     }
@@ -303,14 +386,24 @@
     strikeAt: strikeAt,
     boltPath: boltPath,
     pulse: pulse,
+    boltAlpha: boltAlpha,
+    shakeAt: shakeAt,
     createLayer: createLayer,
     SLOT: SLOT,
     CHANCE: CHANCE,
     MIN_GAP: MIN_GAP,
     PULSE_GAP: PULSE_GAP,
     WINDOW: WINDOW,
-    BOLT_ON: BOLT_ON,
+    DESCENT: DESCENT,
+    BOLT_HOLD: BOLT_HOLD,
+    BOLT_FADE: BOLT_FADE,
     FLASH_LIGHT: FLASH_LIGHT,
+    FLASH_MAP: FLASH_MAP,
+    HIT_LIGHT: HIT_LIGHT,
+    HIT_RADIUS: HIT_RADIUS,
+    CLOUD_GLOW: CLOUD_GLOW,
+    SHAKE_PX: SHAKE_PX,
+    SHAKE_TIME: SHAKE_TIME,
     REACH: REACH,
     MAX_SEGMENTS: MAX_SEGMENTS
   };
