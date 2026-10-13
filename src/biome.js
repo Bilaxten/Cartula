@@ -153,6 +153,33 @@
     return c;
   }
 
+  // --- mossy lake colour (2026-10-13) ---
+  //
+  // A lake beside a marsh (grid.moss, tagged by SM.tagMossyLakes in grid.js)
+  // takes on the marsh's olive: the palette's Lake mixed toward the palette's
+  // Marsh, two steps (light, full). No new colour family -- the same rule as
+  // the sea ramp. Every view calls THIS (top-down bake, voxel mesh, the
+  // editor's repaint), so they cannot drift apart. The season's ice is laid
+  // over it afterwards (season.js), so a frozen lake looks like any other.
+  var MOSS_MIX = [0, 0.35, 0.65];
+  var MOSS_RAMP = null;
+
+  function lakeColor(grid, i) {
+    if (!MOSS_RAMP) {
+      var lake = hexRgb(BIOME_LIST[IDX.lake].color);
+      var marsh = hexRgb(BIOME_LIST[IDX.marsh].color);
+      MOSS_RAMP = MOSS_MIX.map(function (t) {
+        return [lake[0] + (marsh[0] - lake[0]) * t, lake[1] + (marsh[1] - lake[1]) * t,
+          lake[2] + (marsh[2] - lake[2]) * t];
+      });
+    }
+    var band = grid.moss ? grid.moss[i] : 0;
+    var c = MOSS_RAMP[band > 2 ? 2 : band];
+    return [c[0], c[1], c[2]];
+  }
+
+  SM.MOSS_MIX = MOSS_MIX;
+  SM.lakeColor = lakeColor;
   SM.SEA_DEPTH_REF = SEA_DEPTH_REF;
   SM.isSea = isSea;
   SM.seaDepthBand = seaDepthBand;

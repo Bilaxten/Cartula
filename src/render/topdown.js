@@ -27,8 +27,10 @@
   // `season`: the Season slider (season.js), 1 (summer) = as generated.
   function paintTile(ctx, grid, i, ts, hillshade, season) {
     var w = grid.width, x = i % w, y = (i / w) | 0;
-    // Sea: depth ramp + shoreline tint from the one shared definition.
-    var c = SM.isSea(grid, i) ? SM.seaColor(grid, i) : biomeRgb()[grid.biome[i]];
+    // Sea: depth ramp + shoreline tint; lake: the moss tint beside marsh.
+    // Both from the one shared definition (biome.js).
+    var c = SM.isSea(grid, i) ? SM.seaColor(grid, i)
+      : grid.biome[i] === SM.BIOME_IDX.lake ? SM.lakeColor(grid, i) : biomeRgb()[grid.biome[i]];
     // The season's snow, ice and autumn leaves: the voxel view's own steps.
     if (season != null && SM.Season) c = SM.Season.tileColor(grid, i, c, season);
     ctx.fillStyle = shade(c, SM.biomeShade(grid, i));
