@@ -193,8 +193,23 @@ function runShadowChecks() {
   const cloud = SM.Sky.cloudShadowUniforms(
     [{ x: 0, y: 4, z: 0, radius: 1 }], bounds, towardsLight);
   const downLight = east > 0 && west === 0 && cloud[0] > 0.5;
+  // Hard, voxel-aligned shadows (Uğur 2026-10-13: "daha belirgin ve köşeli").
+  // Every cell is fully lit or fully shaded -- no distance fade, no partial
+  // occlusion. The 8-level column under a rise of 0.12 shadows the whole
+  // run east of it to the grid edge, at full strength right up to the edge.
+  const hard = Array.prototype.every.call(cast, v => v === 0 || v === 255);
+  let fullRun = true;
+  for (let x = 5; x < high.width; x++) if (cast[4 * high.width + x] !== 255) fullRun = false;
+  // A one-level step casts nothing: the occluder must rise a whole voxel
+  // above the sun ray, so terraces do not hatch the slopes with stripes.
+  const step = makeFlatGrid(9, 9, 2);
+  for (let y = 0; y < step.height; y++) step.level[y * step.width] = 3;
+  const stepClear = Array.prototype.every.call(
+    SM.buildShadowMap(step, { dx: 1, dy: 0, rise: 0.5, strength: 0.42 }), v => v === 0);
   return [
     ['cast shadow falls down-light, the same way as the cloud shadow', downLight],
+    ['cast shadow is hard: every cell 0 or 255, full strength to its end', hard && fullRun],
+    ['a one-level terrace step casts no shadow', stepClear],
     ['shadow map type, length, and range', typeAndLength && range],
     ['shadow determinism', deterministic],
     ['flat grid has no cast shadow', flatClear],

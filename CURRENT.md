@@ -5,11 +5,30 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-06
+**Güncellendi:** 2026-10-13
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
+
+## Bu oturum — sert, köşeli güneş gölgesi (2026-10-13)
+
+Uğur `afeb6d5`'in gölge **yönünü** onayladı, ama yumuşaklığı istemedi:
+"daha belirgin ve köşeli gölgeler, map voxel sonuçta". Yumuşaklığın tek
+kaynağı `buildShadowMap`'in kesirli değeriydi (doku zaten NEAREST, UV tile
+merkezi): değer occluder'a uzaklıkla soluyor (12 adımda 0'a) ve ışını ne
+kadar aştığıyla (`over / 2.2`) ölçekleniyordu → her gölge tile tile gradyan.
+Şimdi: hücre ya 255 ya 0; occluder ışının en az **bir tam voxel** üstünde
+olmalı (yoksa tek kademelik her teras yamaçta şerit çiziyordu: 08:00'de
+kaplama 8.9k yerine 22k tile); yürüyüş sabit 12 adım yerine ışın en yüksek
+sütunu geçene kadar (en çok 64) — gölge geometri bitince biter, kare
+kesilmez. Koyuluk (`SHADOW_GAIN`, `uSunStrength`) ve palet aynı; yön aynı.
+Bulut gölgesi ayrı yol (`SM.Sky.rasterShadow`, LINEAR doku), dokunulmadı.
+`--mesh`: iki yeni kontrol (sert/tam güç, tek kademe gölge düşürmez),
+önce kırmızı görüldü. Headless Chrome (SwiftShader) önce/sonra: Sun shadow
+görünümünde kenarlar tile hizalı ve ikili; Lit'te gölge belirgin ama
+08:00/17:00 gücü düşük (×0.67 / ×0.74) — Uğur hâlâ silik bulursa sıradaki
+adım güç. Push ve yayın ana oturumda.
 
 ## Bu oturum — beş harita özelliği, her biri canlıda (2026-10-06)
 

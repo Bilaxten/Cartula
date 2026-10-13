@@ -102,15 +102,15 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 - [ ] **2026-10-05 gece düzeltmelerine gözle bak (Uğur yokken karar verildi;
       her biri tek commit, `git revert <hash>` yalnız onu geri alır):**
-      - `1cd3abb` düşen gölge artık aydınlık yüzün TERS tarafına düşüyor
-        (gölge yürüyüşü çevrildi; duvar ışığı ve bulut gölgesi aynı). Diğer
-        seçenek: Lambert + bulut gölgesini çevirmek (gölgeler eski yerinde
-        kalır, varsayılan kameraya bakan duvarlar kararır).
-        **Bak:** Isometric, seed 1337, *Time of day* 08:00 ve 17:00. *Render
-        debug view → Sun shadow*: koyu lekeler dağların hangi tarafında?
-        Sonra *Lit*: parlak duvarlar o lekelerin TERS tarafında olmalı ve
-        bulut gölgesi lekelerle aynı yöne kaymalı. Gölgeler varsayılan açıdan
-        fazla gizli kalıyorsa geri al.
+      - ✅ Düşen gölgenin yönü (`afeb6d5`; burada `1cd3abb` yazıyordu, o
+        hash rebase'den önceydi — bu listedeki diğer hash'ler de artık yok,
+        commit'leri mesajından bul): **Uğur 2026-10-13 onayladı.** Aynı gün
+        isteği: "daha belirgin ve köşeli gölgeler" → gölge sertleştirildi
+        (commit *Cast shadows: hard, voxel-aligned*): tile başına tam gölge
+        ya da tam ışık, mesafeyle solma yok, gölge geometri bitince biter.
+        **Bak:** Isometric, seed 1337, 08:00 ve 17:00, *Lit* ve *Sun
+        shadow*. Koyuluk aynı (`SHADOW_GAIN` değişmedi); Lit'te hâlâ
+        fazla silik geliyorsa sıradaki adım gücü artırmak.
       - `8dcc9c6` Shift+sürükle dikey pan artık imleci birebir izliyor
         (varsayılan pitch'te ~2.2 kat hızlı). Diğer seçenek: eski yavaş his.
         **Bak:** Isometric'te bir kıyı noktasını Shift+sürükle ile yukarı-

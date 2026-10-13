@@ -485,7 +485,8 @@ bağımsız).
   Canvas top-down render, parametre paneli, yeniden üret.
 - [x] **M2 — İzometrik voxel projeksiyon.** `src/render/voxel3d.js` — WebGL2,
   gerçek 3D mesh, 360° orbit kamera (yaw/pitch/zoom, Q/E çeyrek tur snap),
-  per-vertex AO, cast shadow, gün döngüsü. İşaretli yükseklik kademeleri (kara
+  per-vertex AO, cast shadow (2026-10-13'ten beri sert: tile başına tam
+  gölge ya da tam ışık, occluder ışını bir tam voxel aşmalı), gün döngüsü. İşaretli yükseklik kademeleri (kara
   yukarı; deniz düz yüzey, derinlik renkle — 2026-09-22'ye kadar deniz baseni
   aşağı kademeliydi), "Yükseklik abartısı" slider'ı mesh'i
   yeniden kurmadan uygular. 18 biyom, eğim tabanlı yalıyar, biyom-içi renk

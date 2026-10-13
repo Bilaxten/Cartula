@@ -221,6 +221,23 @@
     // s + (dx, dy) * step (a port of the deleted canvas iso pre-pass, which
     // read the vector the other way), so cast shadows fell on the SAME side
     // as the lit walls and opposite to the cloud shadows.
+    //
+    // The shadow is HARD (Uğur 2026-10-13: "daha belirgin ve köşeli gölgeler,
+    // map voxel sonuçta"): a cell is fully shaded (255) or fully lit (0), and
+    // the shader samples it per tile (NEAREST, tile-centre UV), so every edge
+    // runs along a voxel boundary. Until then the value faded with distance
+    // from the occluder and with how far it rose over the ray (over / 2.2),
+    // which drew each shadow as a tile-by-tile gradient. Two rules replace
+    // the fade:
+    //   - an occluder must stand a whole voxel (SHADOW_MIN_OVER) above the
+    //     ray, so a one-level terrace step does not hatch every slope with
+    //     one-tile stripes;
+    //   - the march runs until the ray clears the highest column, not a fixed
+    //     12 steps, so a shadow ends where the geometry ends instead of being
+    //     cut off square at a set length (SHADOW_MAX_STEPS only guards a sun
+    //     at the horizon).
+    var SHADOW_MIN_OVER = 1;
+    var SHADOW_MAX_STEPS = 64;
     var W = grid.width;
     var H = grid.height;
     var level = grid.level;
@@ -230,8 +247,10 @@
     var SUN_DX = +s.dx || 0;
     var SUN_DY = +s.dy || 0;
     var SUN_RISE = Math.max(0.12, +s.rise || 0);
-    var SUN_STEPS = 12;
     var shadow = new Uint8Array(W * H);
+    var top = floorLevel;
+
+    for (var li = 0; li < W * H; li++) if (level[li] > top) top = level[li];
 
     function levelAt(x, y) {
       if (x < 0 || y < 0 || x >= W || y >= H) return floorLevel;
@@ -242,24 +261,23 @@
       for (var sx = 0; sx < W; sx++) {
         var si = sy * W + sx;
         var base;
-        var sh = 0;
 
         if (level[si] <= floorLevel) continue;
         base = level[si];
-        for (var st = 1; st <= SUN_STEPS; st++) {
+        for (var st = 1; st <= SHADOW_MAX_STEPS; st++) {
+          var ray = base + SUN_RISE * st;
+          // Past this step no column can stand a voxel above the ray.
+          if (ray + SHADOW_MIN_OVER > top) break;
           var ol = levelAt(
             Math.round(sx - SUN_DX * st),
             Math.round(sy - SUN_DY * st)
           );
-          var over = ol - (base + SUN_RISE * st);
 
-          if (over > 0) {
-            var contrib = Math.min(1, over / 2.2) *
-              (1 - (st - 1) / SUN_STEPS);
-            if (contrib > sh) sh = contrib;
+          if (ol - ray >= SHADOW_MIN_OVER) {
+            shadow[si] = 255;
+            break;
           }
         }
-        shadow[si] = Math.round(sh * 255);
       }
     }
     return shadow;
