@@ -27,8 +27,13 @@ Bulut gölgesi ayrı yol (`SM.Sky.rasterShadow`, LINEAR doku), dokunulmadı.
 `--mesh`: iki yeni kontrol (sert/tam güç, tek kademe gölge düşürmez),
 önce kırmızı görüldü. Headless Chrome (SwiftShader) önce/sonra: Sun shadow
 görünümünde kenarlar tile hizalı ve ikili; Lit'te gölge belirgin ama
-08:00/17:00 gücü düşük (×0.67 / ×0.74) — Uğur hâlâ silik bulursa sıradaki
-adım güç. Push ve yayın ana oturumda.
+08:00/17:00 gücü düşüktü (×0.67 / ×0.74). **Aynı gün ikinci commit (koyuluk):**
+gölge artık `SHADOW_DEPTH` 0.5 → gündüz ×0.5 (çarpım, ton korunuyor);
+`daylight` 0.30-0.60 arası smoothstep ile alçak güneşte açılıyor (17:00 ×0.55,
+06:30 ×0.72 — uzun sabah gölgeleri siyah şerit olmuyor, gece 0, alacakaranlık
+çamurlaşmıyor); su derinliğin 0.6'sını alıyor (×0.7, koyu deniz kararmıyor).
+Ölçülen (headless, seed 1337): gölgedeki kara aynı karanın ışıktakine göre
+08:00 ×0.50-0.59 (vadi sisi kaldırıyor), 17:00 ×0.56. Push ve yayın ana oturumda.
 
 ## Bu oturum — beş harita özelliği, her biri canlıda (2026-10-06)
 

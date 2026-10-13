@@ -35,6 +35,22 @@
   var LAVA_SOURCE = 1.0;
   var LAVA_BLOOM = 1.8;
 
+  /* Cast sun shadow depth: a shaded top face is (1 - SHADOW_DEPTH) of the
+   * same face in sun, a wall 0.7 of that depth. Uğur 2026-10-13: "daha
+   * belirgin" -- the shadow was 1 - uSunStrength * 1.14, i.e. x0.67 at 08:00
+   * and x0.74 at 17:00, barely readable once the edges were hard. Now x0.5
+   * by day (a multiply, so the hue stays). The depth fades in with
+   * `daylight` (uSunStrength / 0.42) between SHADOW_LOW_SUN: 08:00 (0.69)
+   * full, x0.5; 17:00 (0.54) 0.90 of it, x0.55; 06:30 / 17:30 (0.46) 0.56
+   * of it, x0.72, so the long low-sun shadows stay light; none at night
+   * (0.12) -- no muddy dusk. Water takes SHADOW_WATER of the depth (x0.7 by
+   * day): it is dark already, and a full x0.5 turned shaded sea near black.
+   * Measured in headless Chrome, seed 1337: shaded land x0.55-0.6 of the
+   * same land lit at 08:00 (valley fog lifts it) and 17:00. */
+  var SHADOW_DEPTH = 0.5;
+  var SHADOW_LOW_SUN = [0.30, 0.60];
+  var SHADOW_WATER = 0.6;
+
 
   function wrapYaw(yaw) {
     // A compact 0..359 range keeps camera state and shared links canonical.
@@ -1141,6 +1157,7 @@
       'out float vFall;',
       'out float vFallCoord;',
       'out float vWaveShade;',
+      'out float vWater;',
       '#ifdef RIVER',
       // World x/z for the flow pattern (highp: a quarter-tile hash cell on a
       // 448-tile map needs more than mediump's 10-bit mantissa).
@@ -1217,6 +1234,7 @@
       '  // for the four corners of a tile, so flat across it). Crest tiles',
       '  // lighten, trough tiles darken; top faces only. The shore foam',
       '  // reads the same value.',
+      '  vWater = aWater;',
       '  vWaveShade = aWater * step(0.5, aNormal.y) * aWave.w *',
       '    sin(uTime * 1.40 + aWave.z * (255.0 / 256.0) * TAU);',
       '#ifdef SEASON',
@@ -1245,6 +1263,7 @@
       'in float vFall;',
       'in float vFallCoord;',
       'in float vWaveShade;',
+      'in float vWater;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -1325,11 +1344,14 @@
       '  // AO reaches 0.60 at a buried corner: distinct form without black pits.',
       '  const float AO_STRENGTH = 0.40;',
       '  float aoFactor = mix(1.0 - AO_STRENGTH, 1.0, aoCount / 3.0);',
-      '  // AO now carries local form, so 1.14 keeps cast shadows directional.',
-      '  const float SHADOW_GAIN = 1.14;',
       '  // 0.70 gives side faces more shade while retaining readable Lambert form.',
       '  float shadowHit = mix(0.70, 1.0, topFace);',
-      '  float shadowFactor = 1.0 - uSunStrength * SHADOW_GAIN * shadowHit * shadow;',
+      '  // Cast shadow depth (SHADOW_DEPTH etc. above): full by day, faded',
+      '  // out as the sun nears the horizon, lighter on water.',
+      '  float shadowDepth = ' + glslFloat(SHADOW_DEPTH) + ' *',
+      '    smoothstep(' + glslFloat(SHADOW_LOW_SUN[0]) + ', ' + glslFloat(SHADOW_LOW_SUN[1]) + ', daylight) *',
+      '    mix(1.0, ' + glslFloat(SHADOW_WATER) + ', vWater);',
+      '  float shadowFactor = 1.0 - shadowDepth * shadowHit * shadow;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
       '  // Cell UV offsets lava so an entire volcano never pulses in lockstep.',
       '  float lavaPhase = dot(vCellUV, vec2(113.0, 173.0));',
@@ -1401,7 +1423,7 @@
       '    else if (uDebugView < 2.5) dbg = normalize(vNormal) * 0.5 + 0.5;',
       '    else if (uDebugView < 3.5) dbg = vec3(clamp(vHeight / 12.0, 0.0, 1.0));',
       '    else if (uDebugView < 4.5) dbg = baseColor;',
-      '    else if (uDebugView < 5.5) dbg = vec3(1.0 - SHADOW_GAIN * shadowHit * shadow * 0.8);',
+      '    else if (uDebugView < 5.5) dbg = vec3(1.0 - 0.912 * shadowHit * shadow);',
       '    else dbg = mix(vColor * 0.35, vec3(1.0, 0.55, 0.15), vFall);',
       '    outColor = vec4(GRADE(dbg), 1.0);',
       '    return;',

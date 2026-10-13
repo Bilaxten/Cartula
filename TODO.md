@@ -109,8 +109,10 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
         (commit *Cast shadows: hard, voxel-aligned*): tile başına tam gölge
         ya da tam ışık, mesafeyle solma yok, gölge geometri bitince biter.
         **Bak:** Isometric, seed 1337, 08:00 ve 17:00, *Lit* ve *Sun
-        shadow*. Koyuluk aynı (`SHADOW_GAIN` değişmedi); Lit'te hâlâ
-        fazla silik geliyorsa sıradaki adım gücü artırmak.
+        shadow*, bir de 06:30 (uzun gölgeler hafif kalmalı). Ardından
+        koyuluk da artırıldı (*Cast shadows: darker, readable in Lit*):
+        gündüz ×0.5, 17:00 ×0.55, 06:30 ×0.72, su ×0.7. Ayar:
+        `voxel3d.js` `SHADOW_DEPTH` / `SHADOW_LOW_SUN` / `SHADOW_WATER`.
       - `8dcc9c6` Shift+sürükle dikey pan artık imleci birebir izliyor
         (varsayılan pitch'te ~2.2 kat hızlı). Diğer seçenek: eski yavaş his.
         **Bak:** Isometric'te bir kıyı noktasını Shift+sürükle ile yukarı-
