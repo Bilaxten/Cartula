@@ -123,6 +123,8 @@ Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını s�
 
 Fırça düzenlemelerini geri almak Edit → *Reset to generated*.
 
+> **Edit paneli şimdilik gizli** (Uğur 2026-10-13): kod ve testler duruyor; geri açmak için `src/main.js` içinde `EDIT_ENABLED = true`.
+
 **Kamera kısayolları:** izometrikte sürükle = döndür, **Boşluk+sürükle** ya da
 Shift+sürükle = kaydır, tekerlek = yakınlaş, Q/E = 90° snap. Üstten görünümde
 sürükle = kaydır (*Pan* aracı); **Boşluk+sürükle her araçta kaydırır**, fırça

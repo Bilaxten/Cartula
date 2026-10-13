@@ -291,6 +291,7 @@ body {
 }
 
 details.group { border-bottom: 1px solid var(--line-soft); }
+details.group[hidden] { display: none; }
 details.group > summary {
   display: flex;
   align-items: center;

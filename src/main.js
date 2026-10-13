@@ -849,7 +849,7 @@
   }
 
   function updateStageCursor() {
-    stage.classList.toggle('editing', view === 'top' && $('editTool').value !== 'pan');
+    stage.classList.toggle('editing', EDIT_ENABLED && view === 'top' && $('editTool').value !== 'pan');
   }
 
   function updateUndoButtons() {
@@ -1098,14 +1098,14 @@
   }
 
   function undoEdit() {
-    if (!undoStack.length || !grid || pipeline) return;
+    if (!EDIT_ENABLED || !undoStack.length || !grid || pipeline) return;
     var record = undoStack.pop();
     redoStack.push(restoreRecord(record));
     afterHistoryStep(record);
   }
 
   function redoEdit() {
-    if (!redoStack.length || !grid || pipeline) return;
+    if (!EDIT_ENABLED || !redoStack.length || !grid || pipeline) return;
     var record = redoStack.pop();
     undoStack.push(restoreRecord(record));
     afterHistoryStep(record);
@@ -1138,7 +1138,7 @@
   function isSpaceKey(ev) { return ev.code === 'Space' || ev.key === ' '; }
 
   function showBrushCursor(tile) {
-    if (!tile || view !== 'top' || $('editTool').value === 'pan' || spaceHeld) { hideBrushCursor(); return; }
+    if (!EDIT_ENABLED || !tile || view !== 'top' || $('editTool').value === 'pan' || spaceHeld) { hideBrushCursor(); return; }
     var radius = parseInt($('brushSize').value, 10), ts = content.tile * cam.scale;
     // The river tool paints a narrow channel, not the full disc. Showing the disc
     // would make the cursor lie about what the next click does.
@@ -1185,7 +1185,7 @@
       stage.classList.add('dragging');
       return;
     }
-    if (ev.button === 0 && view === 'top' && grid && !pipeline && !spaceHeld &&
+    if (EDIT_ENABLED && ev.button === 0 && view === 'top' && grid && !pipeline && !spaceHeld &&
         $('editTool').value !== 'pan') {
       var tile = eventTile(ev);
       if (!tile) return;
@@ -1724,6 +1724,16 @@
   if (UNITY_EXPORT_ENABLED) {
     $('exportUnityRow').hidden = false;
     $('exportUnity').addEventListener('click', exportUnity);
+  }
+  // Brush editing is OFF for now (Uğur 2026-10-13: "edit bölümünü gizleyelim,
+  // genel kullanılmaz"). All brush code, the `--edit` / `--river` harnesses and
+  // the #editGroup markup stay; the group is hidden, the tool is forced to Pan
+  // and the paint / cursor / undo paths are gated on this flag. Set it to true
+  // to bring the Edit panel back; nothing else changes.
+  var EDIT_ENABLED = false;
+  if (!EDIT_ENABLED) {
+    $('editGroup').hidden = true;
+    $('editTool').value = 'pan';
   }
   // Dark mode: only the page chrome; the map keeps its own palette. The
   // initial value is set by the inline script in index.html.
