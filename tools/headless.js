@@ -3317,6 +3317,20 @@ function runLayoutChecks() {
       !inCompact(new RegExp('^' + id.replace(/[#]/g, '\\#') + '$')).some(r => /env\(safe-area-inset-/.test(r.body)));
     push('compact screens keep the ☰, header, footer and angle chip clear of notches / the home bar (safe-area insets)',
       safe.length === 0, safe.join(', '));
+    // The angle bar (Uğur 2026-10-13, phone: icons crowded the slider): one
+    // grid, equal buttons, fixed gaps and readout, the slider takes the rest.
+    {
+      const bar = cssRules(css, /^#yawControl$/);
+      const base = bar.find(r => !r.media), compact = bar.find(r => r.media === '@media ' + COMPACT);
+      const cols = base ? (base.body.match(/grid-template-columns:\s*([^;]+);/) || [])[1] || '' : '';
+      push('angle bar: a grid of button | slider (minmax(0, 1fr)) | fixed readout | button, fixed gap; compact = 44 px buttons, centred between the safe-area insets',
+        !!base && /display:\s*grid/.test(base.body) &&
+        /^var\(--yaw-btn\) minmax\(0, 1fr\) [\d.]+(ch|px) var\(--yaw-btn\)$/.test(cols.trim()) &&
+        /column-gap:\s*var\(--yaw-gap\)/.test(base.body) &&
+        !!compact && /--yaw-btn:\s*44px/.test(compact.body) &&
+        /left:\s*calc\(env\(safe-area-inset-left/.test(compact.body) && /right:\s*calc\(env\(safe-area-inset-right/.test(compact.body) &&
+        /margin:\s*0 auto/.test(compact.body) && /transform:\s*none/.test(compact.body), cols);
+    }
     push('the open drawer is a popup: a tap on the scrim or Esc closes it (compact only)',
       /id="panelScrim"/.test(html) &&
       /\$\('panelScrim'\)\.addEventListener\('click', function \(\) \{ setPanel\(false, true\); \}\)/.test(main) &&

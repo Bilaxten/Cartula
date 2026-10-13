@@ -593,14 +593,22 @@ details.group .body { padding: 2px 18px 18px; }
  * instead of running under it. */
 body.iso #isohint { max-width: max(120px, calc(50% - 172px)); }
 
+/* One grid for every screen (Uğur 2026-10-13, phone: the icons crowded
+ * the slider): button | slider | readout | button. The buttons share one
+ * size, the gaps are fixed, the readout has a fixed width, and the slider
+ * gets the rest of the row -- grid tracks cannot overlap. The compact block
+ * below only changes the sizes. */
 #yawControl {
+  --yaw-btn: 22px;
+  --yaw-gap: 10px;
   position: absolute;
   bottom: 13px;
   left: 50%;
   z-index: 3;
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--yaw-btn) minmax(0, 1fr) 4.5ch var(--yaw-btn);
   align-items: center;
-  gap: 10px;
+  column-gap: var(--yaw-gap);
   width: min(292px, calc(100% - 42px));
   padding: 7px 11px;
   border: 1px solid var(--chip-edge);
@@ -613,13 +621,12 @@ body.iso #isohint { max-width: max(120px, calc(50% - 172px)); }
   transform: translateX(-50%);
 }
 #yawControl[hidden] { display: none; }
-#yawControl input[type=range] { flex: 1; min-width: 0; }
-#yawControl span { min-width: 31px; text-align: right; }
+#yawControl input[type=range] { min-width: 0; }
+#yawControl span { text-align: center; white-space: nowrap; }
 
 /* The two icon buttons of the yaw chip: center view (left of the slider)
  * and auto-rotate (right). Same chip button, only auto-rotate toggles. */
 #autoRotateBtn, #centerViewBtn {
-  flex: 0 0 auto;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -814,14 +821,24 @@ body.iso #hover { display: none; }
   #tools { padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 12px); }
 
   /* Stage overlays: the angle chip with 44 px buttons, the hint centred
-   * above it, the hover card beside the ☰ button. */
+   * above it, the hover card beside the ☰ button. The chip is centred
+   * between the safe-area insets (left/right + auto margins, not 50% and a
+   * transform, which would ignore a landscape notch). Round buttons with
+   * the same 4 px on every side sit concentric in the pill; 10 px gaps keep
+   * the slider's thumb clear of them at both ends. */
   #yawControl {
+    --yaw-btn: 44px;
+    --yaw-gap: 10px;
+    left: calc(env(safe-area-inset-left, 0px) + 12px);
+    right: calc(env(safe-area-inset-right, 0px) + 12px);
     bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
-    width: min(340px, calc(100% - 24px));
-    gap: 6px;
-    padding: 4px 6px;
+    width: auto;
+    max-width: 360px;
+    margin: 0 auto;
+    padding: 4px;
+    transform: none;
   }
-  #autoRotateBtn, #centerViewBtn { width: 44px; height: 44px; border-radius: var(--radius); }
+  #autoRotateBtn, #centerViewBtn { width: 44px; height: 44px; border-radius: 50%; }
   #autoRotateBtn svg, #centerViewBtn svg { width: 18px; height: 18px; }
   #isohint,
   body.iso #isohint {

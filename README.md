@@ -163,6 +163,12 @@ boşlukları (`viewport-fit=cover`); yükseklik `100dvh` (adres çubuğu). Yatay
 telefonda çekmecenin tamamı tek parça kayar. Masaüstü görünümü aynı kaldı:
 başlık dışında piksel piksel aynı (başlık yüksekliği 88.75 px korundu).
 `--layout` bu düzeni de denetler (kompakt blok silinince kırmızı).
+Açı çubuğu (Uğur 2026-10-13: *"iconlar sliderın üstüne gelecek kadar
+yaklaşmış"*) her ekranda tek bir grid: düğme | slider | açı | düğme. İki düğme
+aynı boyda (telefonda 44 px yuvarlak, hapın içinde her yandan 4 px), boşluklar
+sabit 10 px, açı yazısı sabit genişlikte (`4.5ch`), slider kalan yeri alır;
+grid sütunları üst üste binemez. Telefonda çubuk safe-area boşlukları arasında
+ortalanır (yatayda çentiğe girmez), en fazla 360 px.
 
 **Dokunmatik gezinme** (Uğur 2026-10-05: *"zoom kötü çalışıyor"*). Önceden
 haritada yalnız fare dinleyicileri vardı: telefonda tek parmak sürüklemek hiçbir
