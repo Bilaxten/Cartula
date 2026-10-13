@@ -25,6 +25,12 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       - `90ca3d3` + `8dd7e12` **telefon** (Galaxy S25 FE'de bakılacak): iki
         parmak pan/zoom artık ilk parmağın kaymasıyla dönmüyor (8 px eşik,
         300 ms geri alma); alttaki açı çubuğu eşit 44 px düğme, sabit boşluk.
+      - `a78c406` **iki parmak = önce kaydırma**: zoom ancak parmak arası
+        %6 (ve orta nokta yolundan büyük) ya da %15 değişince devreye girer,
+        parmaklar kalkana kadar açık kalır (Uğur 2026-10-13: "zoom ile
+        çakışıyor"). Eşikler S25 FE'de ayarlanabilir.
+      - `a900da8` gölge daha da koyu (kara ×0.35-0.4); bulut gölgesi ile arazi
+        gölgesi çarpılmaz, koyu olan geçer (`min`).
       - `5cd6c51` **Edit paneli gizli** (`EDIT_ENABLED = false`).
       - `87c0401` TR terimleri (Seed, Ortam gölgesi, Kıyı kıvrımı, Arazi ölçeği…).
 
