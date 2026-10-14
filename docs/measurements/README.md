@@ -18,7 +18,17 @@ node tools/headless.js --manifest > docs/measurements/manifest-<tarih>.json
 (hep 0 — property test bunu tutuyor), yerleşim sayısı, üretim süresi (ms),
 tam biyom histogramı.
 
-Güncel: `manifest-2026-09-15.json`.
+Güncel: `manifest-2026-10-14.json` (2026-10-14, `e9cf0dc` sonrası yeniden üretildi).
+
+**2026-10-14 not:** `e9cf0dc` (2026-10-05) kapalı iç denizleri kumsal diye
+boyamayı bıraktı, iklime göre sınıflıyor. Beklenen fark görüldü: kumsal payı
+192²'de %4-12 → %3-4, 448²'de %12-15 → %3-4; yeri tayga / orman / ova /
+yağmur ormanı / tundra aldı. Kara %, ada sayısı, en büyük ada, kule (0) ve
+yerleşim sayısı 6 haritanın hepsinde aynı (en büyük adada ±4 tile); göl/nehir
+±4 tile. Üretim süresi (`genMs`) 2-5 kat yüksek (192²: 179-314 ms, 448²:
+830-944 ms; 09-15'te 50-94 / 196-336): o günden beri üretim hattına 14
+commit girdi (settle, nehir yatağı, yosunlu göl…) ve 09-15 ölçümünün hangi
+makinede alındığı yazılı değil — fark makineden mi koddan mı, ayrılmadı.
 
 **2026-09-15 not (1):** iklim/biyom hesabı grid-göreli (`y/h`) yerine dünya-uzayı
 koordinatına (`wyOf(y)`) taşındı (kod taraması bulgu 1 — haritalar büyüdükçe
@@ -42,7 +52,7 @@ Her seed için `python scripts/serve.py` ile açıp:
 
 1. **Üstten görünüm PNG** — `?view=top&seed=<S>&size=192`, "Export PNG".
    → `docs/measurements/<S>-topdown-192.png`
-2. **Voxel görünüm PNG** — `?renderer=voxel&seed=<S>&size=192` (varsayılan iso),
+2. **Voxel görünüm PNG** — `?seed=<S>&size=192` (varsayılan iso = voxel; eski linklerdeki `renderer=voxel` zararsız, okunmuyor),
    sabit kamera açısı (yaw 0.6, pitch 0.9 civarı), "Export PNG".
    → `docs/measurements/<S>-voxel-192.png`
 3. **Orbit klip** — voxel modda "Auto-rotate" aç, ekran kaydı ~8 sn (bir tam tur).
