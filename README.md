@@ -412,7 +412,15 @@ bulut ve yağmuru aynı `SM.Weather.cloudsAt` sayısını okur, harita dışına
 yağış düşmez, yağış bulutla birlikte söner. Şekli ağır **nimbus** tipi. Bulut hareket ettiği için altındaki
 zemin değişir: vertex shader tile başına 2 baytlık küçük bir dokudan (seviye +
 ne yağar) okur: tundra/kar/tayga üstünde kar, çöl/mesa/lav üstünde hiçbir şey,
-kalan her yerde yağmur. **Gölge yok** (karar): bulut saydam ve altındaki
+kalan her yerde yağmur. **Mevsimle** (2026-10-14, Uğur: *"kar yağdıralım"*):
+kışın, renderer'ın indirdiği kar çizgisinin altında kalan (mevsim kar miktarı
+≥ 0.5, `SM.Season.tileAmounts`, aynı kural) ya da tatlı suyu donmuş tile'da
+yağmur kara döner; çöl/mesa/lav kuru, deniz yağmurlu (donmuyor), soğuk
+biyomlar zaten kar. Biyomun türü `baseKind`'da saklı; `SM.Weather.applySeason`
+dokunun tür baytını ondan yeniden yazar ve katman *Season* slider'ı
+**bırakılınca** tek `texSubImage2D` ile yükler (sürüklerken yalnız uniform;
+320²'de ~2 ms). Bulutun kendisi kurulduğu türde kalır (rengi, saydamlığı;
+şimşek yine yalnız yağmur bulutundan). **Gölge yok** (karar): bulut saydam ve altındaki
 zemini zaten tonluyor; 0.6 güçte açık gölge denendi, arazi shader'ının lob
 döngüsü her fragmanda koştuğu için SwiftShader'da 1280×800'de kare başına
 ~25-30 ms yedi, karşılığında bulutun yanına ikinci bir koyu leke koyuyordu.
@@ -521,6 +529,8 @@ yeniden boyar (fragman başına SwiftShader'da kare başına ~10 ms daha
 pahalıydı), slider yazdan ilk çıktığında derlenir, yalnız yaz dışında
 kullanılır. Üstten görünüm JS ikizini (`SM.Season.tileColor`) boyar, slider
 bırakılınca yeniden çizer; Unity albedo'su mevsimsiz kalır. `--season`.
+Kışın karlı zemine yağmur değil kar yağar (2026-10-14; *Yağmur ve kar*
+paragrafı, `--weather`).
 
 **Yosunlu göller** (2026-10-13, `grid.js tagMossyLakes`, `biome.js lakeColor`):
 bataklığın (`marsh`, haritanın tek sulak alan sınıfı; yağmur ormanı dahil

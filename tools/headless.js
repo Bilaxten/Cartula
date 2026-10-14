@@ -3694,6 +3694,83 @@ function runWeatherChecks() {
       lum(fair) - rainL >= 0.25 && lum(fair) - snowL >= 0.15 && rainL < snowL, '');
   }
 
+  {
+    // Season x weather (owner, 2026-10-14: "kar yağdıralım"): in winter a
+    // rain tile snows where the ground is snowy (or its fresh water frozen)
+    // by the renderer's own rule (SM.Season.tileBytes + tileAmounts); dry
+    // land, the sea and cold biomes keep their kind; summer is the biome
+    // rule unchanged, and coming back from winter restores it exactly.
+    const AT = Wx.SEASON_SNOW_AT;
+    let wrong = 0, missed = 0, keptBad = 0, summerBad = 0, restoreBad = 0, monoBad = 0, seaRain = 0;
+    let turned = 0, turnedLand = 0, turnedIce = 0, rainTiles = 0;
+    let winterSnowDrops = 0, summerSnowDrops = 0;
+    for (const seed of [1337, 4242, 90210, 7, 2024]) {
+      const g = run(seed, 128, 0.38).grid;
+      const a = Wx.build(g, seed);
+      const W = g.width, H = g.height;
+      const pristine = Uint8Array.from(a.ground);
+      summerBad += Wx.applySeason(a, 1) + Wx.applySeason(a, 0) + (typedEqual(a.ground, pristine) ? 0 : 1);
+      const half = Wx.applySeason(a, 2.5);
+      const halfSnow = [];
+      for (let i = 0; i < W * H; i++) halfSnow.push(a.ground[i * 2 + 1] === Wx.KIND.snow);
+      Wx.applySeason(a, 3);
+      const t = {};
+      const am = SM.Season.amounts(3);
+      for (let i = 0; i < W * H; i++) {
+        const base = a.baseKind[i], now = a.ground[i * 2 + 1];
+        if (base === Wx.KIND.rain) rainTiles++;
+        if (a.ground[i * 2] !== pristine[i * 2]) wrong++;
+        SM.Season.tileAmounts(SM.Season.tileBytes(g, i), am, t);
+        const white = t.snow >= AT || t.frozen >= AT;
+        if (base !== Wx.KIND.rain) { if (now !== base) keptBad++; continue; }
+        if (SM.isSea(g, i) && now !== Wx.KIND.rain) keptBad++;
+        if (SM.isSea(g, i)) seaRain++;
+        if (white && now !== Wx.KIND.snow) missed++;
+        if (!white && now !== Wx.KIND.rain) wrong++;
+        if (now === Wx.KIND.snow) {
+          turned++;
+          if (g.water[i]) turnedIce++; else turnedLand++;
+        }
+        if (halfSnow[i] && now !== Wx.KIND.snow) monoBad++;
+      }
+      // Drops: the same particles over the same ground, summer vs winter.
+      const c0 = new Float32Array(6);
+      for (const [s, add] of [[1, n => { summerSnowDrops += n; }], [3, n => { winterSnowDrops += n; }]]) {
+        Wx.applySeason(a, s);
+        let n = 0;
+        for (const tt of [0, 37, 211]) {
+          Wx.cloudsAt(a, tt, c0);
+          for (let p = 0; p < a.count; p++) {
+            const ci = a.cloudOf[p];
+            const x = Math.floor(c0[ci * 2] + a.local[p * 2]), y = Math.floor(c0[ci * 2 + 1] + a.local[p * 2 + 1]);
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            if (a.ground[(y * W + x) * 2 + 1] === Wx.KIND.snow) n++;
+          }
+        }
+        add(n);
+      }
+      if (Wx.applySeason(a, 1) === 0 && half > 0) restoreBad++;
+      if (!typedEqual(a.ground, pristine)) restoreBad++;
+    }
+    push(`winter: a rain tile snows exactly where the renderer shows snow (>= ${AT}) or ice: ${turned} of ${rainTiles} rain tiles over 5 seeds (${turnedLand} land, ${turnedIce} frozen fresh water); levels untouched`,
+      turned > 0 && turnedLand > 0 && wrong === 0 && missed === 0, `wrong ${wrong}, missed ${missed}`);
+    push('winter: dry land, cold biomes and the sea keep their kind; spring and summer leave the biome rule as it is; back to summer restores it exactly; snow grows monotonically from 2.5 to 3',
+      keptBad === 0 && summerBad === 0 && restoreBad === 0 && monoBad === 0 && seaRain > 0,
+      `kept ${keptBad}, summer ${summerBad}, restore ${restoreBad}, mono ${monoBad}`);
+    push(`the same drops fall as snow more often in winter (${summerSnowDrops} summer -> ${winterSnowDrops} winter, 5 seeds x 3 times)`,
+      winterSnowDrops > summerSnowDrops, '');
+    const wsrc = fs.readFileSync(path.join(root, 'render', 'weather.js'), 'utf8');
+    const vsrc = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const msrc = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    push('wiring: the layer applies the season on every new map and re-uploads once (texSubImage2D) when the Season slider is let go; dragging updates uniforms only',
+      /applySeason\(built, season\);\s*gl\.bindTexture/.test(wsrc) &&
+      /if \(!built \|\| !applySeason\(built, season\)\) return;/.test(wsrc) &&
+      (wsrc.match(/gl\.texSubImage2D\(/g) || []).length === 1 &&
+      /if \(!live && weather && !disposed\) weather\.setSeason\(value\);/.test(vsrc) &&
+      /addEventListener\('input', function \(\) \{\s*if \(isVoxelMode\(\) && voxelRenderer && voxelRenderer\.setSeason\) \{\s*voxelRenderer\.setSeason\(seasonValue\(\), true\);/.test(msrc) &&
+      /addEventListener\('change', function \(\) \{\s*if \(isVoxelMode\(\) && voxelRenderer && voxelRenderer\.setSeason\) \{\s*voxelRenderer\.setSeason\(seasonValue\(\)\);/.test(msrc), '');
+  }
+
   console.log('rain and snow checks:');
   for (const [name, ok, detail] of results) {
     console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);

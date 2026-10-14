@@ -21,6 +21,18 @@
  * each particle in a small per-map texture (`ground`, two bytes a tile):
  * snow over cold biomes, nothing over desert, mesa or lava, rain everywhere
  * else (a cloud over a mountain snows on the peak and rains in the valley).
+ *
+ * Season (owner, 2026-10-14: "kar yağdıralım"): in winter the snow line of
+ * src/render/season.js comes down, and where the ground is snowy for the
+ * current season (the renderer's own snow amount, SM.Season.tileAmounts, at
+ * least SEASON_SNOW_AT: the middle of its soft edge) or its fresh water
+ * frozen, a rain tile snows instead. Only rain turns to snow: dry land stays
+ * dry, the sea never freezes, cold biomes snow all year. The biome kind is
+ * kept (`baseKind`); `applySeason` rewrites the kind bytes of `ground` from
+ * it, and the layer re-uploads the texture once (one texSubImage2D) when the
+ * Season slider is let go, not while it is dragged. The cloud itself keeps
+ * the kind it was built with (its colour and opacity; lightning still comes
+ * only from rain clouds).
  * A drop disappears where it reaches the ground, and off the map. The
  * cloud starts (t = 0) over its zone. Its shape is the heavy `nimbus`
  * archetype of src/render/sky.js (a wide base with puffy towers).
@@ -63,6 +75,8 @@
   var CLOUD_LIFT = 4;
   // Weather kind codes in the ground texture (green byte).
   var KIND = { none: 0, rain: 1, snow: 2 };
+  // A rain tile snows once its seasonal snow (or ice) amount reaches this.
+  var SEASON_SNOW_AT = 0.5;
 
   function ids(list) {
     return list.map(function (id) {
@@ -98,7 +112,9 @@
   /* Weather of one map. Returns { zones, clouds, count, data (Float32Array,
    * 4 vertices per particle), local (Float32Array x, z per particle),
    * cloudOf (Uint8Array), ground (Uint8Array, 2 bytes per tile: level,
-   * kind code), width, height }. */
+   * kind code), baseKind (Uint8Array, the biome's kind per tile, before any
+   * season), seasonBytes (Uint8Array, SM.Season.tileBytes R/G per rain
+   * tile, or null without SM.Season), width, height }. */
   function build(grid, seed, maxParticles) {
     var W = grid.width;
     var H = grid.height;
@@ -141,10 +157,25 @@
     // Ground texture: the level (water counts as its surface, never below
     // 0) and what falls there.
     var ground = new Uint8Array(W * H * 2);
+    var baseKind = new Uint8Array(W * H);
     for (i = 0; i < W * H; i++) {
       ground[i * 2] = Math.max(0, Math.min(255, grid.level[i]));
-      ground[i * 2 + 1] = dry.indexOf(grid.biome[i]) >= 0 ? KIND.none :
+      baseKind[i] = dry.indexOf(grid.biome[i]) >= 0 ? KIND.none :
         (cold.indexOf(grid.biome[i]) >= 0 ? KIND.snow : KIND.rain);
+      ground[i * 2 + 1] = baseKind[i];
+    }
+    // The season's snow need and fresh-water temperature per rain tile (the
+    // same bytes the voxel view's SEASON variant reads), for applySeason.
+    var seasonBytes = null;
+    if (SM.Season) {
+      var sb = [0, 0, 0];
+      seasonBytes = new Uint8Array(W * H * 2);
+      for (i = 0; i < W * H; i++) {
+        if (baseKind[i] !== KIND.rain) continue;
+        SM.Season.tileBytes(grid, i, sb);
+        seasonBytes[i * 2] = sb[0];
+        seasonBytes[i * 2 + 1] = sb[1];
+      }
     }
     function levelAt(x, y) {
       x = Math.max(0, Math.min(W - 1, Math.floor(x)));
@@ -240,8 +271,37 @@
     });
     return {
       zones: zones, clouds: clouds, count: count, data: data, local: local, cloudOf: cloudOf,
-      ground: ground, width: W, height: H
+      ground: ground, baseKind: baseKind, seasonBytes: seasonBytes, width: W, height: H
     };
+  }
+
+  /* Rewrite the kind bytes of built.ground for Season slider value s
+   * (0 spring .. 3 winter): a rain tile that is snowy or frozen at s snows,
+   * every other tile keeps its biome kind. Returns the number of tiles whose
+   * byte changed (0: nothing to upload). */
+  function applySeason(built, s) {
+    if (!built || !built.baseKind) return 0;
+    var g = built.ground;
+    var base = built.baseKind;
+    var sb = built.seasonBytes;
+    var a = SM.Season && sb ? SM.Season.amounts(s) : { winter: 0, autumn: 0 };
+    var b = [0, 0, 0];
+    var t = {};
+    var changed = 0;
+    for (var i = 0; i < base.length; i++) {
+      var kind = base[i];
+      if (kind === KIND.rain && a.winter > 0) {
+        b[0] = sb[i * 2];
+        b[1] = sb[i * 2 + 1];
+        SM.Season.tileAmounts(b, a, t);
+        if (t.snow >= SEASON_SNOW_AT || t.frozen >= SEASON_SNOW_AT) kind = KIND.snow;
+      }
+      if (g[i * 2 + 1] !== kind) {
+        g[i * 2 + 1] = kind;
+        changed++;
+      }
+    }
+    return changed;
   }
 
   /* Cloud centres at time t, in GRID coordinates (tiles): [x0, y0, x1, ...]
@@ -365,6 +425,8 @@
     var built = null;
     var wind = [0, 0];
     var cloudData = new Float32Array(MAX_CLOUDS * 4);
+    // Season slider value the ground texture's kinds follow (applySeason).
+    var season = SM.Season ? SM.Season.SUMMER : 1;
     var alphaData = new Float32Array(MAX_CLOUDS);
     // Palette colours: snow, and rain as snow tinted a third toward the
     // shallow-sea blue.
@@ -404,6 +466,7 @@
       acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ibo, quadIndices(count), gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       if (built) {
+        applySeason(built, season);
         gl.bindTexture(gl.TEXTURE_2D, tex);
         gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, built.width, built.height, 0, gl.RG,
@@ -414,6 +477,21 @@
         acct.texture(tex, built.width * built.height * 2);
         gl.bindTexture(gl.TEXTURE_2D, null);
       }
+    }
+
+    /* Season slider value, once it is let go: rain turns to snow where the
+     * ground is snowy (applySeason); one texSubImage2D, none if no tile
+     * changed. */
+    function setSeason(s) {
+      season = +s;
+      if (!isFinite(season)) season = SM.Season ? SM.Season.SUMMER : 1;
+      if (!built || !applySeason(built, season)) return;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, built.width, built.height, gl.RG,
+        gl.UNSIGNED_BYTE, built.ground);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     /* `o`: { combined, view (4x4), vScale, time, pixelWorld, setGrade,
@@ -472,12 +550,13 @@
       gl.deleteProgram(program);
     }
 
-    return { setData: setData, draw: draw, dispose: dispose };
+    return { setData: setData, setSeason: setSeason, draw: draw, dispose: dispose };
   }
 
   SM.Weather = {
     build: build,
     cloudsAt: cloudsAt,
+    applySeason: applySeason,
     cloudColor: cloudColor,
     insideLobes: insideLobes,
     createLayer: createLayer,
@@ -486,6 +565,7 @@
     CLOUD_ALPHA: CLOUD_ALPHA,
     DRIFT: DRIFT,
     KIND: KIND,
+    SEASON_SNOW_AT: SEASON_SNOW_AT,
     COLD: COLD,
     DRY: DRY
   };

@@ -1566,14 +1566,19 @@
   });
   $('sun').addEventListener('change', applyDayNight);
   // Season: the voxel view follows the drag (uniforms only); the top-down
-  // bake is repainted once the slider is let go. The map is not touched.
+  // bake is repainted, and the voxel view's rain turns to snow on snowy
+  // ground, once the slider is let go. The map is not touched.
   $('season').addEventListener('input', function () {
     if (isVoxelMode() && voxelRenderer && voxelRenderer.setSeason) {
-      voxelRenderer.setSeason(seasonValue());
+      voxelRenderer.setSeason(seasonValue(), true);
       requestVoxelRender();
     }
   });
   $('season').addEventListener('change', function () {
+    if (isVoxelMode() && voxelRenderer && voxelRenderer.setSeason) {
+      voxelRenderer.setSeason(seasonValue());
+      requestVoxelRender();
+    }
     if (!isVoxelMode() && grid && !pipeline) {
       drawContent();
       applyCam();

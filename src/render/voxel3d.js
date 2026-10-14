@@ -2805,10 +2805,14 @@
     }
 
     // Season slider value (0 spring .. 3 winter; season.js): render only.
-    function setSeason(value) {
+    // `live` (while the slider is dragged): uniforms only. Otherwise the
+    // weather follows too: rain turns to snow on snowy ground (weather.js
+    // applySeason, one texture upload).
+    function setSeason(value, live) {
       var a = SM.Season ? SM.Season.amounts(value) : { winter: 0, autumn: 0 };
       seasonAmount[0] = a.winter;
       seasonAmount[1] = a.autumn;
+      if (!live && weather && !disposed) weather.setSeason(value);
     }
 
     // prefers-reduced-motion: strikes keep their bolt, lose the light flash.
