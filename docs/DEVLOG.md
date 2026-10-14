@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-10-14 — Kışın kar yağar
+
+**Ne yapıldı:** Uğur *"kar yağdıralım"* dedi. 2026-10-06'daki mevsim kışın kar
+çizgisini indiriyordu ama yağmur bulutları biyoma göre yağmur yağdırmayı
+sürdürüyordu: karlı tepeye, donmuş göle yağmur. Artık zemin kışın karlıysa
+(ya da tatlı su donmuşsa) yağmur kara döner (`61c6837`). Aynı gün iki küçük
+borç kapandı: bayat "işaretli kademe" yorumları ve kimsenin okumadığı
+`renderer=voxel` link parametresi (`811c297`); ölçüm manifesti `e9cf0dc`
+sonrası yeniden üretildi (`1ee9917`).
+
+**Neden bu yaklaşım:** Yağışın türü zaten tile başına bir dokudan
+okunuyordu (seviye + ne yağar); bulut sürüklendikçe her damla altındaki
+zemine bakıyor. Kar kararı için ikinci bir kural yazmak yerine renderer'ın
+kendi kar miktarı kullanıldı (`SM.Season.tileAmounts`, eşik yumuşak kenarın
+ortası, 0.5): ekranda beyaz görünen yer kar alır, sınır birebir. Biyomun türü
+ayrı saklanıyor ve dokunun tür baytı ondan yeniden yazılıyor, yani yaza
+dönünce harita ilk hâline tam döner. Doku yüklemesi slider bırakılınca, tek
+`texSubImage2D` (320²'de ~2 ms); sürüklerken mevsim yine yalnız uniform.
+Bulutun rengi ve şimşek kurulduğu türde bırakıldı: bulutlar haritayı
+geçiyor, tür zaten damla başına karar veriliyor.
+
+**Doğrulama:** `--weather`'a dört kontrol (beş seed'de renderer kuralıyla
+birebir eşleşme, yaz değişmez ve kıştan dönünce geri gelir, 2.5 → 3 monoton,
+bağlantı) ve mutasyonla kırmızı. Headless Edge (SwiftShader), seed 808,
+sabit zaman, kamera donmuş göl + karlı tepe üstündeki yağmur bulutunda:
+önce kışın yağmur çizgileri, sonra beyaz kare taneler; yaz iki sürümde
+piksel piksel aynı. `checks.sh` temiz, canlıda her dosya karşılaştırıldı.
+
+**Açık:** gerçek GPU ve telefonda, akarken bakılmadı; kışın "yağmur bulutu"
+grisinin kar yağdırırken nasıl durduğu Uğur'un gözüne kaldı.
+
 ## 2026-10-06 — Akan nehirler, volkan dumanı, vadi sisi, şimşek, mevsimler
 
 **Ne yapıldı:** Uğur beş özelliği onayladı ve her birinin ayrı yayınına izin
@@ -64,7 +95,8 @@ yakın çekimler, önce/sonra; canlı sayfada da (kış sabahı, çakma) shader 
 yok. Önce/sonra performans dönüşümlü (sayılar `CURRENT.md`).
 
 **Açık:** gerçek GPU ve telefon; akarken his (akış, duman, şimşek yalnız sabit
-karelerle görüldü); mevsim ile yağış uyumu (`TODO.md` NEXT).
+karelerle görüldü); mevsim ile yağış uyumu (`TODO.md` NEXT; 2026-10-14'te
+yapıldı).
 
 ## 2026-10-05 — Kulübeler gitti, rüzgâr kenardan çıkar, bulutların tipi var
 

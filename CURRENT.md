@@ -5,13 +5,57 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-13
+**Güncellendi:** 2026-10-14
 **Dal:** `master`
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — sert, köşeli güneş gölgesi (2026-10-13)
+## Bu oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
+
+Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,
+yayında. Uğur'un aynı gün Mac'ten gelen iki dokunma commit'i (`cfd3853`
+iki parmak = yalnız zoom, `cf9932e`) bu commit'lerin altında; dokunma koduna
+bu oturumda dokunulmadı.
+
+1. **Kışın kar yağar** (`61c6837`, Uğur: *"kar yağdıralım"*; eski TODO
+   *Mevsim × yağış*). `weather.js` `ground` dokusunun tür baytı mevsimi
+   izliyor: renderer'ın kendi kar miktarı (`SM.Season.tileAmounts`) ≥ 0.5
+   ya da tatlı suyu donmuş yağmur tile'ı kar alıyor. Biyom türü `baseKind`'da
+   saklı; `SM.Weather.applySeason` baytları ondan yeniden yazar, katman
+   slider **bırakılınca** tek `texSubImage2D` yükler (sürüklerken yalnız
+   uniform; `voxel3d.setSeason(value, live)`). Yeni harita kurulurken o anki
+   mevsim uygulanıyor. 320²'de ~2 ms (ilk çağrı JIT ile ~34 ms).
+   Ölçülen (node, 128², 5 seed): kışın 77 610 yağmur tile'ının 6 574'ü kar
+   (6 437 kara, 137 donmuş su); aynı damlalar yazın 288, kışın 979 kez kar.
+   `--weather`'a 4 kontrol (renderer kuralıyla birebir, yaz değişmez ve geri
+   döner, monoton, bağlantı); mutasyonla kırmızı görüldü (donmuş suyu
+   unutmak, harita kurulunca uygulamamak).
+   **Headless Edge (SwiftShader) önce/sonra**, seed 808, 320², sabit zaman
+   T=388 s, kamera güneydoğudaki yağmur bulutunda (donmuş göl + karlı tepe):
+   önce kışın gölün üstünde yağmur çizgileri, sonra beyaz kare taneler (eski
+   kar parçacığının aynısı, yeni renk yok); yaz iki sürümde **piksel piksel
+   aynı** (0 farklı piksel), kış farkı yalnız bulutun altındaki bölgede.
+   Kararlar: bulut rengi/saydamlığı ve şimşek kurulduğu türde kalıyor; deniz
+   donmadığı için kışın denizde yağmur; donmuş tatlı su kar alıyor;
+   reduced-motion'da yağış davranışı eskisi gibi (yağışın ayrı bir
+   reduced-motion kuralı yok, kar parçacığı aynı yoldan çiziliyor).
+   **Kapsamadığı:** gerçek GPU, telefon, akarken his (yalnız sabit kare);
+   kışa geçerken bulutun "yağmur bulutu" grisi kalması gözle değerlendirilmedi.
+2. **Bayat yorumlar** (`811c297`): `generate.js` başlığı/voxelize ve
+   `grid.js` `level` artık "deniz düz, kademe 0, derinlik renk" diyor.
+   Paylaşım linki `renderer=voxel` yazmıyor (hiçbir şey okumuyordu); eski
+   linklerde varsa yok sayılıyor, aynı açılıyor. Ölçüm README'sindeki voxel
+   linki de `?seed=<S>&size=192`.
+3. **Ölçüm manifesti** (`1ee9917`, `docs/measurements/manifest-2026-10-14.json`):
+   `e9cf0dc` sonrası beklenen fark: kumsal payı 192²'de %4-12 → %3-4,
+   448²'de %12-15 → %3-4 (iç denizler artık iklime göre). Kara %, ada,
+   en büyük ada (±4), kule 0, yerleşim aynı. `genMs` 2-5 kat yüksek (192²
+   179-314 ms, 448² 830-944 ms) — arada 14 üretim commit'i var ve eski
+   ölçümün makinesi yazılı değil, ayrılmadı. Görsel yarısı (PNG + orbit)
+   Uğur'da.
+
+## Önceki oturum — sert, köşeli güneş gölgesi (2026-10-13)
 
 Uğur `afeb6d5`'in gölge **yönünü** onayladı, ama yumuşaklığı istemedi:
 "daha belirgin ve köşeli gölgeler, map voxel sonuçta". Yumuşaklığın tek
@@ -103,7 +147,7 @@ Ayrıntı ve gerekçe: `README.md` → Mimari (her özelliğin paragrafı),
   sürüyor (yalnız gölge/köpük/akış duruyor).
 - Mevsim: üstten görünüm de mevsimi gösteriyor (slider bırakılınca ~150 ms
   yeniden çizim); Unity albedo mevsimsiz.
-- Mevsim: kış yağışı değiştirmiyor (yağmur bulutu karlı arazide hâlâ
+- (2026-10-14'te yapıldı, `61c6837`: kışın karlı zemine kar yağar.) Mevsim: kış yağışı değiştirmiyor (yağmur bulutu karlı arazide hâlâ
   yağmur yağdırabilir) — yapılmadı.
 
 **Ölçüm (headless Edge, SwiftShader, 1400×900 pencere, seed 1337, 320²,

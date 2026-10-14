@@ -9,6 +9,17 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-14 kışın kar yağışına gözle bak** (`61c6837`, tek başına
+      `git revert` ile geri alınır). Headless Edge'de (SwiftShader) sabit
+      karede bakıldı, gerçek GPU ve telefonda değil. **Bak:** Isometric,
+      seed 808, *Season* kışa çek ve **bırak** (kar yağışı slider
+      bırakılınca değişir, sürüklerken değil): güneydoğudaki yağmur bulutu
+      donmuş gölün ve karlı tepelerin üstüne geldiğinde beyaz kare taneler
+      düşüyor mu; yazın aynı yerde yağmur. ⚠️ Kararlar: bulut rengi ve
+      şimşek bulutun kurulduğu türde kalıyor (kışın yağmur bulutu kar yağdırıp
+      çakabilir); deniz donmadığı için kışın denizde yağmur sürüyor; donmuş
+      tatlı su da kar alıyor.
+
 - [ ] **2026-10-13 Uğur'un kararlarından sonra gözle bak** (Uğur 7 bekleyen
       kararı canlıda verdi: gölge yönü, iç denizler, Shift-pan kalsın; TR terimleri
       önerildiği gibi; şimşek karar A = bulutun arkasında). Yeni işler, hepsi
@@ -121,27 +132,15 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       oranını değiştirmiş olabilir, yeniden ölçülmedi). Sebep: küçük haritada
       kenara değen su büyük haritada kapalı kalıp göl ya da kara oluyor.
 
-- [ ] **Ölçüm paketi:** `docs/measurements/manifest-*.json` 2026-10-05
-      biyom değişikliğinden (`e9cf0dc`) önce üretildi — yayımlamadan önce
-      `node tools/headless.js --manifest` ile yeniden üret. Görsel yarısı
-      (3 seed × üstten/voxel PNG + orbit klip) Uğur'da:
-      `docs/measurements/README.md`.
+- [ ] **Ölçüm paketi, görsel yarısı (Uğur):** sayısal manifest 2026-10-14'te
+      yeniden üretildi (`manifest-2026-10-14.json`, `1ee9917`). Kalan: 3 seed ×
+      üstten/voxel PNG + orbit klip, `docs/measurements/README.md`.
 
 ## NEXT
-
-- [ ] **Mevsim × yağış (2026-10-06, yapılmadı):** kışın kar çizgisi iniyor
-      ama yağmur bulutları hâlâ biyoma göre yağmur yağdırıyor (karlı arazide
-      yağmur). İstenirse `weather.js` `ground` dokusundaki tür baytı mevsimle
-      yeniden yazılır (slider bırakılınca, tek `texSubImage2D`).
 
 - [ ] **Fırça sonrası komşu hücreler** (özellik 2026-10-13'ten beri gizli) 450 ms'lik tam render'a kadar eski
       hillshade/kıyı tonunda kalıyor (boyanan hücrenin kendisi artık doğru).
       Küçük; istenirse `paintEditedTiles` komşu halkayı da boyar.
-
-- [ ] **Bayat yorumlar (davranış etkisi yok):** `generate.js` başlığı ve
-      `grid.js` `level` yorumu hâlâ "signed levels / water < 0" diyor (deniz
-      2026-09-22'den beri düz, kademe 0); paylaşım linkindeki `renderer=voxel`
-      parametresini hiçbir şey okumuyor.
 
 - [ ] **README milestone listesi ve DEVLOG gerçeğin gerisinde.** DEVLOG'un son
       milestone kaydı 2026-09-06; 09-08 → 09-23 arası (property testler,
