@@ -1418,8 +1418,10 @@
       if ($(id)) q.set(id, $(id).value);
     });
     q.set('view', view);
+    // No `renderer` key: nothing reads it (the isometric view is always the
+    // voxel one since 2026-09-06). Old links that still carry
+    // `renderer=voxel` open the same way: unknown keys are ignored.
     if (isVoxelMode() && voxelCamera) {
-      q.set('renderer', 'voxel');
       q.set('yaw', SM.VoxelCamera.wrapYaw(voxelCamera.yaw).toFixed(2));
       q.set('pitch', voxelCamera.pitch.toFixed(2));
       q.set('zoom', voxelCamera.zoom.toFixed(2));

@@ -13,7 +13,7 @@
       temperature: new Float32Array(size), // 0..1
       water: new Uint8Array(size),         // 1 if below sea level
       biome: new Uint8Array(size),         // index into SM.BIOME_LIST
-      level: new Int8Array(size),          // signed voxel level: land > 0, water < 0 (depth)
+      level: new Int8Array(size),          // voxel level: land and fresh water by height (>= 1); sea flat at 0, depth is colour (SM.seaColor)
       config: null,
       index: function (x, y) { return y * this.width + x; },
       inBounds: function (x, y) {

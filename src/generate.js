@@ -8,7 +8,8 @@
  *   6. classify   biome per cell, slope-aware coasts
  *   7. hydrology  distance-from-shore water depth, downhill rivers
  *  7z. settle     bounded water/lava spreading and local pooling
- *   8. voxelize   signed discrete levels, clamp towers
+ *   8. voxelize   discrete levels (land and fresh water by height, sea flat at
+ *                 level 0, its depth shown as colour), clamp towers
  *
  * World-space sampling means terrain features keep a constant size — growing
  * the map reveals more world at the edges instead of scaling everything up. */
@@ -915,7 +916,7 @@
 
     snap('grade');
 
-    // --- 8: voxelize — signed discrete levels, clamp remaining towers ---
+    // --- 8: voxelize — discrete levels (sea flat at 0), clamp remaining towers ---
     for (i = 0; i < n; i++) {
       if (grid.water[i]) {
         // Tatlı su (nehir/göl) deniz-derinliği modeliyle DEĞİL kendi
