@@ -25,10 +25,10 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       - `90ca3d3` + `8dd7e12` **telefon** (Galaxy S25 FE'de bakılacak): iki
         parmak pan/zoom artık ilk parmağın kaymasıyla dönmüyor (8 px eşik,
         300 ms geri alma); alttaki açı çubuğu eşit 44 px düğme, sabit boşluk.
-      - `a78c406` **iki parmak = önce kaydırma**: zoom ancak parmak arası
-        %6 (ve orta nokta yolundan büyük) ya da %15 değişince devreye girer,
-        parmaklar kalkana kadar açık kalır (Uğur 2026-10-13: "zoom ile
-        çakışıyor"). Eşikler S25 FE'de ayarlanabilir.
+      - `cfd3853` **iki parmak = yalnız zoom** (Uğur 2026-10-14: pan kilidi
+        mobilde kötüydü, "iki parmak sadece zoom yapabilsin"): kıstırma başındaki
+        orta noktaya sabit, eşiksiz; bir parmak kalkınca hepsi kalkana kadar
+        dokunma yok sayılır. Yalnız `node --check` (Uğur: kontrol uzun sürüyor).
       - `a900da8` gölge daha da koyu (kara ×0.35-0.4); bulut gölgesi ile arazi
         gölgesi çarpılmaz, koyu olan geçer (`min`).
       - `5cd6c51` **Edit paneli gizli** (`EDIT_ENABLED = false`).
