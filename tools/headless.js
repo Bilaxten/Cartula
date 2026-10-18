@@ -4075,8 +4075,9 @@ function runSeedChecks() {
     push('#seed is a text field (not a number input) with a status line for errors',
       /<input\b[^>]*type="text"[^>]*id="seed"/.test(html) && /id="seedMsg"[^>]*role="status"/.test(html), '');
     push('src/seed.js loads before main.js in index.html', html.indexOf('src/seed.js') > 0 && html.indexOf('src/seed.js') < html.indexOf('<script src="src/main.js">'), '');
-    push('Regenerate and Random draw a new base (SM.Seed.randomBase) and refresh the field; no 1e6 numeric seed left',
-      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 2 &&
+    push('Random draws a new base (SM.Seed.randomBase); Regenerate keeps the code (no new base); no 1e6 numeric seed left',
+      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 1 &&
+      /function regenMap\(\) \{\n\s*syncSeedField\(\);\n\s*regenerate\(\);/.test(mainJs) &&
       !/Math\.random\(\) \* 1e6/.test(mainJs), '');
     push('every generation slider and the season keep the field in step on input; world type too',
       /SM\.Seed\.FIELDS\.forEach\(function \(f\) \{ \$\(f\.id\)\.addEventListener\('input', syncSeedField\)/.test(mainJs) &&

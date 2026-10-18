@@ -171,7 +171,7 @@
       'group.biomes': 'Biomes',
 
       'regen.label': 'Regenerate',
-      'regen.title': 'New seed, same settings (R)',
+      'regen.title': 'Rebuild the map of this seed exactly, brush edits undone (R)',
       'random.label': 'Random',
       'random.title': 'Random settings and a new seed (Shift+R)',
       'export.png': 'Export PNG',
@@ -394,7 +394,7 @@
       'group.biomes': 'Biyomlar',
 
       'regen.label': 'Yeniden üret',
-      'regen.title': 'Yeni seed, ayarlar aynı kalır (R)',
+      'regen.title': 'Seed aynı kalır, harita aynen yeniden kurulur; fırça düzenlemeleri silinir (R)',
       'random.label': 'Rastgele',
       'random.title': 'Rastgele ayarlar ve yeni seed (Shift+R)',
       'export.png': 'PNG indir',
