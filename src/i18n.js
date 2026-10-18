@@ -176,6 +176,7 @@
       'export.unity': 'Export for Unity (.zip)',
       'export.unity.title': 'Heightmap (16-bit RAW), albedo, biome mask and map.json as one .zip — Unity Terrain ready',
 
+      'gen.busy': 'Generating…',
       'stats.base': '{w}×{h} · {ms} ms · land {pct}%',
       'stats.edited': 'edited',
       'hover.moist': 'moist',
@@ -386,6 +387,7 @@
       'export.unity': 'Unity için dışa aktar (.zip)',
       'export.unity.title': 'Yükseklik haritası (16-bit RAW), albedo, biyom maskesi ve map.json tek .zip içinde — Unity Terrain’e hazır',
 
+      'gen.busy': 'Üretiliyor…',
       'stats.base': '{w}×{h} · {ms} ms · kara %{pct}',
       'stats.edited': 'düzenlendi',
       'hover.moist': 'nem',

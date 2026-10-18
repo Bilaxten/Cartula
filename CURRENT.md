@@ -6,8 +6,8 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-18
-**Dal:** `master`
+**Güncellendi:** 2026-10-19
+**Dal:** `layered-intro` (PR açık, Uğur'un telefonda izlemesi bekleniyor; `master` canlıda 9674458)
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/.
@@ -40,7 +40,10 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 1. `TODO.md` NOW'daki gözle bakış maddeleri (Uğur). Ajanlar için hazır iş yok; koda dokunmadan
    önce Uğur'un hangi maddeyi seçtiğini sor.
-2. A32 bulgusu 2 (yükleme ~4,9 sn, üretim sırasında boş ekran): ölç, sonra karar.
+2. A32 bulgusu 2 (yükleme ~4,9 sn, boş ekran): `layered-intro` dalında çözüldü (worker +
+   katman katman açılış, `README.md` → *İlk yükleme*, DEVLOG 2026-10-19); Uğur onaylayınca
+   `master`'a, sonra yayın. Kalan: ilk yükleme dışı `regenerate()` hâlâ senkron, voxel
+   mesh/shader derlemesi ana thread'de.
 3. Küçük, bağımsız: fırça sonrası komşu hücreler (`TODO.md` NEXT).
 
 ## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)

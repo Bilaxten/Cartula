@@ -615,9 +615,10 @@
     }
   }
   // shrink the tile for very large maps so the canvas stays GPU-friendly
-  function topTile() {
+  function topTile(w, h) {
+    if (w == null) { w = grid.width; h = grid.height; }
     return Math.max(3, Math.min(TOP_TILE,
-      Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
+      Math.floor(Math.sqrt(9e6 / (w * h)))));
   }
 
   // --- pipeline step-through ---------------------------------------------
@@ -734,22 +735,197 @@
   }
 
   function regenerate() {
+    cancelIntro();
     exitPipeline(true);
     var cfg = readConfig();
     var t0 = performance.now();
-    grid = SM.generate(cfg);
-    var dt = performance.now() - t0;
+    var g = SM.generate(cfg);
+    adoptGrid(g, cfg, performance.now() - t0, false);
+  }
+
+  // A finished grid becomes the map on screen: edit history reset, view drawn,
+  // stats written. `reveal` (first load, isometric only) lets the voxel world
+  // be printed in under an ink sweep instead of appearing at once.
+  function adoptGrid(g, cfg, dt, reveal) {
+    grid = g;
     undoStack = [];
     redoStack = [];
     editedSinceRender = false;
     voxelNeedsFit = true;
     updateUndoButtons();
-    refresh(true, true);
+    if (reveal && isVoxelMode() && startVoxel()) {
+      map.hidden = false;                 // startVoxel hid it; it is the layer under the sweep
+      glCanvas.style.clipPath = 'inset(0 0 100% 0)';
+      rebuildVoxelMesh(true);
+      introReveal = revealVoxel();
+    } else {
+      refresh(true, true);
+    }
 
     var s = SM.summarize(grid);
     lastStats = { w: cfg.width, h: cfg.height, ms: dt.toFixed(1), landPct: s.landPct, editedLandPct: null };
     renderStats();
+    if (performance.mark) performance.mark('sm-final-map');
   }
+
+  // --- layered intro (first load) ------------------------------------------
+  // The first map is generated in a worker (src/genclient.js) so the page is
+  // painted and usable at once, and the recorded passes are printed as they
+  // arrive (src/intro.js): ink sweep per pass, then the finished map. Anything
+  // that changes the map (regenerate), a tap, a key press or
+  // prefers-reduced-motion skips straight to the result.
+  var intro = null;         // { run, player, grid, ms, cfg, tile, frameShown, iso }
+  var introReveal = null;   // running voxel reveal, { finish() }
+
+  function introLineEl() { return $('introLine'); }
+  function placeLine(x, y, w) {
+    var el = introLineEl();
+    el.hidden = false;
+    el.style.left = x + 'px';
+    el.style.width = w + 'px';
+    el.style.transform = 'translateY(' + y + 'px)';
+  }
+
+  // Pixels per cell of an intro frame: enough to look crisp at the size the
+  // map is shown (refresh() draws the full-resolution render once it is final).
+  function introTile(size) {
+    var avail = Math.min(stage.clientWidth, stage.clientHeight) * (window.devicePixelRatio || 1) * 0.92;
+    return Math.max(2, Math.min(topTile(size, size), Math.ceil(avail / size)));
+  }
+
+  function introEnsureMap(frame) {
+    if (intro.frameShown) return;
+    intro.frameShown = true;
+    map.width = frame.width;
+    map.height = frame.height;
+    content = { width: frame.width, height: frame.height, tile: intro.tile, rivers: [], lavas: [] };
+    fitCam();
+    applyCam();
+    map.hidden = false;
+    $('riverfx').hidden = true;
+    if (performance.mark) performance.mark('sm-first-map');
+  }
+
+  function introPaint(from, to, p) {
+    var ctx = map.getContext('2d');
+    var w = map.width, h = map.height;
+    ctx.clearRect(0, 0, w, h);
+    if (from) ctx.drawImage(from, 0, 0);
+    if (p >= 1) { ctx.drawImage(to, 0, 0); return; }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h * p);
+    ctx.clip();
+    ctx.drawImage(to, 0, 0);
+    ctx.restore();
+  }
+
+  function introLine(p, frame) {
+    if (p == null) { introLineEl().hidden = true; return; }
+    placeLine(cam.x, cam.y + p * frame.height * cam.scale, frame.width * cam.scale);
+  }
+
+  function revealVoxel() {
+    var t0 = 0, raf = 0, done = false;
+    function end() {
+      if (done) return;
+      done = true;
+      if (raf) cancelAnimationFrame(raf);
+      glCanvas.style.clipPath = '';
+      if (isVoxelMode()) map.hidden = true;
+      introLineEl().hidden = true;
+      introReveal = null;
+    }
+    function step(now) {
+      raf = 0;
+      if (!t0) t0 = now;
+      var p = Math.min(1, (now - t0) / 520);
+      var e = 1 - Math.pow(1 - p, 3);
+      glCanvas.style.clipPath = 'inset(0 0 ' + ((1 - e) * 100).toFixed(2) + '% 0)';
+      placeLine(0, e * stage.clientHeight, stage.clientWidth);
+      if (p >= 1) end(); else raf = requestAnimationFrame(step);
+    }
+    raf = requestAnimationFrame(step);
+    return { finish: end };
+  }
+
+  function cancelIntro() {
+    if (introReveal) introReveal.finish();
+    if (!intro) return;
+    intro.run.cancel();
+    intro.player.cancel();
+    intro = null;
+  }
+
+  function introFinish(skipped) {
+    var it = intro;
+    intro = null;
+    // The sweep only makes sense if the view is still isometric; otherwise the
+    // map is drawn the ordinary way.
+    adoptGrid(it.grid, it.cfg, it.ms, !skipped && it.iso);
+  }
+
+  function startIntro() {
+    var cfg = readConfig();
+    var reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var defs = {};
+    SM.PIPELINE_STAGES.forEach(function (s) { defs[s.id] = s; });
+    var MAP_STAGE = { view: 'map' };
+    if (performance.mark) performance.mark('sm-generate-start');
+    $('stats').textContent = T('gen.busy');
+
+    var it = intro = { cfg: cfg, tile: introTile(cfg.width), frameShown: false, grid: null, ms: 0, iso: false };
+    it.player = SM.Intro.createPlayer({
+      paint: introPaint,
+      line: introLine,
+      final: introFinish
+    });
+    it.run = SM.GenClient.run(cfg, {
+      stages: reduced ? [] : SM.Intro.PASSES,
+      onStage: function (id, snap) {
+        var c = document.createElement('canvas');
+        SM.Intro.frame(c, snap, defs[id], it.tile);
+        introEnsureMap(c);
+        it.player.push(c);
+      },
+      onDone: function (g, ms) {
+        if (performance.mark) performance.mark('sm-generated');
+        it.grid = g;
+        it.ms = ms;
+        it.iso = isVoxelMode();
+        if (reduced) it.player.skip();
+        if (!it.iso && !reduced) {
+          var c = document.createElement('canvas');
+          SM.Intro.frame(c, g, MAP_STAGE, it.tile);
+          introEnsureMap(c);
+          it.player.push(c);
+        }
+        it.player.end();
+      },
+      onError: function () {
+        // Generation itself threw in the worker: build the map the old,
+        // synchronous way (which reports the error properly) rather than
+        // leave the page empty.
+        if (intro === it) regenerate();
+      }
+    });
+  }
+
+  // While the first map is still being built there is no grid to act on: a tap
+  // or key skips the animation, and the event goes no further.
+  function introGuard(ev) {
+    if (grid || !intro) return;
+    intro.player.skip();
+    ev.stopImmediatePropagation();
+  }
+  ['pointerdown', 'mousedown', 'touchstart', 'wheel'].forEach(function (type) {
+    stage.addEventListener(type, introGuard, { capture: true, passive: true });
+  });
+  window.addEventListener('keydown', function (ev) {
+    var tag = ev.target && ev.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || ev.key === 'Tab') return;
+    introGuard(ev);
+  }, true);
 
   function rotateView(dir) {
     // Q/E: yalnızca voxel kamerasını çeyrek tur döndürür. Eskiden burada
@@ -1480,6 +1656,7 @@
   }
 
   function exportPng() {
+    if (!grid) return;
     var out;
     var octx;
     var fx;
@@ -2183,7 +2360,8 @@
     Object.keys(SLIDERS).forEach(function (id) {
       if (id !== 'sea') $(SLIDERS[id].label).textContent = SLIDERS[id].fmt($(id).value);
     });
-    renderStats();
+    if (intro && !grid) $('stats').textContent = T('gen.busy');
+    else renderStats();
     $('isohint').textContent = T(hintKeyFor(isoHintKey));
     $('pipelineToggle').textContent = T(pipeline ? 'pipeline.exit' : 'pipeline.enter');
     updateStageText();
@@ -2218,6 +2396,6 @@
   buildBiomeSelect();
   syncEditControls();
   updateUndoButtons();
-  regenerate();
+  startIntro();
   applyDayNight();
 })(window.SM = window.SM || {});

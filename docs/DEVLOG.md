@@ -2,6 +2,51 @@
 
 <!-- 2026-10-18: aşağıdaki bloklar CURRENT.md'den olduğu gibi taşındı (el-değiştirme biçimindeki oturum anlatıları, 2026-10-14 ve öncesi). Aynı oturumların DEVLOG biçimindeki girdileri bunların altında. -->
 
+## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
+
+A32 bulgusu 2'nin çözümü (telefonda ~4,9 sn boş ekran; senkron 320² `regenerate()`).
+Uğur: *"tanıtım videosundaki gibi, katman katman güzel animasyonlu oluşsun"*.
+Dal `layered-intro`, PR açık; Uğur'un telefonda izleyip onaylaması bekleniyor,
+yayınlanmadı.
+
+**Ne değişti.** Sayfa hemen çizilir; ilk harita Web Worker'da üretilir
+(`src/gen-worker.js`, classic worker, `importScripts` ile sayfayla aynı dört dosya,
+aynı sıra). Worker, `SM.generate`'in zaten var olan kayıt kancasıyla beş pass'i
+(ham noise, dağlar, deniz seviyesi, iklim/biyom, nehirler) bitirdikçe yollar, en
+sonda bitmiş grid'i transfer eder (`src/genclient.js`; worker yoksa ya da
+başlamazsa aynı `SM.generate` ana thread'de, bir kare çizildikten sonra koşar).
+`src/intro.js` lansman filmindeki mürekkep süpürmesini oynatır: çizgi (`--accent`,
+yeni renk yok) haritayı yukarıdan aşağı süpürür, her süpürme bir pass'i basar
+(280 ms + 50 ms bekleme). Sıra: noise → dağlar → deniz → biyom → nehirler →
+bitmiş harita; izometrikte (varsayılan) son adım düz harita üstünde voxel
+dünyanın 520 ms'lik süpürmesi. Hızlı makinede toplam ~2,4 sn, yavaş cihazda
+pass'ler geldikçe basılır. Haritaya dokunma / tuş, `regenerate()` (her
+slider/seed değişikliği) ve `prefers-reduced-motion` animasyonu atlar.
+
+**Neden kare çizici ayrı.** Gerçek `renderTopDown` hücre başına iki canvas çağrısı
+ve bir stil dizgesi harcıyor; telefonda tek karesi üretimin kendisi kadar
+(CPU x4: 1,0 sn). Beş kare, intro'yu üretimden pahalı yapıyordu. `SM.Intro.pixels`
+aynı renkleri (palet, deniz rampası, göl tonu, hücre gölgesi, hillshade) tek
+geçişte piksele yazar (10-100 ms); yalnız duruşta anlamlı olanı (yerleşim
+simgeleri, nehir parıltısı) atlar, bitmiş harita gerçek renderer'la hemen
+ardından çizilir. `--intro` bu kare çiziciyi gerçek renderer'a (`renderTopDown`,
+`renderStage`) hücre hücre bağlar (8 bit karışım yuvarlaması içinde).
+
+**Doğrulama.** `node tools/headless.js --intro` (checks.sh'e bağlı): worker
+betiği sahte worker kapsamında sürülür; grid'in her alanı ve pass kayıtları
+ana-thread `SM.generate` çıktısıyla **bayt bayt aynı** (seed 1337 320², seed
+20261019 160²), oynatıcı sırası/atla/iptal, kablolama. Gerçek tarayıcıda
+(headless Edge) worker grid'i ile ana-thread grid'i FNV özeti aynı (1337 320²,
+987654 256²); Worker silinince, `file://`'de, reduced-motion'da, dokunup
+atlayınca, süpürme sırasında seed değişince ve izometrik açılışta hatasız.
+Süpürmenin görünüşü tuvalde: tarayıcıda gözle bakılması gerekiyor.
+
+**Bilinen sınırlar.** (1) İlk yükleme dışındaki `regenerate()` hâlâ senkron ve
+animasyonsuz (slider sürüklemesi, rastgele harita düğmesi). (2) Voxel dünya
+(mesh, gölge haritası, shader derlemesi) hâlâ ana thread'de ve süpürmeden önce
+bir kez bloklar; bunu parçalara bölmek ayrı iş. (3) Üstten görünümde
+süpürmenin bitiminde gerçek render bir kez yerine oturur (simgeler belirir).
+
 ## Önceki oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
 
 Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,

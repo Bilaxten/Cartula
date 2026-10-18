@@ -22,6 +22,7 @@
  *   node tools/headless.js --lightning  # lightning: rain clouds only, rare, calm pulses, axis-aligned bolt
  *   node tools/headless.js --season     # season slider: render only, snow line, frozen fresh water, autumn forest, mossy lakes
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
+ *   node tools/headless.js --intro      # first-load worker + layered intro: worker grid == main-thread grid byte for byte, player order/skip/cancel, wiring
  */
 'use strict';
 const fs = require('fs');
@@ -34,7 +35,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js', 'render/season.js',
-                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
+                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js', 'genclient.js', 'intro.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -3779,7 +3780,241 @@ function runWeatherChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--layout') {
+// First-load worker + layered intro. The browser half (a real Worker, the
+// sweep on a real canvas) cannot run here; what CAN be pinned is the part that
+// must never drift: the worker script, driven through a stand-in worker scope,
+// returns exactly the grid and the pass snapshots that SM.generate returns on
+// this thread, and the scheduler paints in order and honours skip / cancel.
+function runIntroChecks() {
+  const vm = require('vm');
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const repo = path.join(__dirname, '..');
+
+  // Drive src/gen-worker.js in a vm context that looks like a worker scope.
+  function runWorker(cfg, stages) {
+    const out = [];
+    const self = {
+      postMessage(m) { out.push(m); },
+      performance: { now: () => Number(process.hrtime.bigint()) / 1e6 },
+      importScripts(...files) {
+        for (const f of files) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
+      }
+    };
+    self.self = self;
+    const ctx = vm.createContext(self);
+    vm.runInContext(fs.readFileSync(path.join(root, 'gen-worker.js'), 'utf8'), ctx, { filename: 'gen-worker.js' });
+    self.onmessage({ data: { cfg, stages } });
+    return out;
+  }
+  const bytes = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength);
+  // Same value, whatever realm built it: typed arrays by bytes, the rest as JSON.
+  function same(a, b) {
+    if (a && ArrayBuffer.isView(a)) return !!b && ArrayBuffer.isView(b) && bytes(a).equals(bytes(b));
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  function diffKeys(a, b) {
+    const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+    return [...keys].filter(k => typeof a[k] !== 'function' && typeof b[k] !== 'function' && !same(a[k], b[k]));
+  }
+
+  const PASSES = SM.Intro.PASSES;
+  const cases = [{ seed: 1337, width: 320, height: 320 }, { seed: 20261019, width: 160, height: 160, seaLevel: 0.45, rivers: 1.5 }];
+  for (const cfg of cases) {
+    const label = `seed ${cfg.seed} ${cfg.width}²`;
+    const snaps = {};
+    const ref = SM.generate(cfg, (id, snap) => { snaps[id] = snap; });
+    const msgs = runWorker(cfg, PASSES);
+    const stageMsgs = msgs.filter(m => m.t === 'stage');
+    const done = msgs.find(m => m.t === 'done');
+    push(`${label}: worker finishes without error`, !!done && !msgs.some(m => m.t === 'error'),
+      msgs.filter(m => m.t === 'error').map(m => m.msg).join('; '));
+    if (!done) continue;
+    push(`${label}: worker reports the requested passes, in pipeline order, and only those`,
+      JSON.stringify(stageMsgs.map(m => m.id)) === JSON.stringify(PASSES),
+      stageMsgs.map(m => m.id).join(','));
+    const strayFn = Object.keys(done.grid).filter(k => typeof done.grid[k] === 'function');
+    push(`${label}: nothing un-cloneable in the worker's grid`, strayFn.length === 0, strayFn.join(','));
+    const built = SM.GenClient.toGrid(done.grid);
+    const gridDiff = diffKeys(ref, built);
+    push(`${label}: worker grid == main-thread grid, every field byte for byte`, gridDiff.length === 0, gridDiff.join(','));
+    push(`${label}: rebuilt grid keeps the model's methods`,
+      typeof built.index === 'function' && typeof built.inBounds === 'function' && built.index(3, 2) === 2 * built.width + 3);
+    const snapBad = stageMsgs.filter(m => diffKeys(snaps[m.id], m.snap).length).map(m => m.id);
+    push(`${label}: worker pass snapshots == main-thread snapshots`, snapBad.length === 0, snapBad.join(','));
+    // No pass reported = nothing recorded: the reduced-motion path pays no copies.
+    const quiet = runWorker(cfg, []).filter(m => m.t === 'stage').length;
+    push(`${label}: no passes asked, none sent`, quiet === 0);
+  }
+
+  // Frames: Intro.pixels must paint the colours the real renderers paint. A
+  // recording stand-in canvas runs SM.renderTopDown / SM.renderStage at one
+  // pixel per cell (fillStyle + fillRect, alpha-blended like a canvas) and the
+  // result is compared pixel by pixel, to within the rounding of 8-bit blending.
+  {
+    function fakeCanvas() {
+      const cv = { width: 0, height: 0, buf: null };
+      let style = [0, 0, 0, 1];
+      cv.getContext = () => ({
+        set fillStyle(v) {
+          const m = /rgba?\(([^)]+)\)/.exec(v);
+          const p = m[1].split(',').map(Number);
+          style = [p[0], p[1], p[2]].map(c => Math.max(0, Math.min(255, c))).concat(p.length > 3 ? p[3] : 1);
+        },
+        clearRect() { cv.buf = new Float64Array(cv.width * cv.height * 4); },
+        fillRect(x, y, w, h) {
+          if (!cv.buf) cv.buf = new Float64Array(cv.width * cv.height * 4);
+          for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+            const o = (yy * cv.width + xx) * 4, a = style[3];
+            for (let k = 0; k < 3; k++) cv.buf[o + k] = style[k] * a + cv.buf[o + k] * (1 - a);
+            cv.buf[o + 3] = 255;
+          }
+        },
+        beginPath() {}, stroke() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}
+      });
+      return cv;
+    }
+    function maxDiff(cv, px) {
+      let worst = 0, at = -1;
+      for (let i = 0; i < px.length; i++) {
+        if (i % 4 === 3) continue;
+        const d = Math.abs(cv.buf[i] - px[i]);
+        if (d > worst) { worst = d; at = i; }
+      }
+      return [worst, at];
+    }
+    const cfg = { seed: 1337, width: 96, height: 96 };
+    const snaps = {};
+    const g = SM.generate(cfg, (id, s) => { snaps[id] = s; });
+    const defs = {}; SM.PIPELINE_STAGES.forEach(s => { defs[s.id] = s; });
+    for (const id of PASSES) {
+      const cv = fakeCanvas();
+      if (defs[id].view === 'map') SM.renderTopDown(cv, snaps[id], { tile: 1, grid: false, shade: true, markers: false });
+      else SM.renderStage(cv, snaps[id], defs[id], { tile: 1, shade: true });
+      const [d, at] = maxDiff(cv, SM.Intro.pixels(snaps[id], defs[id]));
+      push(`frame "${id}" (${defs[id].view}) matches the real renderer`, d <= 2.01, `max channel diff ${d.toFixed(2)} at byte ${at}`);
+    }
+    const cv = fakeCanvas();
+    SM.renderTopDown(cv, g, { tile: 1, grid: false, shade: true, markers: false });
+    const [d, at] = maxDiff(cv, SM.Intro.pixels(g, { view: 'map' }));
+    push('frame of the finished grid matches the real top-down render (no icons)', d <= 2.01, `max channel diff ${d.toFixed(2)} at byte ${at}`);
+  }
+
+  // Scheduler: a stand-in clock and rAF, stepped by hand.
+  {
+    function rig() {
+      let now = 0, queued = null; const log = [];
+      global.requestAnimationFrame = f => { queued = f; return 1; };
+      global.cancelAnimationFrame = () => { queued = null; };
+      const player = SM.Intro.createPlayer({
+        paint: (from, to, p) => log.push(['paint', from, to, p]),
+        line: p => log.push(['line', p]),
+        final: sk => log.push(['final', sk])
+      });
+      const tick = ms => { now += ms; const f = queued; queued = null; if (f) f(now); };
+      const run = (ms, step) => { for (let t = 0; t < ms; t += step) tick(step); };
+      return { player, log, tick, run, pending: () => !!queued };
+    }
+    const paints = log => log.filter(e => e[0] === 'paint');
+    let r = rig();
+    r.player.push('A'); r.player.push('B'); r.player.end();
+    r.run(2000, 16);
+    const order = paints(r.log).filter(e => e[3] === 1).map(e => e[2]);
+    push('player: frames are printed whole, in order, each after a partial sweep',
+      order.join('') === 'AB' && paints(r.log).some(e => e[2] === 'A' && e[3] > 0 && e[3] < 1) &&
+      paints(r.log).some(e => e[1] === 'A' && e[2] === 'B' && e[3] > 0 && e[3] < 1));
+    push('player: final fires once, after the last frame, not skipped',
+      r.log.filter(e => e[0] === 'final').length === 1 && r.log[r.log.length - 1][0] === 'final' && r.log[r.log.length - 1][1] === false);
+    const t = r.log.filter(e => e[0] === 'line' && e[1] != null).map(e => e[1]);
+    push('player: ink line stays within one sweep (0..1)', t.length > 0 && t.every(v => v >= 0 && v <= 1));
+
+    r = rig();
+    r.player.push('A'); r.run(100, 16);
+    r.player.push('B'); r.player.push('C');
+    r.player.skip();
+    r.player.end();
+    r.run(400, 16);
+    const fin = r.log.filter(e => e[0] === 'final');
+    const lastPaint = paints(r.log).pop();
+    push('player: skip paints the newest frame whole and reports skipped',
+      fin.length === 1 && fin[0][1] === true && lastPaint[2] === 'C' && lastPaint[3] === 1);
+
+    r = rig();
+    r.player.push('A'); r.run(64, 16);
+    r.player.cancel(); r.player.push('B'); r.player.end();
+    const before = r.log.length;
+    r.run(1000, 16);
+    push('player: cancel stops everything, no final, line hidden',
+      !r.log.some(e => e[0] === 'final') && r.log.slice(before).every(e => e[0] === 'line' && e[1] === null) && !r.pending());
+
+    r = rig();
+    for (const f of ['A', 'B', 'C', 'D']) r.player.push(f);
+    r.player.end();
+    r.run(5000, 16);
+    push('player: all passes of a backlog still print', paints(r.log).filter(e => e[3] === 1).map(e => e[2]).join('') === 'ABCD');
+    delete global.requestAnimationFrame; delete global.cancelAnimationFrame;
+  }
+
+  // Wiring: the worker loads the same files the page does, in the same order;
+  // the page loads the client and scheduler before main.js; the first map goes
+  // through startIntro; any other regenerate cancels it.
+  function finish() {
+    const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8').replace(/\r\n/g, '\n');
+    const worker = fs.readFileSync(path.join(root, 'gen-worker.js'), 'utf8');
+    const css = fs.readFileSync(path.join(repo, 'css', 'style.css'), 'utf8');
+    const scripts = [...html.matchAll(/<script[^>]+src="src\/([^"]+)"/g)].map(m => m[1]);
+    const imp = /importScripts\(([^)]*)\)/.exec(worker);
+    const impFiles = imp ? imp[1].split(',').map(x => x.trim().replace(/['"]/g, '')) : [];
+    const pageGen = scripts.filter(f => ['noise.js', 'biome.js', 'grid.js', 'generate.js'].includes(f));
+    push('worker imports the generation files in the page\'s own order',
+      JSON.stringify(impFiles) === JSON.stringify(pageGen), `${impFiles} vs ${pageGen}`);
+    push('worker script has no DOM and no Math.random', !/\bdocument\b|\bwindow\.(?!SM)|Math\.random/.test(worker.replace(/\/\*[\s\S]*?\*\//g, '')));
+    push('index.html loads genclient.js and intro.js before main.js',
+      scripts.indexOf('genclient.js') > scripts.indexOf('generate.js') && scripts.indexOf('intro.js') > scripts.indexOf('genclient.js') &&
+      scripts.indexOf('main.js') > scripts.indexOf('intro.js'));
+    push('main.js starts the first map with startIntro(); regenerate() cancels a running intro',
+      /\n {2}startIntro\(\);\n {2}applyDayNight\(\);/.test(main) && /function regenerate\(\) \{\n {4}cancelIntro\(\);/.test(main));
+    push('prefers-reduced-motion skips the sweeps and asks the worker for no passes',
+      /prefers-reduced-motion: reduce\)'\)\.matches\);/.test(main) && /stages: reduced \? \[\]/.test(main));
+    push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
+    const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
+    push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
+    push('intro frames are painted by SM.Intro.frame from recorded passes, never by a second generate on this thread',
+      !/SM\.generate\(/.test(main.slice(main.indexOf('function startIntro'), main.indexOf('function introGuard'))));
+
+    console.log('first-load intro checks:');
+    for (const [name, ok, detail] of results) {
+      console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+      if (!ok && detail) console.log(`         ${detail}`);
+    }
+    if (!results.every(r => r[1])) process.exitCode = 1;
+  }
+
+  // The synchronous fallback (no Worker API in this scope) yields the same grid.
+  {
+    const cfg = cases[1];
+    const ref = SM.generate(cfg);
+    const got = []; let doneGrid = null;
+    const hadWorker = typeof global.Worker;
+    new Promise(res => {
+      SM.GenClient.run(cfg, {
+        stages: PASSES,
+        onStage: id => got.push(id),
+        onDone: g => { doneGrid = g; res(); },
+        onError: () => res()
+      });
+    }).then(() => {
+      push('fallback (no Worker): same grid, passes in order', hadWorker === 'undefined' && !!doneGrid &&
+        diffKeys(ref, doneGrid).length === 0 && JSON.stringify(got) === JSON.stringify(PASSES), got.join(','));
+      finish();
+    });
+  }
+}
+
+if (process.argv[2] === '--intro') {
+  runIntroChecks();
+} else if (process.argv[2] === '--layout') {
   runLayoutChecks();
 } else if (process.argv[2] === '--season') {
   runSeasonChecks();

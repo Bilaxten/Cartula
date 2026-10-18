@@ -69,6 +69,30 @@ taşma eşiği (göl nehrin 2 üstünde; göller sabit çapa) —, nehir akış 
 eşiğinin 0.06'dan fazla altında değil) ve `--sweep` (7 deniz seviyesi — kara
 monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
+**İlk yükleme: worker + katman katman açılış** (`src/gen-worker.js`,
+`src/genclient.js`, `src/intro.js`; `startIntro` / `adoptGrid`, `main.js`).
+Sayfa hemen çizilir; ilk harita bir Web Worker'da üretilir (classic worker,
+`importScripts` ile `noise → biome → grid → generate`: sayfayla aynı dosyalar,
+aynı sıra — grid modeli tek doğru kaynak, pass'ler `generate.js`'te, hiçbiri
+kopyalanmadı). Worker, `SM.generate`'in kayıt kancasıyla beş pass'i bitirdikçe
+yollar (ham noise → dağlar → deniz seviyesi → iklim/biyom → nehirler) ve bitmiş
+grid'i transfer eder. Ana thread her pass'i küçük bir karede (ekrana yetecek en
+küçük tile) çizer ve lansman filmindeki gibi bir mürekkep çizgisi yukarıdan
+aşağı süpürerek bastırır (280 ms süpürme + 50 ms bekleme; çizgi `--accent`,
+yeni renk yok). Sıra: **noise → dağlar → deniz → biyom → nehirler → bitmiş
+harita**; üstten görünümde son kare gerçek `renderTopDown`, izometrikte (varsayılan)
+düz harita üstünde voxel dünya 520 ms'lik bir süpürmeyle belirir. Toplam, hızlı
+makinede ~2,4 sn; üretim yavaşsa (telefon) pass'ler geldikçe basılır, süpürme
+yarışmaz. **Atlama:** haritaya dokunmak / tuşa basmak, `regenerate()` (her slider/seed
+değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-motion`
+(worker yine kullanılır, pass istenmez, harita hazır olunca doğrudan çıkar).
+Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
+thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
+Doğrulama: `node tools/headless.js --intro` — worker betiği sahte worker
+kapsamında sürülür, grid ve pass kayıtları ana-thread çıktısıyla **bayt bayt**
+aynı olmalı; oynatıcı sırası/atla/iptal; kablolama. Tarayıcıda gözle bakılması
+gerekir (süpürme tuvalde çizilir).
+
 **Pipeline adım adım modu** (panel → *Pipeline* → *Step through generation*):
 mevcut haritanın ayarlarıyla üretim bir kez kayıtla yeniden koşulur
 (`SM.generate(cfg, record)`) ve 10 aşama (`SM.PIPELINE_STAGES`: ham noise →

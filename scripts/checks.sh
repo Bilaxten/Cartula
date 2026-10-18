@@ -95,7 +95,8 @@ else
     # --fog: vadi sisi saate bağlı (sabah kalın, öğleden sonra yok), vadide; deniz/sırt sissiz; kapalıyken bedava.
     # --lightning: şimşek yalnız yağmur bulutundan, seyrek, saniyede en çok iki parlama, bloklu yıldırım.
     # --season: mevsim yalnız görünüm (harita/seed değişmez), kar çizgisi iner, soğuk tatlı su donar, sonbahar yalnız ormanda.
-    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout --flow --smoke --fog --lightning --season; do
+    # --intro: ilk yükleme worker'da üretilir; worker grid'i ana thread grid'i ile bayt bayt aynı, katman animasyonu sırası/atla/iptal, kablolama.
+    for hmode in --edit --river --mesh --falls --sky --export --worldtypes --i18n --perf --night --wind --weather --layout --flow --smoke --fog --lightning --season --intro; do
         if out="$(node tools/headless.js "$hmode" 2>&1)"; then
             ok "harness $hmode geçti"
         else
