@@ -436,6 +436,184 @@ hatasız açıldı, ekran görüntüsüne bakıldı. Etkileşim denenmedi.
 **Sonraki adım:** `TODO.md` NOW — gece kararlarına gözle bakıp onayla ya da
 ilgili commit'i `git revert` et.
 
+## 2026-10-04 — Dolgu havuzları deniz tabanı yüksekliğini taşıyordu
+*(geriye dönük yazıldı 2026-10-18; kaynak: `b298496`, `51f6963`)*
+
+**Ne yapıldı:** Kapalı iç suyu kara yapan pass 7c, çalışma yüksekliğini deniz
+seviyesinin üstüne kaldırıyordu ama sonucu `grid.elevation`'a geri yazmıyordu.
+Bayraklar, biyom ve voxel kademesi doğruydu, bu yüzden voxel görünüm sağlam
+duruyordu; `grid.elevation`'ı okuyan her şey (üstten gölgeleme, hover metresi,
+fırça yumuşatma, Unity heightmap) deniz seviyesinin 0.43'e kadar altında bir
+çanak görüyordu. Varsayılan haritada (seed 1337, 192²) 2929 tile, karanın %11'i.
+7c artık yüksekliği yazıyor; kullanılmayan `BIG_LAKE` sabiti silindi.
+09-29'da ayrıca Unity export'un bayt sırası için araştırma notu `TODO.md`'ye
+eklendi (`row 0 = güney, flip yok` iddiası yalnız Unity'de denenerek doğrulanır).
+
+**Değişen dosyalar:** `src/generate.js`, `tools/headless.js`, `TODO.md`.
+
+**Neden bu yaklaşım:** Hata veriyi kaynağında düzeltmek gerekiyordu; her
+tüketicide ayrı yama (hover, fırça, export) AGENTS.md §3'teki tek doğru kaynak
+ilkesini bozardı. `--geo P8` ile kilitlendi: hiçbir kara tile'ı deniz eşiğinin
+0.06'dan fazla altında saklanamaz — düzeltmeden önce 5 seed'in hepsinde
+kırmızıydı (en kötü 0.419), sonra yeşil (en kötü 0.056).
+
+**Doğrulama:** `--geo` P8 önce/sonra ölçüldü. Üstten gölgelemenin kendisi canvas
+çıktısı olduğu için tarayıcıda bakılmadı. Unity'de içe aktarma denenmedi.
+
+**Sonraki adım:** Derin kod incelemesi (bir sonraki kayıt, 10-05).
+
+## 2026-09-23 — Panel gözden geçirme, World type, koyu tema, Random düğmesi
+*(geriye dönük yazıldı 2026-10-18; kaynak: `f6462d3`…`ab421d5`, `daily/2026-09-23`)*
+
+**Ne yapıldı:**
+- **Panel gözden geçirme** (`9422651`): her generatör slider'ı 3 seed'de
+  aralığı boyunca ölçüldü. *Island falloff* sessizce yanlıştı — deniz eşiği
+  falloff'u yok sayıyordu, slider karayı %65'ten %10'a eritiyordu (ikinci bir
+  Sea slider'ı). Eşik artık falloff'u içeriyor, falloff hiç sıfıra inmiyor
+  (en çok ×0.15). Sea etiketi gerçek kara payını yazıyor ("62% land" yazıp
+  gerçekte %70'ti). *Moisture scale* kaldırıldı (en zayıf etki). World type
+  hazır ayarları: Continents / Single island / Frozen / Arid / Tropical.
+  Slider'lara tooltip, Distortion → Coast warp, Terrain scale → Feature scale.
+- **World type verisi** `src/worldtypes.js`'e taşındı (`9e793e1`), `--worldtypes`
+  harness'ı eklendi (Arid'in `mbias`'ı geçici 0'a çekilince kontrol kırmızıya düştü).
+- **Random düğmesi** (`f6462d3`): shuffle + Regenerate kalktı, yerine zar ikonlu
+  tek *Random* (kısayol R). Bulutlar haritaya girerken/çıkarken solup beliriyor
+  (`SM.Sky.cloudFade`), bulut gölgesi de onunla soluyor.
+- **Koyu tema + logo** (`0f1bdb7`, `23cd455`): panel renkleri CSS token'ı oldu,
+  izometrik voxel ada logosu paletten üretiliyor (`tools/make_logo.py`), favicon
+  olarak da kullanılıyor. Harita zemini temayı izliyor, temadan bağımsız zemin
+  düğmesi var (`795f183`).
+- **Satır sonları** (`827054a`): `.gitattributes` (`* text=auto`) + normalize;
+  Windows/Mac karışık çalışmada diff gürültüsü olmasın.
+- README'ye dahili tarayıcıda `file://` önizleme notu (`ab421d5`); `40a50d`
+  `CURRENT.md` devri.
+
+**Değişen dosyalar:** `src/generate.js`, `src/main.js`, `src/worldtypes.js`,
+`src/render/sky.js`, `src/render/voxel3d.js`, `index.html`, `css/style.css`,
+`assets/logo.svg`, `tools/headless.js`, `tools/make_logo.py`, `scripts/checks.sh`,
+`.gitattributes`, `README.md`.
+
+**Neden bu yaklaşım:** Slider'ı "çalışıyor görünüyor" diye bırakmak yerine her
+birinin gerçek etkisi ölçüldü; ikisi aynı şeyi yapıyorsa (Sea / Island) biri
+dürüstleştirildi. Archipelago ve Pangaea denendi ama ada konsolidasyonu kuralı
+ikisini de bozduğu için eklenmedi. Regenerate'in kendine özgü işlevi yoktu —
+ayar değişince harita zaten yeniden üretiliyor; düzenlemeleri silmek için
+Edit → Reset to generated var.
+
+**Doğrulama:** `--geo` P7 (eski generatörde kırmızı: 0.5'te 40-47 puan kara
+kaybı), `--worldtypes`, `--sky` (2 yeni kontrol). 5 world type ve Custom ↔ geri
+eşleşme tarayıcıda denendi, shader hatası yok.
+
+**Sonraki adım:** Portfolyo yol haritası 1-5 kapandı; kalan: ölçüm paketinin
+görsel yarısı (Uğur).
+
+## 2026-09-22 — Kod taraması: fırça, nehir yatağı, şelale, deniz derinliği; portfolyo yol haritası 1-5
+*(geriye dönük yazıldı 2026-10-18; kaynak: `9ef72c6`…`da7ad22`, `CURRENT.md` geçmişi)*
+
+**Ne yapıldı:**
+- **Tarama #1 — fırça/tatlı su** (`8b427be`): yeniden türetme saf oldu
+  (`SM.deriveEditedTile`). Tatlı su yükseklik fırçalarında tatlı su kalır; deniz↔kara
+  yalnız fırçanın yönünde eşik geçilince değişir (eski kod hafif Raise'de sahili
+  su basıyordu — TODO'da yazmayan ikinci bug). `--edit` harness'ı eski mantıkta 6/7 kırmızı.
+- **Tarama #4** (`0c8ced4`): izometrikte Undo/Redo mesh'i yenilemiyordu;
+  bfcache dönüşünde ölü canvas; `webglcontextlost/restored` toparlaması.
+- **Tarama #2 — nehir yatağı/şelale** (`92149f4`, `f1b8c8c`, `2d5d566`): Uğur
+  **hibrit** seçti: 2 kademe düşüş kusur sayılıp yatak oyulur (`gradeRiverBeds`),
+  3+ kademe tasarlanmış şelale olarak `SM.tagWaterfalls` ile geometriden
+  etiketlenir (lip=1 / landing=2). Renderer yarısı ayrı worktree'de yazıldı
+  (`aFall` vertex attribute'u, aşağı akan şeritler, iniş köpüğü) ve birleştirildi.
+- **Deniz derinliği renkle** (`5e210e2`, `05b291c`): Uğur "çukur koyma, derin
+  yeri koyulaştır" dedi; deniz tek düz yüzey, `SM.seaColor` ile derinliğe göre
+  ton; önce 6 bant, "bu kadar ton kullanmayalım" üzerine paletten 3 bant.
+- **Portfolyo yol haritası** (`8fa32c9`, `854cff4`, `4e17688`, `522058e`):
+  pipeline adım adım modu (üretimi 10 aşamada gez, `SM.PIPELINE_STAGES`);
+  Unity export tek zip (r16 heightmap, albedo, biyom maskesi, `map.json`;
+  `src/export.js` saf, `--export` harness'ı); render debug görünümleri (AO,
+  normal, yükseklik, albedo, gölge, şelale — tek `uDebugView` uniform'u).
+- `.nojekyll` (`d8e40de`); Pages önbellek karışması TODO'ya yazıldı (`da7ad22`).
+
+**Değişen dosyalar:** `src/generate.js`, `src/grid.js`, `src/biome.js`,
+`src/export.js`, `src/main.js`, `src/render/topdown.js`, `src/render/voxel3d.js`,
+`index.html`, `css/style.css`, `tools/headless.js`, `scripts/checks.sh`,
+`README.md`, `TODO.md`, `CURRENT.md`.
+
+**Neden bu yaklaşım:** Hibrit şelale kararı: tüm düşüşleri şelale yapmak
+2 kademelik kusurları "özellik" diye saklardı, hepsini oymak tasarlanmış
+şelaleleri silerdi. Akışa dayalı eski `markWaterfalls` silindi çünkü
+`grid.flow` yalnız orta hatta var, nehir tile'larının ~%75'inde yok;
+geometri her zaman var. Deniz derinliği mutlak referansla (harita başına
+percentile değil) boyanıyor: aynı derinlik her seed/boyutta aynı ton.
+
+**Doğrulama:** `--edit` (7 kontrol), `--export` (7 kontrol; zip Python
+`zipfile` ile bağımsız doğrulandı), `--mesh` baseline 124430 → 123314,
+tarayıcıda `buildVoxelMesh` sayacı ve 7 debug modu. Animasyonlu şelale gözle
+izlenmedi. Unity içinde export denenmedi.
+
+**Sonraki adım:** Tarama #3 (P2 "ada aynı kalır", iç deniz boyut eşiği; karar
+Uğur'da) ve #5; shader cilası Uğur'la.
+
+## 2026-09-15 — Kod taraması: iklim kuşağı dünya-uzayına, nehir/göl seviyesi
+*(geriye dönük yazıldı 2026-10-18; kaynak: `9207d5b`, `ed68f3b`)*
+
+**Ne yapıldı:** Kod taramasının ilk dört bulgusu kapandı.
+- **Bulgu 1** (`9207d5b`): `latBand` grid-göreli `y/h` ile hesaplanıyordu, komşu
+  satırdaki sıcaklık/nem ise dünya-uzayında; "harita büyüdükçe aynı nokta aynı
+  kalır" vaadi kara/su için doğruydu, biyom için değildi (128²↔192² biyom
+  örtüşmesi seed başına %35-76). `latBand` `wyOf(y)` kullanıyor, katsayı 192²
+  referansıyla türetildi. Biyom örtüşmesi her seed'de +10-13 puan (örn. 90210:
+  %57 → %68, 777: %76 → %89).
+- **Bulgu 2-4** (`ed68f3b`): nehir/göl `grid.level`'ı kendi elevation'ından
+  türetiliyor (önceden hepsi deniz düzlemine yapışıyordu, `markWaterfalls`
+  ile çelişiyordu); `--geo` P4 testi bu yüzden hep `climbs=0` görüyordu, yani
+  hiçbir şey kanıtlamıyordu — şelaleler hariç tutuldu, eşik ölçülen tabana
+  göre (%0-7.8) %10'a kalibre edildi; `setMesh` dispose kontrolü GL kaynağı
+  yaratmadan önce yapılıyor, `pagehide` sonrası renderer null'lanıyor.
+- Manifest `manifest-2026-09-15.json` olarak yeniden üretildi. Bulgu 5-7
+  görsel doğrulama gerektirdiği için bu turda atlandı.
+
+**Değişen dosyalar:** `src/generate.js`, `src/main.js`, `src/render/voxel3d.js`,
+`tools/headless.js`, `docs/measurements/README.md`,
+`docs/measurements/manifest-2026-09-15.json`.
+
+**Neden bu yaklaşım:** `--geo` P2 yalnız su/kara örtüşmesini ölçüyordu ve biyom
+kaymasını yakalayamadı; teste biyom örtüşmesi (≥%40, düzeltme öncesi 35-76,
+sonrası 45-89 arası) eklendi ki bu sınıf bug bir daha sessiz kalmasın. Testin
+eşiği, düzeltme öncesi ölçümde kırmızı verecek şekilde seçildi.
+
+**Doğrulama:** `node --check`, `--geo/--sweep/--river/--sky/--shaders`,
+`scripts/checks.sh` temiz. WebGL tarafı (bulgu 4) headless'ta denenemedi.
+
+**Sonraki adım:** 09-22 taraması (bir sonraki kayıt).
+
+## 2026-09-08 — Gerçeklik Borcu P3: coğrafi iddialar property teste bağlandı
+*(geriye dönük yazıldı 2026-10-18; kaynak: `a217232`)*
+
+**Ne yapıldı:** README'deki coğrafi iddialar ölçülebilir hâle geldi.
+`node tools/headless.js --geo` 5 seed üzerinde: deniz seviyesi ↑ ⇒ kara ↓ (±2pp),
+128²↔192² merkez örtüşmesi ≥%92, her nehir denize/göle/kenara ulaşır, nehirler
+voxel seviyesinde >1 kademe tırmanmaz, kule = 0. `--sweep` artık yalnız yazdırmıyor,
+assert ediyor ve sıfır olmayan çıkış kodu veriyor; ikisi `checks.sh`'e bağlandı.
+`--geo` seed 11'de "nehir hiçliğe akıyor" bug'ını yakaladı → `pruneRiverStubs`
+(çıkışa ulaşmayan 4 tile'dan kısa nehir parçaları budanıyor). Yol, fantezi etiket
+ve şelale pass'leri `decorations` bayrağı arkasına alındı (varsayılan kapalı,
+hiçbir renderer çizmiyordu, bake ucuzladı). Paylaşım linki fırça editlerini
+taşımıyor → "Copied (settings only)"; edit sonrası istatistik gerçek kara %'sini
+gösteriyor. İlk ölçüm paketi: `docs/measurements/` + `--manifest`
+(3 seed × 192²/448², `manifest-2026-09-08.json`).
+
+**Değişen dosyalar:** `tools/headless.js`, `scripts/checks.sh`, `src/generate.js`,
+`src/main.js`, `docs/measurements/README.md`, `docs/measurements/manifest-2026-09-08.json`,
+`TODO.md`.
+
+**Neden bu yaklaşım:** Vaka çalışmasında "ada aynı kalır, nehir denize ulaşır"
+gibi cümleler yazılacaktı; kanıtsız iddia portfolyoda risk. Testin kendisi bug
+bulabildi (seed 11), yani yalnız süs değil. Görsel yarı (PNG, orbit klip)
+tarayıcıda üretilmek zorunda; headless'ta WebGL/canvas yok.
+
+**Doğrulama:** `scripts/checks.sh` temiz; `--river/--mesh/--sky/--shaders/--sweep/--geo` OK.
+
+**Sonraki adım:** Kod taraması (09-15).
+
 ## 2026-09-06 — Eski 2D izometrik yol tamamen kaldırıldı (+ PNG export düzeldi)
 
 **Ne yapıldı:** Uğur "önerdiğin çözümleri yapalım... 4 yönlü 2D image'ı tamamen

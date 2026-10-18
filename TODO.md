@@ -127,10 +127,14 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
         birlikte (paletten çıkma, ton az). Kıyı köpüğü 2026-10-05'te geldi
         (`7265a2a`).
 
-- [ ] **P2 "ada aynı kalır" kısmen tutuyor (eski tarama #3):** 128→256'da
-      kara/su %78-96, biyom %41-89 (2026-09-22 ölçümü; `e9cf0dc` biyom
-      oranını değiştirmiş olabilir, yeniden ölçülmedi). Sebep: küçük haritada
-      kenara değen su büyük haritada kapalı kalıp göl ya da kara oluyor.
+- [x] **P2 "ada aynı kalır" (eski tarama #3) — kapandı 2026-10-18:** repo'nun
+      ölçütü (`--geo`: 128²↔192² merkez, kara/su ≥%92, biyom ≥%40) HEAD
+      `4ba4aa7`'de yeşil; 5 seed × deniz 0.4: kara/su %92.4-97.4, biyom
+      %45.0-88.9. Eski taramanın daha sert ölçümü 128→256 yeniden alındı:
+      kara/su %78.0-95.6, biyom %41.2-70.4 (2026-09-22: %78-96 / %41-89) —
+      kara/su aynı, biyom üst ucu düştü (`e9cf0dc` + 10-14 sonrası). 256'da
+      kenara değen sığ deniz hâlâ kapanıp göl/kara oluyor; bu ölçütün
+      dışında, iç deniz boyut eşiği kararı Uğur'da (kod değişmedi).
 
 - [ ] **Ölçüm paketi, görsel yarısı (Uğur):** sayısal manifest 2026-10-14'te
       yeniden üretildi (`manifest-2026-10-14.json`, `1ee9917`). Kalan: 3 seed ×

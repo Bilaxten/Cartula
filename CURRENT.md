@@ -600,7 +600,7 @@ Sıra `TODO.md` NOW'da. Durum:
 
 Aynı gün önce: deniz derinliği renkle (3 bant, paletten — Uğur "bu kadar
 ton kullanmayalım" dedi), tarama #1/#2/#4 düzeltmeleri (aşağıdaki bölüm).
-Hâlâ açık: tarama #3 (iç deniz boyut eşiği, karar Uğur'da; 2026-10-14 manifest sonrası yeniden ölçülmedi — Uğur'a soruldu 2026-10-18), #5.
+Hâlâ açık: #5. Tarama #3 (P2) 2026-10-18'de yeniden ölçüldü, repo ölçütü tutuyor → kapandı (aşağıda).
 
 ## Önceki görev — 2026-09-22 taramasının düzeltmeleri
 
@@ -627,7 +627,7 @@ Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22):
   değildi. Artık `--edit/--river/--mesh/--sky` hepsi `checks.sh`'te.
 
 Kalan: TODO #3 (P2 "ada aynı kalır": büyük haritada kapalı kalan deniz → göl;
-iç deniz boyut eşiği muhtemelen doğru cevap ama karar Uğur'da; 2026-10-14 manifest sonrası yeniden ölçülmedi — Uğur'a soruldu 2026-10-18), #5 (09-15'ten
+iç deniz boyut eşiği muhtemelen doğru cevap ama karar Uğur'da). **2026-10-18 yeniden ölçüm:** `--geo` ölçütü (128²↔192², ≥%92 kara/su, ≥%40 biyom) HEAD `4ba4aa7`'de tutuyor — kara/su %92.4-97.4, biyom %45.0-88.9; 128→256'da kara/su %78.0-95.6, biyom %41.2-70.4 (eskisiyle aynı kara/su) → P2 kapandı, 256 artığı bilinen davranış, eşik kararı Uğur'da. #5 (09-15'ten
 açık 5-7).
 
 ## Önceki görev (2026-09-08)
