@@ -93,7 +93,7 @@
   function quantLandLevel(ev, seaThresh, landSpan, levels) {
     var lf = (ev - seaThresh) / landSpan;
     lf = lf < 0 ? 0 : lf > 1 ? 1 : lf;
-    var lv = Math.round(Math.pow(lf, 0.82) * levels) + 1;
+    var lv = Math.round(SM.dmath.pow(lf, 0.82) * levels) + 1;
     return lv > 120 ? 120 : lv;   // grid.level is an Int8Array
   }
 

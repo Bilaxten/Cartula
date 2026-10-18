@@ -105,7 +105,69 @@
     return sum / norm;
   }
 
+  // Deterministic math (2026-10-19, seed = whole map). ECMAScript only
+  // guarantees +, -, *, / and sqrt to be correctly rounded; Math.sin, cos,
+  // pow, exp and log may differ in the last bit between V8, JavaScriptCore
+  // and SpiderMonkey, which can flip one cell's level. Everything that feeds
+  // the grid goes through these instead: series built from + - * / only, so
+  // the same input gives the same bits in every engine.
+  var LN2 = 0.6931471805599453, TWO_PI = 6.283185307179586;
+  var SIN_C = [], COS_C = [];
+  (function () {
+    var f = 1, k;
+    for (k = 1; k <= 33; k++) {
+      f *= k;
+      if (k % 2 === 1) SIN_C.push((((k - 1) / 2) % 2 ? -1 : 1) / f);
+      else COS_C.push(((k / 2) % 2 ? -1 : 1) / f);
+    }
+  })();
+  var f64 = new Float64Array(1), u32 = new Uint32Array(f64.buffer);
+  var LITTLE = (function () { f64[0] = 1; return u32[1] === 0x3ff00000; })();
+  var HI = LITTLE ? 1 : 0, LO = LITTLE ? 0 : 1;
+
+  function reduce(x) { return x - Math.round(x / TWO_PI) * TWO_PI; } // (-pi, pi]
+  function sin(x) {
+    var r = reduce(x), r2 = r * r, s = 0, i;
+    for (i = SIN_C.length - 1; i >= 0; i--) s = s * r2 + SIN_C[i];
+    return s * r;
+  }
+  function cos(x) {
+    var r = reduce(x), r2 = r * r, s = 0, i;
+    for (i = COS_C.length - 1; i >= 0; i--) s = s * r2 + COS_C[i];
+    return s * r2 + 1;
+  }
+  // log for x > 0: x = m * 2^e with m in [sqrt(.5), sqrt(2)), atanh series.
+  function log(x) {
+    if (!(x > 0)) return x === 0 ? -Infinity : NaN;
+    f64[0] = x;
+    var e = ((u32[HI] >>> 20) & 0x7ff) - 1023;
+    if (e === -1023) { f64[0] = x * 18014398509481984; e = ((u32[HI] >>> 20) & 0x7ff) - 1023 - 54; }
+    u32[HI] = (u32[HI] & 0x000fffff) | 0x3ff00000; // mantissa in [1, 2)
+    var m = f64[0];
+    if (m > 1.4142135623730951) { m = m / 2; e += 1; }
+    var s = (m - 1) / (m + 1), s2 = s * s, t = 0, i;
+    for (i = 29; i >= 1; i -= 2) t = t * s2 + 1 / i;
+    return 2 * s * t + e * LN2;
+  }
+  function exp(x) {
+    if (x > 709) return Infinity;
+    if (x < -745) return 0;
+    var k = Math.round(x / LN2), r = x - k * LN2, t = 1, i;
+    for (i = 17; i >= 1; i--) t = 1 + t * r / i;
+    var p = k < 0 ? 0.5 : 2, n = k < 0 ? -k : k, c = 1;
+    while (n > 0) { if (n & 1) c *= p; p *= p; n >>= 1; }
+    return t * c;
+  }
+  // x^y for x >= 0. Half-integer exponents ride on sqrt (exact), the rest on exp/log.
+  function pow(x, y) {
+    if (x <= 0) return y === 0 ? 1 : 0;
+    if (y === 1.5) return x * Math.sqrt(x);
+    if (y === 0.5) return Math.sqrt(x);
+    return exp(y * log(x));
+  }
+
   SM.mulberry32 = mulberry32;
+  SM.dmath = { sin: sin, cos: cos, log: log, exp: exp, pow: pow };
   SM.makeNoise2D = makeNoise2D;
   SM.fbm = fbm;
   SM.fbmRidged = fbmRidged;

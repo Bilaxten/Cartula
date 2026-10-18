@@ -47,6 +47,30 @@ animasyonsuz (slider sürüklemesi, rastgele harita düğmesi). (2) Voxel dünya
 bir kez bloklar; bunu parçalara bölmek ayrı iş. (3) Üstten görünümde
 süpürmenin bitiminde gerçek render bir kez yerine oturur (simgeler belirir).
 
+## Oturum — seed haritanın tamamı, Kaydır düğmesi (2026-10-19)
+
+Uğur'un gerçek telefondan iki isteği. (1) *"pan düzgün çalışmıyor, buton olarak
+yapar mısın"*: iki parmak ortası kaydırması (932ddbc) geri alındı (kar/yosun
+değişiklikleri kaldı); yalnız dokunmatik ekranda görünen *Pan* / *Kaydır* düğmesi
+geldi. Kapalı: tek parmak görünümün kendi sürüklemesi, iki parmak yalnız zoom.
+Açık: tek parmak iki görünümde de kaydırır, kıstırma kapalı. CDP parmaklarıyla
+iki yönde de denendi. (2) Seed: önce "aynı seed aynı sonucu versin" diye
+anlaşıldı; Uğur düzeltti: *"ayarlar değişince seed de değişecek, seed ayarları
+da temsil edecek"*. Karar: seed = rastgele taban + her ayar tek kodda (32 + 54 +
+14 bit doğrulama, 5 bitlik harflerle 20 karakter, sürüm karakteri başta), alan
+ayar değiştikçe canlı güncellenir, yapıştırılan kod ayarları kontrollere uygular.
+Denetim: üretim yolunda `Math.random`/`Date`/`performance` yok, alt seed'ler
+`seed ^ sabit`; tek motor riski `Math.sin/cos/pow` (V8/JSC/SpiderMonkey son bitte
+ayrışabilir, bir hücrenin kademesini çevirebilir) `SM.dmath` ile değişti
+(yalnız `+ - * /` ve `sqrt`; `sin`/`cos` ~1e-14, `pow` ~2e-16 içinde). Bedeli:
+bu yüzden eski sayıdan aynı harita birebir çıkmaz; Uğur eski seed'lere ihtiyaç
+olmadığını söyledi. `--seed` denetimi 23 kontrol: kod gidiş-dönüş (3003 kod, iki
+uç dahil), yazım, geçersiz giriş nedenleri, tek karakter hatası, aynı seed iki
+kez / araya başka harita girince / kod üzerinden aynı grid, üretim yolunda
+yasaklı çağrı yok, bağlantılar. Tarayıcıda (Edge): alan canlı, yapıştırma
+kontrolleri oynatıyor, geçersiz mesaj TR/EN, eski bağlantı açılıyor, Node ve
+Edge aynı parmak izi (`4586ca46`). Ölçülmedi: Safari, Firefox.
+
 ## Önceki oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
 
 Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,

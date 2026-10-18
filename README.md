@@ -139,12 +139,50 @@ P7). *Moisture scale* kaldırıldı (en zayıf etki, %20-25). Temperature /
 Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını söyler.
 
 **Yeni harita (2026-10-05, Uğur):** iki düğme yan yana.
-- *Regenerate* / *Yeniden üret* (kısayol `R`): yeni rastgele seed, slider ayarları korunur.
+- *Regenerate* / *Yeniden üret* (kısayol `R`): yeni rastgele seed tabanı, slider ayarları korunur.
 - *Random* / *Rastgele* (kısayol `Shift+R`): rastgele bir dünya tipinden başlar, her üretim
   slider'ını aralığının en fazla dörtte biri kadar oynatır (uçlardaki %10 dışarıda; deniz
   seviyesi 0.30–0.62, altında harita %80–90 kara çıkıyordu) ve yeni seed verir. Harita boyutu değişmez.
 
 Fırça düzenlemelerini geri almak Edit → *Reset to generated*.
+
+**Seed haritanın tamamıdır** (Uğur 2026-10-19: *"ayarlar değişince seed de
+değişecek, seed ayarları da temsil edecek"*). Seed tek bir kısa, kopyalanabilir
+kod: `1-k3m9-0bx7-4h2d-q8wn-5ztc`. İçinde rastgele taban (32 bit) **ve** her
+üretim ayarı var: harita boyutu, deniz seviyesi, engebe, çarpıtma, yükselti
+ölçeği, oktav, ada, sıcaklık/nem eğilimi, nehirler ve mevsim (54 bit, her
+slider'ın adım indeksi olarak) + 14 bitlik doğrulama. `1` sürüm karakteri; alfabe
+32 sembol (`i l o u` yok; `o`→`0`, `i`/`l`→`1`, `u`→`v` okunur, büyük/küçük harf
+ve tire önemsiz). Mantık `src/seed.js`'te (`SM.Seed`), DOM'suz.
+- Herhangi bir ayar değişince kod **hemen** değişir (slider sürüklenirken de).
+- Koda yazmak/yapıştırmak (Enter, alandan çıkma ya da yapıştırma) o koddaki bütün
+  ayarları kontrollere uygular ve haritayı üretir. Geçersiz kodda neden yazılır
+  (boş, karakter, uzunluk, sürüm, doğrulama tutmadı, eski sayısal seed) ve hiçbir
+  şey değişmez; mesaj TR/EN.
+- *Regenerate* yeni taban + aynı ayarlar, *Random* yeni taban + yeni ayarlar:
+  ikisi de yeni bir kod verir.
+- Harita **kodun saf fonksiyonu**: aynı kod her seferinde, her üretimden sonra
+  ve ayar → kod → çözümle → üret yolundan da aynı grid'i verir
+  (`node tools/headless.js --seed`, grid'in her tipli dizisinin baytı üzerinden
+  parmak izi). Üretim yolunda `Math.random`, `Date`, `performance`, sıra-bağımlı
+  `for…in` yok; alt seed'ler `seed ^ sabit`. `Math.sin/cos/pow` motorlar arasında
+  son bitte ayrışabildiği (V8, JavaScriptCore, SpiderMonkey) için üretim yolu
+  `SM.dmath`'ı kullanır: yalnız `+ - * /` ve `sqrt` ile kurulu seriler
+  (ECMAScript bu beşini birebir yuvarlanmış garanti eder), motora göre değişmez.
+- **Eski sayısal seed'ler (`1337`) artık çalışmaz** (Uğur: gerek yok) ve `dmath`
+  yüzünden aynı sayıdan eski harita da birebir çıkmaz. Eski paylaşım bağlantısı
+  (`?seed=777&sea=0.5`) hâlâ açılır: sayı taban olur, bağlantıdaki ayarlar
+  uygulanır. Yeni bağlantı yalnız `seed=<kod>` (+ görünüm: `view`, kamera,
+  `isoexag`, `sun`) taşır; *Copy link*, indirilen PNG adı, Unity zip adı ve
+  `map.json` (`seed`: kod, `seedBase`: sayı) aynı kodu kullanır.
+- **Doğrulanan:** Node (V8) ve Edge (V8) aynı kod için aynı parmak izini verir.
+  **Doğrulanmayan:** Safari/JavaScriptCore ve Firefox/SpiderMonkey bu makinede
+  yok; üretim yolu yalnız garantili işlemler kullandığı için aynı çıkması
+  beklenir ama ölçülmedi. Mevsim yalnız görünümdür: kodla taşınır, haritayı
+  değiştirmez. Seed'siz kalan tek `Math.random`: *Regenerate* / *Random*'un yeni
+  taban ve ayar seçimi (girdi üretir, harita değil). Sahne animasyonu (bulut,
+  yağmur, rüzgâr, dalga) haritanın seed'inden doğar ama saate göre akar; aynı
+  harita farklı karede farklı görünür, bu görünümdür.
 
 > **Edit paneli şimdilik gizli** (Uğur 2026-10-13): kod ve testler duruyor; geri açmak için `src/main.js` içinde `EDIT_ENABLED = true`.
 
@@ -201,10 +239,10 @@ haritada yalnız fare dinleyicileri vardı: telefonda tek parmak sürüklemek hi
 değişmiyordu. Şimdi `#stage`'de pointer olayları ve `touch-action: none`
 (haritadaki hareketler uygulamanın; panelde sayfa yakınlaştırması erişilebilirlik
 için açık): **tek parmak** = o görünümün fare sürüklemesi (izometrikte döndür,
-üstten görünümde kaydır ya da seçili fırça), **iki parmak** = kaydır +
-parmakların ortasına doğru yakınlaş (`SM.Touch`, `src/touch.js`, DOM'suz:
-parmakların altındaki harita noktası parmakların altında kalır; izometrikte
-`panVector` ile, yaw/eğim değişmez). İkinci parmak tek parmak hareketini olduğu
+üstten görünümde kaydır ya da seçili fırça), **iki parmak** = yakınlaş
+(`SM.Touch`, `src/touch.js`, DOM'suz: parmakların altındaki harita noktası
+parmakların altında kalır; 2026-10-19'dan beri kaydırma iki parmakla değil
+*Kaydır* düğmesiyle, aşağıda). İkinci parmak tek parmak hareketini olduğu
 yerde bitirir (300 ms'den genç fırça darbesi geri alınır: kıstırmanın başıydı);
 kıstırmadan bir parmak kalkınca kalan parmak (2026-10-13'ten beri) **hiçbir şey yapmaz**, asla
 döndürmez ya da boyamaz. Parmak kümesi her değiştiğinde hareket yeniden
@@ -213,6 +251,19 @@ kartını gösterir. iOS'un kendi `gesturestart`'ı engellenir. Dokunmatik
 cihazda ipucu da dokunmatik (`hint.*.touch`). `--layout` matematiği koşar:
 200 rastgele hareket, izometrikte panVector'dan bağımsız bir ortografik
 izdüşümle.
+
+**Kaydır düğmesi** (Uğur 2026-10-19, gerçek telefon: *"pan düzgün çalışmıyor,
+direkt buton olarak yapar mısın"*). İki parmakla kaydırma (932ddbc) geri alındı;
+yerine yalnız dokunmatik ekranda görünen (`@media (any-pointer: coarse)`, masaüstü
+fare görmez) bir aç/kapa düğmesi: sağ üstte *Pan* / *Kaydır*, `aria-pressed`, açıkken
+turuncu çerçeve (yeni renk yok). **Kapalı** (varsayılan): tek parmak o görünümün
+kendi sürüklemesi (izometrikte döndür), iki parmak yalnız zoom. **Açık**: tek parmak
+iki görünümde de haritayı kaydırır (izometrikte shift+sürükle yolu), ikinci parmak
+bir şey yapmaz, yani zoom kapalı; tekrar basınca kapanır. İpucu (`hint.*.touch.pan`)
+ve düğmenin başlığı duruma göre değişir. Gerçek ekranda doğrulandı (Edge dokunmatik
+emülasyonu, CDP parmakları): kapalıyken kıstırma zoom yapar, açıkken yapmaz; açıkken
+tek parmak üstten görünümde `#map` dönüşümünü, izometrikte kamerayı kaydırır ve yaw
+değişmez.
 
 **Gerçek telefonda kıstırma** (Uğur 2026-10-13, Galaxy S25 FE: *"çalışıyor ama
 garip"*). Matematik doğruydu (parmak altındaki nokta CDP'de 0 px kayıyor);

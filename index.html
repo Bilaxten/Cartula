@@ -86,7 +86,8 @@
           </select>
 
           <label for="seed" data-i18n="seed.label">Seed</label>
-          <input type="number" id="seed" value="1337">
+          <input type="text" id="seed" value="" title="The seed is the whole map: it carries the random base and every setting. Paste a seed here to load that map." data-i18n-title="seed.title" maxlength="48" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-describedby="seedMsg">
+          <div id="seedMsg" role="status" aria-live="polite" hidden></div>
 
           <label for="size" data-i18n="size.label">Map size <span id="sizeVal">192²</span></label>
           <input type="range" id="size" min="128" max="448" step="32" value="320">
@@ -271,6 +272,14 @@
   <main id="stage">
     <div id="hover" data-i18n-js></div>
     <div id="brushCursor" hidden></div>
+    <!-- Touch screens only (style.css): on = one finger pans, zoom off. -->
+    <button id="panToggle" type="button" aria-pressed="false">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 1.5v13M1.5 8h13M8 1.5L6 3.5M8 1.5l2 2M8 14.5l-2-2M8 14.5l2-2M1.5 8l2-2M1.5 8l2 2M14.5 8l-2-2M14.5 8l-2 2"
+          fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span data-i18n="pan.label">Pan</span>
+    </button>
     <div id="isohint" data-i18n-js>drag to pan &middot; scroll to zoom</div>
     <div id="yawControl" hidden>
       <button id="centerViewBtn" type="button" title="Center view: frame the whole map again (angle kept)"
@@ -304,6 +313,7 @@
 <script>SM.I18N.apply(document);</script>
 
 <script src="src/noise.js"></script>
+<script src="src/seed.js"></script>
 <script src="src/biome.js"></script>
 <script src="src/grid.js"></script>
 <script src="src/generate.js"></script>

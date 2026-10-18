@@ -164,12 +164,74 @@
     }
   }
 
+  // The seed is the whole map (Uğur 2026-10-19): one code (src/seed.js) that
+  // carries the random base AND every generation setting. `seedBase` is the
+  // random half; the settings live in the controls and are folded into the
+  // code whenever one moves, so the #seed field always shows the code of what
+  // is on screen. Typing or pasting a code loads its settings into the
+  // controls and generates. The map is a pure function of the code.
+  var DEFAULT_BASE = 1337;
+  var seedBase = DEFAULT_BASE;
+
+  function currentSettings() {
+    var s = {};
+    SM.Seed.FIELDS.forEach(function (f) { s[f.id] = parseFloat($(f.id).value); });
+    return s;
+  }
+
+  function currentSeedCode() { return SM.Seed.encode(seedBase, currentSettings()); }
+
+  function hideSeedError() {
+    $('seedMsg').hidden = true;
+    $('seedMsg').textContent = '';
+    $('seed').removeAttribute('aria-invalid');
+  }
+
+  var seedErrorKey = '';
+  function showSeedError(code) {
+    seedErrorKey = 'seed.err.' + code;
+    $('seedMsg').textContent = T(seedErrorKey);
+    $('seedMsg').hidden = false;
+    $('seed').setAttribute('aria-invalid', 'true');
+  }
+
+  // Put the code of the current base + settings in the field.
+  function syncSeedField() {
+    seedErrorKey = '';
+    hideSeedError();
+    $('seed').value = currentSeedCode();
+  }
+
+  // Write decoded settings into the controls (sliders, labels, world type).
+  function writeSettings(values) {
+    SM.Seed.FIELDS.forEach(function (f) {
+      var input = $(f.id);
+      input.value = values[f.id];
+      paintRange(input);
+      if (SLIDERS[f.id]) $(SLIDERS[f.id].label).textContent = SLIDERS[f.id].fmt(input.value);
+    });
+    $('worldType').value = matchWorldType();
+  }
+
+  // Typed or pasted code: valid -> controls jump to its settings and the map
+  // is generated; invalid -> a message, nothing else changes.
+  function applySeedText(text) {
+    var d = SM.Seed.decode(text);
+    if (!d.ok) { showSeedError(d.error); return false; }
+    seedBase = d.base;
+    writeSettings(d.settings);
+    syncSeedField();
+    regenerate();
+    return true;
+  }
+
   function readConfig() {
     var size = parseInt($('size').value, 10);
     return {
       width: size,
       height: size,
-      seed: parseInt($('seed').value, 10) || 0,
+      seed: seedBase,
+      seedCode: currentSeedCode(),
       seaLevel: parseFloat($('sea').value),
       ruggedness: parseFloat($('rugged').value),
       warp: parseFloat($('warp').value),
@@ -248,7 +310,8 @@
   // keyboard one; the key stays the base one so a language switch re-reads it.
   var coarseMq = window.matchMedia ? window.matchMedia('(hover: none) and (pointer: coarse)') : null;
   function hintKeyFor(key) {
-    return coarseMq && coarseMq.matches && (key === 'hint.top' || key === 'hint.iso') ? key + '.touch' : key;
+    if (!(coarseMq && coarseMq.matches && (key === 'hint.top' || key === 'hint.iso'))) return key;
+    return key + '.touch' + (touchPan ? '.pan' : '');
   }
   function setIsoHint(key) {
     isoHintKey = key;
@@ -1541,9 +1604,13 @@
   // `mscale` (Moisture scale) was removed from the panel 2026-09-23 -- the
   // weakest slider (20-25% of tiles) with a jargon name; old links carrying it
   // are simply ignored and the generator keeps its default.
-  var QS_KEYS = ['seed', 'size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
+  // Read: every key an old link may carry. Written (shareLink): the seed code
+  // already holds the generation settings and the season, so only the code and
+  // the two view settings that are not part of it.
+  var QS_KEYS = ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves',
     'island', 'tbias', 'mbias', 'rivers', 'isoexag', 'sun', 'season', 'yaw',
     'pitch', 'zoom'];
+  var QS_SHARE = ['isoexag', 'sun'];
 
   function applyQueryValue(input, value) {
     var min;
@@ -1572,6 +1639,18 @@
     QS_KEYS.forEach(function (id) {
       if (q.has(id) && $(id)) applyQueryValue($(id), q.get(id));
     });
+    // A seed code decides base and settings together. A bare number is an
+    // old link: its own size/sea/... keys (read above) are its settings.
+    var seedParam = q.get('seed'), seedBad = '';
+    if (seedParam !== null) {
+      var dec = SM.Seed.decode(seedParam);
+      if (dec.ok) { seedBase = dec.base; writeSettings(dec.settings); }
+      else if (/^\d{1,10}$/.test(seedParam.trim())) seedBase = parseInt(seedParam, 10) >>> 0;
+      else seedBad = dec.error;
+    }
+    $('worldType').value = matchWorldType();
+    syncSeedField();
+    if (seedBad) showSeedError(seedBad);
     if (q.has('yaw') && q.has('pitch') && q.has('zoom')) {
       voxelCameraQuery = {
         yaw: SM.VoxelCamera.wrapYaw(q.get('yaw')),
@@ -1590,7 +1669,8 @@
 
   function shareLink() {
     var q = new URLSearchParams();
-    QS_KEYS.forEach(function (id) {
+    q.set('seed', currentSeedCode());
+    QS_SHARE.forEach(function (id) {
       if ($(id)) q.set(id, $(id).value);
     });
     q.set('view', view);
@@ -1648,7 +1728,7 @@
       var zip = SM.Export.buildUnityBundle(grid, { albedo: pngs[0], biome: pngs[1] });
       var url = URL.createObjectURL(new Blob([zip], { type: 'application/zip' }));
       var a = document.createElement('a');
-      a.download = 'cartula-' + (grid.config ? grid.config.seed : 'map') + '-unity.zip';
+      a.download = 'cartula-' + (grid.config ? (grid.config.seedCode || grid.config.seed) : 'map') + '-unity.zip';
       a.href = url;
       a.click();
       setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
@@ -1684,7 +1764,7 @@
       if (fx.width) octx.drawImage(fx, 0, 0);
     }
     var a = document.createElement('a');
-    a.download = 'cartula-' + view + '-' + $('seed').value + '.png';
+    a.download = 'cartula-' + view + '-' + currentSeedCode() + '.png';
     a.href = out.toDataURL('image/png');
     a.click();
   }
@@ -1714,6 +1794,7 @@
       paintRange(input);
       $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value);
     });
+    syncSeedField();
     regenerate();
   }
 
@@ -1726,6 +1807,9 @@
   $('worldType').addEventListener('change', function () {
     if (this.value !== 'custom') applyWorldType(this.value);
   });
+  // The seed field follows every setting live, while a slider is still being
+  // dragged (the season too: it is part of the code, though not of the map).
+  SM.Seed.FIELDS.forEach(function (f) { $(f.id).addEventListener('input', syncSeedField); });
   ['size', 'sea', 'rugged', 'warp', 'escale', 'octaves', 'island', 'tbias', 'mbias', 'rivers']
     .forEach(function (id) {
       $(id).addEventListener('change', function () {
@@ -1778,7 +1862,8 @@
   }
 
   function regenMap() {
-    $('seed').value = Math.floor(Math.random() * 1e6);
+    seedBase = SM.Seed.randomBase();
+    syncSeedField();
     regenerate();
     spin('regenMap');
   }
@@ -1812,13 +1897,30 @@
 
   function randomMap() {
     randomSettings();
-    $('seed').value = Math.floor(Math.random() * 1e6);
+    seedBase = SM.Seed.randomBase();
+    syncSeedField();
     regenerate();
     spin('randomMap');
   }
   $('regenMap').addEventListener('click', regenMap);
   $('randomMap').addEventListener('click', randomMap);
-  $('seed').addEventListener('change', regenerate);
+  // Seed field: Enter, leaving the field or a paste applies the code. An
+  // unchanged code (the field is already what is on screen) does nothing.
+  function commitSeedField() {
+    var text = $('seed').value;
+    if (SM.Seed.normalize(text) === currentSeedCode()) { syncSeedField(); return; }
+    applySeedText(text);
+  }
+  $('seed').addEventListener('change', commitSeedField);
+  $('seed').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); commitSeedField(); }
+  });
+  $('seed').addEventListener('paste', function () { setTimeout(commitSeedField, 0); });
+  $('seed').addEventListener('input', function (ev) {
+    // Typing clears a stale message; the slider listener above also fires
+    // syncSeedField for slider input, so only react to the field's own input.
+    if (ev.target === $('seed') && $('seedMsg').hidden === false) hideSeedError();
+  });
   $('showGrid').addEventListener('change', function () {
     if (view === 'top') refresh(false);
   });
@@ -2114,8 +2216,7 @@
   window.addEventListener('keydown', function (ev) {
     var target = ev.target;
     var tn = target && target.tagName;
-    // Only text-editable fields swallow keys (seed's type=number legitimately
-    // accepts "e" for scientific notation). A focused range slider (rotSlider
+    // Only text-editable fields swallow keys (the seed field is text). A focused range slider (rotSlider
     // included) or select/checkbox has no letter-key behaviour of its own, so
     // it used to block Q/E globally just by holding focus -- clicking anything
     // in the panel silently killed the rotate shortcut. Bug found 2026-09-03.
@@ -2156,6 +2257,20 @@
   window.addEventListener('blur', function () { setSpaceHeld(false); });
   stage.addEventListener('wheel', onWheel, { passive: false });
 
+  // Pan toggle (touch screens only, style.css): on = one finger pans the map,
+  // pinch zoom off; off = the view's own one-finger drag and the pinch zoom.
+  function syncPanToggle() {
+    var b = $('panToggle');
+    b.setAttribute('aria-pressed', touchPan ? 'true' : 'false');
+    b.title = T(touchPan ? 'pan.title.on' : 'pan.title.off');
+    b.setAttribute('aria-label', T(touchPan ? 'pan.title.on' : 'pan.title.off'));
+    $('isohint').textContent = T(hintKeyFor(isoHintKey));
+  }
+  $('panToggle').addEventListener('click', function () {
+    touchPan = !touchPan;
+    syncPanToggle();
+  });
+
   // --- touch (Uğur 2026-10-05: "mobilde zoom kötü çalışıyor") ---
   // Until then the map had mouse handlers only: on a phone a one-finger drag
   // did nothing and a pinch zoomed the whole page, panel included. Now, with
@@ -2164,8 +2279,7 @@
   // page zoom, for accessibility):
   //   one finger  = the mouse drag of that view (orbit in isometric; pan, or
   //                 the selected brush, in top-down)
-  //   two fingers = pan + pinch zoom about the fingers (SM.Touch, src/touch.js;
-  //                 restored 2026-10-19, last paragraph below)
+  //   two fingers = pan + pinch zoom about the fingers (SM.Touch, src/touch.js)
   // A second finger ends the one-finger drag where it is (a brush stroke
   // younger than 300 ms is taken back: it was the start of a pinch). When one
   // finger of a pinch lifts, the other keeps panning from where it is; it
@@ -2199,12 +2313,15 @@
   // finger of a pinch lifts, the others do nothing until every finger is up
   // (mode 'dead'): no stray pan or orbit at the end of a pinch.
   //
-  // Uğur 2026-10-19 (real phone): "iki parmak pan çalışmıyor sadece zoom".
-  // Two fingers pan again, in both views, together with the zoom: the
-  // midpoint's move pans, the spread ratio zooms about the midpoint, no
-  // pan-lock or dead zone (the 2026-10-13 pan-first/pinch-lock is not back).
-  // The 'dead' mode after a lifted finger stays.
-  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false };
+  // Uğur 2026-10-19 (real phone): the two-finger pan did not work well ("pan
+  // düzgün çalışmıyor"), so pan is a button instead (#panToggle, touch
+  // screens only): off, a map gesture is what it was before pan existed (one
+  // finger = the view's own drag, two fingers = zoom only, as above); on, one
+  // finger drags the map in both views and a second finger does nothing, so
+  // zoom is off until the button is pressed again. The two-finger midpoint
+  // pan of 932ddbc is gone.
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false, anchor: null };
+  var touchPan = false;
   var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
 
   function stageXY(ev) {
@@ -2212,7 +2329,8 @@
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   }
   function mouseLike(ev) {
-    return { clientX: ev.clientX, clientY: ev.clientY, button: 0, shiftKey: false, preventDefault: function () {} };
+    // Pan on: the one-finger drag is the view's pan (shift+drag in isometric).
+    return { clientX: ev.clientX, clientY: ev.clientY, button: 0, shiftKey: touchPan, preventDefault: function () {} };
   }
   function touchFrame() {
     return SM.Touch.frame(touch.pts[touch.order[0]], touch.pts[touch.order[1]]);
@@ -2282,9 +2400,12 @@
     }
     if (touch.mode === 'one') endOneFinger();
     if (touch.mode === 'dead') return; // after a pinch: nothing until all fingers are up
+    if (touchPan) { touch.mode = 'dead'; touch.start = null; return; } // pan on: zoom is off
+    var wasTwo = touch.mode === 'two'; // a third finger rides along
     touch.mode = 'two';
     touch.start = null;
     touch.frame = touchFrame();
+    if (!wasTwo) touch.anchor = { x: touch.frame.x, y: touch.frame.y };
   });
   stage.addEventListener('pointermove', function (ev) {
     if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
@@ -2300,10 +2421,10 @@
       onMove(mouseLike(ev));
     } else if (touch.mode === 'two') {
       if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
-      // Pan by the midpoint's move and zoom by the spread ratio, about the
-      // midpoint: the map point under the fingers stays under them.
-      var f = touchFrame();
-      touchNavigate(touch.frame, f);
+      // Zoom only, about the fixed anchor: same point before and after, so
+      // the pinch math moves nothing but the scale.
+      var f = touchFrame(), a = touch.anchor;
+      touchNavigate({ x: a.x, y: a.y, d: touch.frame.d }, { x: a.x, y: a.y, d: f.d });
       touch.frame = f;
     }
   });
@@ -2319,7 +2440,7 @@
       if (!cancelled && s && !s.moved && performance.now() - s.t < TOUCH_TAP_MS &&
           view === 'top' && $('editTool').value === 'pan') onHover(mouseLike(ev));
     } else if (touch.mode === 'two' && touch.order.length >= 2) {
-      touch.frame = touchFrame(); // another pair: re-base so nothing jumps
+      touch.frame = touchFrame(); // another pair: the ratio measures from it, same anchor
     } else {
       touch.mode = touch.order.length ? 'dead' : null;
     }
@@ -2373,13 +2494,16 @@
     });
     hoverEl.hidden = true;
     syncPanelToggle();
+    syncPanToggle();
     if (perf.on) paintPerf();
+    if (seedErrorKey) $('seedMsg').textContent = T(seedErrorKey);
   }
   SM.I18N.onChange(refreshLangText);
 
   hoverEl.hidden = true;
   setIsoHint(isoHintKey);
   $('pipelineToggle').textContent = T('pipeline.enter');
+  syncPanToggle();
   applyQueryString();
   Object.keys(SLIDERS).forEach(function (id) {
     var input = $(id);
