@@ -46,7 +46,7 @@
       var len = 14 + (rnd() * 12 | 0);
       for (var s = 0; s < len; s++) {
         ang += (rnd() - 0.5) * 0.55;
-        var nx2 = px + Math.cos(ang) * 0.09, ny2 = py + Math.sin(ang) * 0.09;
+        var nx2 = px + SM.dmath.cos(ang) * 0.09, ny2 = py + SM.dmath.sin(ang) * 0.09;
         segs.push([px, py, nx2, ny2]);
         px = nx2; py = ny2;
       }
@@ -147,7 +147,7 @@
     // fold mountain ranges along the fault lines, textured by the ridged noise
     if (rfield) {
       var rb = ridgeAt(rfield, wx, wy);
-      if (rb > 0) e += Math.pow(rb, 1.5) * RIDGE_H * (0.55 + 0.45 * ridge);
+      if (rb > 0) e += SM.dmath.pow(rb, 1.5) * RIDGE_H * (0.55 + 0.45 * ridge);
     }
 
     // Island shape: sink the terrain with distance from the centre so land
@@ -365,7 +365,7 @@
     // --- 5b: rain shadow + orographic — march upwind; mountains block rain on
     // their lee side, windward slopes get extra. Prevailing wind is seeded. ---
     var wr = SM.mulberry32((cfg.seed ^ 0x632be59b) >>> 0)();
-    var wdx = Math.cos(wr * 6.2832), wdy = Math.sin(wr * 6.2832);
+    var wdx = SM.dmath.cos(wr * 6.2832), wdy = SM.dmath.sin(wr * 6.2832);
     var MARCH = 20;
     for (y = 0; y < h; y++) {
       for (x = 0; x < w; x++) {
@@ -680,7 +680,7 @@
         var vri = vny0 * w + vnx0;
         if (grid.water[vri]) continue;
         var vt = vdist / vRad;                       // 0 centre .. 1 base
-        e[vri] = Math.max(e[vri], rimE - Math.pow(vt, 0.8) * coneDrop);
+        e[vri] = Math.max(e[vri], rimE - SM.dmath.pow(vt, 0.8) * coneDrop);
         grid.biome[vri] = B.volcanic;
         if (vdist <= craterRad) {
           // crater floor sits ~1.5 voxel steps below the rim — lava pooled in
@@ -1198,7 +1198,7 @@
   // at the bin's centre). Level 1 sits just above the sea.
   function elevationForLevel(T, seaThresh, landSpan, levels) {
     if (T <= 1) return seaThresh + 0.004;
-    return seaThresh + landSpan * Math.pow((T - 1) / levels, 1 / 0.82);
+    return seaThresh + landSpan * SM.dmath.pow((T - 1) / levels, 1 / 0.82);
   }
 
   /* River bed grading (tarama 2026-09-22 #2, hibrit karar). On the raw terrain
@@ -1648,7 +1648,7 @@
         var branchCount = 2 + (rnd() < 0.35 ? 1 : 0);
         for (var br = 0; br < branchCount; br++) {
           var ba = branchCount === 2 ? (br ? 0.52 : -0.52) : (br - 1) * 0.52;
-          var bcos = Math.cos(ba), bsin = Math.sin(ba);
+          var bcos = SM.dmath.cos(ba), bsin = SM.dmath.sin(ba);
           var bdx = bvx * bcos - bvy * bsin, bdy = bvx * bsin + bvy * bcos;
           var bx = sx, by = sy, branchLen = 6 + (rnd() * 5 | 0);
           for (var bs = 0; bs < branchLen; bs++) {

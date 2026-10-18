@@ -10,6 +10,7 @@
  *   node tools/headless.js --sky        # cloud drift, cloud shadow, flock (M4)
  *   node tools/headless.js --shaders    # GLSL cross-stage declaration lint
  *   node tools/headless.js --falls      # voxel waterfall face tagging/rendering
+ *   node tools/headless.js --seed       # seed = whole map: code round trip, determinism
  *   node tools/headless.js --worldtypes # world type preset validity + effect
  *   node tools/headless.js --i18n       # UI language: tr/en key parity, index.html hooks
  *   node tools/headless.js --perf       # perf panel: stats math, GL counter, no uncounted draws
@@ -32,7 +33,7 @@ const win = {};
 global.window = win;
 global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
-for (const f of ['noise.js', 'grid.js', 'biome.js', 'generate.js',
+for (const f of ['noise.js', 'seed.js', 'grid.js', 'biome.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js', 'render/season.js',
                  'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
@@ -3350,7 +3351,7 @@ function runLayoutChecks() {
     push('setPanel writes aria-expanded and a TR/EN aria-label (panel.open / panel.close in both languages), again on a language switch',
       /setAttribute\('aria-expanded'/.test(main) && /T\(open \? 'panel\.close' : 'panel\.open'\)/.test(main) &&
       !!(en['panel.open'] && en['panel.close'] && tr['panel.open'] && tr['panel.close']) &&
-      /syncPanelToggle\(\);\s*if \(perf\.on\) paintPerf\(\);/.test(main), '');
+      /syncPanelToggle\(\);\s*syncPanToggle\(\);\s*if \(perf\.on\) paintPerf\(\);/.test(main), '');
   }
   // 2) First state before paint: saved choice (try/catch), else collapsed on a phone.
   {
@@ -3462,9 +3463,9 @@ function runLayoutChecks() {
       /ev\.target !== stage && ev\.target !== map && ev\.target !== glCanvas/.test(main) &&
       /ev\.preventDefault\(\); \/\/ no compatibility mouse events/.test(main) &&
       /stage\.addEventListener\('pointercancel'/.test(main) && /'gesturestart'/.test(main), '');
-    push('a second finger ends the one-finger drag and starts a pan + zoom pinch about the midpoint; a lifted finger leaves the others doing nothing until all are up',
-      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*if \(touch\.mode === 'dead'\) return;[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);/.test(main) &&
-      /touchNavigate\(touch\.frame, f\);/.test(main) &&
+    push('a second finger ends the one-finger drag and starts a zoom-only pinch about a fixed anchor; a lifted finger leaves the others doing nothing until all are up',
+      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*if \(touch\.mode === 'dead'\) return;[^\n]*\s*if \(touchPan\) \{ touch\.mode = 'dead'; touch\.start = null; return; \}[^\n]*\s*var wasTwo = touch\.mode === 'two';[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);\s*if \(!wasTwo\) touch\.anchor = \{ x: touch\.frame\.x, y: touch\.frame\.y \};/.test(main) &&
+      /touchNavigate\(\{ x: a\.x, y: a\.y, d: touch\.frame\.d \}, \{ x: a\.x, y: a\.y, d: f\.d \}\);/.test(main) &&
       /touch\.mode = touch\.order\.length \? 'dead' : null;/.test(main) &&
       /if \(touch\.mode === 'dead'\) return;/.test(main), '');
     // Real phone, 2026-10-13: the first finger of a pinch drifted into an
@@ -3482,6 +3483,26 @@ function runLayoutChecks() {
     push('src/touch.js loads before main.js; touch hints exist in both languages',
       /<script src="src\/touch\.js"><\/script>[\s\S]*<script src="src\/main\.js"><\/script>/.test(html2) &&
       !!(en['hint.top.touch'] && tr['hint.top.touch'] && en['hint.iso.touch'] && tr['hint.iso.touch']), '');
+    // Pan toggle (Uğur 2026-10-19): a button on touch screens only; on = one
+    // finger pans in both views and the pinch is off; off = as before pan existed.
+    {
+      const css3 = fs.readFileSync(path.join(repo, 'css', 'style.css'), 'utf8');
+      const btn = html2.match(/<button\b[^>]*\bid="panToggle"[^>]*>/);
+      push('#panToggle is a <button type="button" aria-pressed> in the stage, label hooked for TR/EN',
+        !!btn && /type="button"/.test(btn[0]) && /aria-pressed="false"/.test(btn[0]) &&
+        /id="panToggle"[\s\S]*?data-i18n="pan\.label"/.test(html2), btn ? btn[0] : 'missing');
+      push('#panToggle is hidden by default and shown only for coarse pointers (never a desktop mouse)',
+        /#panToggle \{[^}]*display: none;/.test(css3) && /@media \(any-pointer: coarse\) \{\s*#panToggle \{ display: flex; \}/.test(css3), '');
+      push('#panToggle uses chip and accent variables only, no new colour',
+        !/#panToggle[^{]*\{[^}]*(#[0-9a-fA-F]{3,8}\b|rgba?\()/.test(css3), '');
+      push('pan on: one finger drags with shift (isometric pan), a second finger does nothing; pan off: zoom-only pinch as before',
+        /shiftKey: touchPan/.test(main) && /if \(touchPan\) \{ touch\.mode = 'dead'/.test(main) &&
+        /var touchPan = false;/.test(main) && /touchNavigate\(\{ x: a\.x, y: a\.y, d: touch\.frame\.d \}/.test(main), '');
+      push('pan strings and the two pan hints exist in both languages',
+        ['pan.label', 'pan.title.on', 'pan.title.off', 'hint.top.touch.pan', 'hint.iso.touch.pan'].every(k => !!en[k] && !!tr[k]), '');
+      push('syncPanToggle writes aria-pressed, title and aria-label from the dictionary, again on a language switch',
+        /function syncPanToggle\(\) \{[\s\S]*?setAttribute\('aria-pressed'[\s\S]*?T\(touchPan \? 'pan\.title\.on' : 'pan\.title\.off'\)/.test(main), '');
+    }
 
     // The math, run. Seeded so a failure is reproducible.
     let seed = 7;
@@ -3799,6 +3820,8 @@ if (process.argv[2] === '--layout') {
   runPerfChecks();
 } else if (process.argv[2] === '--night') {
   runNightChecks();
+} else if (process.argv[2] === '--seed') {
+  runSeedChecks();
 } else if (process.argv[2] === '--worldtypes') {
   runWorldTypesChecks();
 } else if (process.argv[2] === '--i18n') {
@@ -3850,4 +3873,231 @@ if (process.argv[2] === '--layout') {
   const r = run(seed, size, sea);
   delete r.grid;
   console.log(JSON.stringify(r, null, 2));
+}
+
+// ---------------------------------------------------------------------------
+// --seed: the seed is the whole map (Uğur 2026-10-19). A code carries the
+// random base and every generation setting; the map is a pure function of it.
+// ---------------------------------------------------------------------------
+function gridFingerprint(grid) {
+  // FNV-1a over every typed array (bytes) and the JSON of everything else.
+  let h = 0x811c9dc5;
+  const eat = (b) => { h = Math.imul(h ^ b, 0x01000193) >>> 0; };
+  for (const k of Object.keys(grid).sort()) {
+    const v = grid[k];
+    if (typeof v === 'function') continue;
+    for (let i = 0; i < k.length; i++) eat(k.charCodeAt(i));
+    if (ArrayBuffer.isView(v)) {
+      const u8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+      for (let i = 0; i < u8.length; i++) eat(u8[i]);
+    } else {
+      const s = JSON.stringify(v) || '';
+      for (let i = 0; i < s.length; i++) eat(s.charCodeAt(i));
+    }
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+// Same shape main.js readConfig builds from the controls.
+function cfgFromSeed(base, st) {
+  return {
+    width: st.size, height: st.size, seed: base >>> 0,
+    seaLevel: st.sea, ruggedness: st.rugged, warp: st.warp, elevationScale: st.escale,
+    octaves: st.octaves, islandFalloff: st.island, temperatureBias: st.tbias,
+    moistureBias: st.mbias, rivers: st.rivers
+  };
+}
+
+function runSeedChecks() {
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const Seed = SM.Seed;
+  if (process.argv[3] === '--fp') { // one code's fingerprint, to compare across engines/machines
+    const d = Seed.decode(process.argv[4]);
+    console.log(d.ok ? process.argv[4] + ' ' + gridFingerprint(SM.generate(cfgFromSeed(d.base, d.settings))) : 'invalid: ' + d.error);
+    return;
+  }
+  const html = fs.readFileSync(path.join(root, '..', 'index.html'), 'utf8');
+  const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8').replace(/\r\n/g, '\n');
+  const exportJs = fs.readFileSync(path.join(root, 'export.js'), 'utf8');
+  const sliders = parseRangeInputs(html);
+
+  // A tiny deterministic RNG for the test inputs themselves.
+  let ts = 12345;
+  const trnd = () => { ts = (Math.imul(ts, 1664525) + 1013904223) >>> 0; return ts / 4294967296; };
+  const randomSettings = () => {
+    const st = {};
+    for (const f of Seed.FIELDS) st[f.id] = +(f.min + Math.floor(trnd() * (Seed.MAX[f.id] + 1)) * f.step).toFixed(2) + 0;
+    return st;
+  };
+
+  // 1) The field table is the sliders: min, step, last reachable index.
+  {
+    const bad = [];
+    for (const f of Seed.FIELDS) {
+      const s = sliders[f.id];
+      if (!s) { bad.push(`${f.id}: no range input`); continue; }
+      const last = Math.round((s.max - s.min) / s.step);
+      if (Math.abs(s.min - f.min) > 1e-9 || Math.abs(s.step - f.step) > 1e-9) bad.push(`${f.id}: min/step differ`);
+      if (last !== Seed.MAX[f.id]) bad.push(`${f.id}: max index ${last} vs ${Seed.MAX[f.id]}`);
+      if (Seed.MAX[f.id] >= (1 << f.bits)) bad.push(`${f.id}: ${f.bits} bits too few`);
+    }
+    push('seed field table matches every slider in index.html (min, step, max, bit width)', bad.length === 0, bad.join('; '));
+  }
+
+  // 2) Round trip: settings -> code -> settings is exact, for random and extreme values.
+  {
+    let bad = 0, n = 0, shape = true;
+    const cases = [];
+    for (let i = 0; i < 3000; i++) cases.push([(trnd() * 4294967296) >>> 0, randomSettings()]);
+    const lo = {}, hi = {};
+    for (const f of Seed.FIELDS) { lo[f.id] = f.min; hi[f.id] = +(f.min + Seed.MAX[f.id] * f.step).toFixed(2); }
+    cases.push([0, lo], [4294967295, hi], [1337, lo]);
+    for (const [base, st] of cases) {
+      const code = Seed.encode(base, st);
+      const d = Seed.decode(code);
+      n++;
+      if (!/^1(-[0-9a-hjkmnp-tv-z]{4}){5}$/.test(code)) shape = false;
+      if (!d.ok || d.base !== base || Seed.FIELDS.some(f => d.settings[f.id] !== st[f.id])) bad++;
+      else if (Seed.encode(d.base, d.settings) !== code) bad++;
+    }
+    push(`settings -> seed -> settings is exact (${n} codes incl. both extremes)`, bad === 0, `${bad} mismatches`);
+    push('a seed is "1-" + five groups of four characters, no i/l/o/u', shape, '');
+  }
+
+  // 3) Spelling: case, dashes, spaces and the look-alikes o/l/u decode to the same code.
+  {
+    const st = randomSettings(), code = Seed.encode(777, st);
+    const variants = [code.toUpperCase(), code.replace(/-/g, ''), '  ' + code.replace(/-/g, ' ') + ' ',
+      code.replace(/0/g, 'o').replace(/1/g, 'l').replace(/v/g, 'u')];
+    const bad = variants.filter(v => Seed.normalize(v) !== code);
+    push('upper case, no dashes, spaces and o/l/u for 0/1/v all read as the same seed', bad.length === 0, bad.join(' | '));
+  }
+
+  // 4) Invalid input names its reason instead of generating something.
+  {
+    const code = Seed.encode(4242, randomSettings());
+    const swap = (s, i) => s.slice(0, i) + (s[i] === '2' ? '3' : '2') + s.slice(i + 1);
+    const cases = [['', 'empty'], ['   ', 'empty'], ['1-!!!!', 'chars'], ['1-ab', 'length'],
+      ['1337', 'old'], ['90210', 'old'], ['2' + code.slice(1), 'version'], [swap(code, 8), 'checksum'],
+      [code.slice(0, -1), 'length'], [code + 'a', 'length']];
+    const bad = [];
+    for (const [text, want] of cases) {
+      const d = Seed.decode(text);
+      if (d.ok || d.error !== want) bad.push(`'${text}' -> ${d.ok ? 'accepted' : d.error}, wanted ${want}`);
+    }
+    push('invalid seeds are refused with their reason (empty, chars, length, old, version, checksum)', bad.length === 0, bad.join('; '));
+    // A single changed character is caught by the 14-bit check (or the range test).
+    let missed = 0, tried = 0;
+    const chars = '0123456789abcdefghjkmnpqrstvwxyz';
+    const positions = [2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25];
+    for (let c = 0; c < 300; c++) {
+      const base = (trnd() * 4294967296) >>> 0, cd = Seed.encode(base, randomSettings());
+      const pos = positions[Math.floor(trnd() * positions.length)];
+      const other = chars[(chars.indexOf(cd[pos]) + 1 + Math.floor(trnd() * 31)) % 32];
+      tried++;
+      if (Seed.decode(cd.slice(0, pos) + other + cd.slice(pos + 1)).ok) missed++;
+    }
+    push(`a single mistyped character is (almost) never accepted: ${missed} of ${tried} slipped through`, missed <= 1, '');
+  }
+
+  // 5) Every world type preset round-trips and has its own code.
+  {
+    const WT = SM.WorldTypes, bad = [], seen = new Set();
+    const defaults = {};
+    for (const f of Seed.FIELDS) defaults[f.id] = parseFloat(new RegExp('id="' + f.id + '"[^>]*value="([^"]+)"').exec(html)[1]);
+    const sets = Object.keys(WT.TYPES).map(t => Object.assign({}, defaults, WT.values(t)));
+    for (const st of sets) {
+      const d = Seed.decode(Seed.encode(1337, st));
+      if (!d.ok || Seed.FIELDS.some(f => Math.abs(d.settings[f.id] - st[f.id]) > 1e-9)) bad.push(JSON.stringify(st));
+      seen.add(Seed.encode(1337, st));
+    }
+    push('every world type preset round-trips through a seed, and each has its own code',
+      bad.length === 0 && seen.size === sets.length, bad.join('; '));
+  }
+
+  // 6) Determinism: the map is a pure function of the code.
+  {
+    const cases = [];
+    for (let i = 0; i < 6; i++) { const st = randomSettings(); st.size = 128 + 32 * (i % 3); cases.push([(trnd() * 4294967296) >>> 0, st]); }
+    const st0 = randomSettings(); st0.size = 160; cases.push([1337, st0]);
+    const twice = [], afterOther = [], viaCode = [], prints = [];
+    for (const [base, st] of cases) {
+      const code = Seed.encode(base, st), d = Seed.decode(code);
+      const a = gridFingerprint(SM.generate(cfgFromSeed(base, st)));
+      const b = gridFingerprint(SM.generate(cfgFromSeed(base, st)));
+      SM.generate(cfgFromSeed((base ^ 0x5a5a5a5a) >>> 0, randomSettings())); // another map in between: no carried state
+      const c = gridFingerprint(SM.generate(cfgFromSeed(base, st)));
+      const e = gridFingerprint(SM.generate(cfgFromSeed(d.base, d.settings)));
+      if (a !== b) twice.push(code);
+      if (a !== c) afterOther.push(code);
+      if (a !== e) viaCode.push(code);
+      prints.push(code + ' ' + a);
+    }
+    push(`same seed twice gives an identical grid (${cases.length} seeds)`, twice.length === 0, twice.join(' '));
+    push('same seed after another map was generated in between gives the same grid', afterOther.length === 0, afterOther.join(' '));
+    push('settings -> seed -> parse -> generate equals generating from the settings directly', viaCode.length === 0, viaCode.join(' '));
+    push('different settings with the same random base give a different map',
+      gridFingerprint(SM.generate(cfgFromSeed(99, Object.assign({}, cases[0][1], { sea: 0.3 })))) !==
+      gridFingerprint(SM.generate(cfgFromSeed(99, Object.assign({}, cases[0][1], { sea: 0.5 })))), '');
+    push('different random base with the same settings give a different map',
+      gridFingerprint(SM.generate(cfgFromSeed(98, cases[0][1]))) !== gridFingerprint(SM.generate(cfgFromSeed(99, cases[0][1]))), '');
+    if (process.argv[3] === '--print') for (const p of prints) console.log('  fingerprint ' + p);
+  }
+
+  // 7) Nothing on the generation path may be non-deterministic or engine-specific.
+  {
+    const bad = [];
+    for (const f of ['generate.js', 'grid.js', 'noise.js']) {
+      const src = fs.readFileSync(path.join(root, f), 'utf8').split('\n')
+        .map(l => l.replace(/\/\/.*$/, '')).join('\n'); // comments may name the banned calls
+      const banned = [/Math\.random/, /Date\.(now|UTC)|new Date/, /performance\.now/,
+        /Math\.(sin|cos|tan|pow|exp|log|atan|atan2|asin|acos|hypot|cbrt|sinh|cosh|tanh)\(/, /\*\*/, /for\s*\([^)]*\sin\s/];
+      for (const re of banned) {
+        const m = re.exec(src);
+        if (m) bad.push(`${f}: ${m[0]}`);
+      }
+    }
+    push('generate.js, grid.js, noise.js: no Math.random/Date/performance, no engine-specific Math.sin/cos/pow/exp/log, no **, no for-in',
+      bad.length === 0, bad.join('; '));
+    const d = SM.dmath;
+    let worst = 0;
+    for (let i = 0; i < 4000; i++) {
+      const x = (trnd() - 0.5) * 60, y = trnd() + 0.01;
+      worst = Math.max(worst, Math.abs(d.sin(x) - Math.sin(x)), Math.abs(d.cos(x) - Math.cos(x)),
+        Math.abs(d.pow(y, 0.82) - Math.pow(y, 0.82)), Math.abs(d.pow(y, 1.5) - Math.pow(y, 1.5)));
+    }
+    push(`SM.dmath sin/cos/pow agree with the engine to 1e-12 (worst ${worst.toExponential(1)})`, worst < 1e-12, '');
+  }
+
+  // 8) Wiring: the field, the buttons, links and exports all speak the code.
+  {
+    push('#seed is a text field (not a number input) with a status line for errors',
+      /<input\b[^>]*type="text"[^>]*id="seed"/.test(html) && /id="seedMsg"[^>]*role="status"/.test(html), '');
+    push('src/seed.js loads before main.js in index.html', html.indexOf('src/seed.js') > 0 && html.indexOf('src/seed.js') < html.indexOf('<script src="src/main.js">'), '');
+    push('Regenerate and Random draw a new base (SM.Seed.randomBase) and refresh the field; no 1e6 numeric seed left',
+      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 2 &&
+      !/Math\.random\(\) \* 1e6/.test(mainJs), '');
+    push('every generation slider and the season keep the field in step on input; world type too',
+      /SM\.Seed\.FIELDS\.forEach\(function \(f\) \{ \$\(f\.id\)\.addEventListener\('input', syncSeedField\)/.test(mainJs) &&
+      /syncSeedField\(\);\n\s*regenerate\(\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
+    push('typing, Enter or pasting a code applies it (settings into controls, then generate); invalid shows a message',
+      /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(\)/.test(mainJs) &&
+      /addEventListener\('paste'/.test(mainJs) && /ev\.key === 'Enter'/.test(mainJs), '');
+    push('readConfig takes the base from seedBase and carries the code (grid.config.seedCode)',
+      /seed: seedBase,\n\s*seedCode: currentSeedCode\(\)/.test(mainJs), '');
+    push('share link carries the code (not the individual settings); an old numeric link still opens',
+      /q\.set\('seed', currentSeedCode\(\)\)/.test(mainJs) && /QS_SHARE/.test(mainJs) && /\\d\{1,10\}/.test(mainJs), '');
+    push('map.json export carries the code and the base',
+      /seed: cfg\.seedCode \|\| cfg\.seed/.test(exportJs) && /seedBase: cfg\.seed/.test(exportJs), '');
+    const src = fs.readFileSync(path.join(root, 'i18n.js'), 'utf8');
+    const keys = ['seed.title', 'seed.err.empty', 'seed.err.chars', 'seed.err.length', 'seed.err.version',
+      'seed.err.checksum', 'seed.err.range', 'seed.err.old'];
+    push('every seed message exists in both languages (EN and TR)',
+      keys.every(k => (src.match(new RegExp("'" + k.replace(/\./g, '\\.') + "':", 'g')) || []).length === 2), '');
+  }
+
+  console.log('seed checks (the seed is the whole map):');
+  for (const [name, ok, detail] of results) console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}${ok || !detail ? '' : '  -> ' + detail}`);
+  if (!results.every(r => r[1])) process.exitCode = 1;
 }

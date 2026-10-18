@@ -79,7 +79,7 @@
     return {
       generator: 'Cartula',
       format: 1,
-      seed: cfg.seed, width: grid.width, height: grid.height,
+      seed: cfg.seedCode || cfg.seed, seedBase: cfg.seed, width: grid.width, height: grid.height,
       heightmap: { file: 'heightmap.r16', resolution: unityResolution(Math.max(grid.width, grid.height)),
         depth: 16, byteOrder: 'little-endian', row0: 'south' },
       // Put the water plane at this fraction of the terrain height.
