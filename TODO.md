@@ -119,8 +119,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       *boşluk* (Space) kelimesi yerinde mi?
 
 - [ ] **Portfolyo yol haritasından kalanlar (2026-09-22 sırası; 1-5 bitti):**
-      - Vaka çalışması (`bilaxten.art`): `[SES]` cümleleri, şelale/gökyüzü
-        GIF'i, `site` → `master` kararı — Uğur.
+      - Vaka çalışması (`bilaxten.art`): canlı (2026-10-09); yalnız
+        SES-TASLAK onayı kaldı — Uğur.
       - Unity export gerçekten içe aktarılıp denenmedi (aşağıdaki not; özellik
         2026-10-05'ten beri şimdilik kapalı).
       - Shader cilası (outline, mesafe sisi) — estetik karar, Uğur'la
@@ -142,12 +142,12 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       hillshade/kıyı tonunda kalıyor (boyanan hücrenin kendisi artık doğru).
       Küçük; istenirse `paintEditedTiles` komşu halkayı da boyar.
 
-- [ ] **README milestone listesi ve DEVLOG gerçeğin gerisinde.** DEVLOG'un son
-      milestone kaydı 2026-09-06; 09-08 → 09-23 arası (property testler,
+- [ ] **DEVLOG'da 2026-09-07 → 2026-10-04 boşluğu** (2026-10-18'de daraltıldı).
+      DEVLOG 09-06'dan sonra 10-05'e atlıyor; arada (property testler,
       pipeline modu, Unity export, debug görünümleri, deniz derinliği renkle,
       şelaleler, world type, dark mode) yalnız `CURRENT.md` ve git'te. README
-      "Milestone'lar" bölümü M1-M4'te duruyor; bu işler yalnız "Mimari"
-      bölümünde anlatılıyor. `AGENTS.md` §2/§6: anlatılmayan iş yarım.
+      bu işleri zaten anlatıyor (pipeline, Unity export, world type bölümleri);
+      eski "README milestone listesi geride" kaygısı büyük ölçüde kalktı.
 
 - [ ] **Skill'lerde başka projeden kalan satırlar:** `devlog-entry` var
       olmayan `<!-- NEW-ENTRIES-BELOW -->` işaretini, `PROJECT_STATE.md`'yi,
@@ -156,7 +156,9 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## LATER
 
-- [ ] **Pages önbellek karışması:** GitHub Pages `src/*.js`'i 10 dk
+- [x] **OBSOLETE (2026-10-18): demo GitHub Pages'te değil, Vercel üzerinden
+      `bilaxten.art/cartula` (bilaxten.art `publish-site.sh`).** Eski madde:
+      **Pages önbellek karışması:** GitHub Pages `src/*.js`'i 10 dk
       önbellekliyor; deploy'dan hemen sonra siteyi önceden açmış biri yeni
       `index.html` + eski JS görebilir (2026-09-22'de canlıda görüldü).
       Çözüm: script/link URL'lerine tek bir `?v=` sürümü + `checks.sh`'te

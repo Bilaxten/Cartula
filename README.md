@@ -551,7 +551,7 @@ SwiftShader): üretim 396 ms (192²: 198), 362k üçgen (140k), GPU 184 ms/kare
 (101). Enlem sabiti bilerek 192'den türetilmiş kalır (dünya-uzayı, boyuttan
 bağımsız).
 
-**Canlı demo:** https://bilaxten.art/cartula/ (GitHub Pages, `master`).
+**Canlı demo:** https://bilaxten.art/cartula/ (Vercel, bilaxten.art üzerinden).
 
 ## Milestone'lar
 

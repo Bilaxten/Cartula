@@ -553,8 +553,7 @@ Gölgenin yeni yönü ekran görüntüsünde bu ölçekte ayırt edilemedi — *
 shadow* debug görünümüyle bakılmalı. Unity içe aktarma hâlâ denenmedi.
 `docs/measurements` manifestleri (7)'den önce üretildi, bayat.
 
-**Bilerek bırakılanlar** (`TODO.md`): Pages `?v=` sürümü (her yayında elle
-artırma ister), README milestone listesi + DEVLOG'un 09-08…09-23 boşluğu,
+**Bilerek bırakılanlar** (`TODO.md`): ~~Pages `?v=` sürümü~~ (Pages yok, obsolete 2026-10-18), DEVLOG'un 09-07…10-04 boşluğu,
 skill'lerdeki başka projeden kalan satırlar, Unity doğrulaması.
 
 ## Önceki oturum — 3 madde kod taraması düzeltmesi (2026-09-23)
@@ -589,19 +588,19 @@ Kalan: TODO.md'de bu taramaya ait açık madde yok (ayrı, ad-hoc bir denetimdi)
 ## Önceki görev — portfolyo yol haritası (2026-09-22, Uğur: "önerdiğin neyse yapalım")
 
 Sıra `TODO.md` NOW'da. Durum:
-1. ✅ Canlı demo — https://bilaxten.art/cartula/ (Pages, `master`
-   kökü, `.nojekyll`). Her push yeniden yayınlar.
+1. ✅ Canlı demo — https://bilaxten.art/cartula/ (*2026-10-18: GitHub Pages değil;
+   Vercel üzerinden bilaxten.art, `publish-site.sh` ile; `.nojekyll` artık işlevsiz*).
 2. ✅ Pipeline adım adım modu (`3ddbae6`) — `SM.generate(cfg, record)`,
    `SM.PIPELINE_STAGES` (10 aşama), `SM.renderStage`; `--geo` P6.
-3. ✅ Vaka çalışması — `bilaxten.art` `site` dalı `64fbd1c`. `[SES]`,
-   hareketli GIF'ler ve `site`→`master` Uğur'da.
+3. ✅ Vaka çalışması — `bilaxten.art` `site` dalı `64fbd1c`.
+   *2026-10-18: Vaka çalışması canlı (2026-10-09); yalnız SES-TASLAK onayı (Uğur).*
 4. ✅ Unity export (`319483a`) — `src/export.js`, `--export`. ⚠️ Unity'de
    gerçekten içe aktarılmadı.
 5. ✅ Debug görünümleri (`6bff8ef`). ⏳ Shader cilası Uğur'la.
 
 Aynı gün önce: deniz derinliği renkle (3 bant, paletten — Uğur "bu kadar
 ton kullanmayalım" dedi), tarama #1/#2/#4 düzeltmeleri (aşağıdaki bölüm).
-Hâlâ açık: tarama #3 (iç deniz boyut eşiği, karar Uğur'da), #5.
+Hâlâ açık: tarama #3 (iç deniz boyut eşiği, karar Uğur'da; 2026-10-14 manifest sonrası yeniden ölçülmedi — Uğur'a soruldu 2026-10-18), #5.
 
 ## Önceki görev — 2026-09-22 taramasının düzeltmeleri
 
@@ -628,7 +627,7 @@ Bulgular `TODO.md` NOW'da. Bu oturumda (2026-09-22):
   değildi. Artık `--edit/--river/--mesh/--sky` hepsi `checks.sh`'te.
 
 Kalan: TODO #3 (P2 "ada aynı kalır": büyük haritada kapalı kalan deniz → göl;
-iç deniz boyut eşiği muhtemelen doğru cevap ama karar Uğur'da), #5 (09-15'ten
+iç deniz boyut eşiği muhtemelen doğru cevap ama karar Uğur'da; 2026-10-14 manifest sonrası yeniden ölçülmedi — Uğur'a soruldu 2026-10-18), #5 (09-15'ten
 açık 5-7).
 
 ## Önceki görev (2026-09-08)
