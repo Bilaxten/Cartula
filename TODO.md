@@ -9,6 +9,28 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## NOW
 
+- [ ] **2026-10-18 A32 gerçek cihaz kontrolü, kalan** (Galaxy A32, Android 16,
+      Mali-G52, 90 Hz mod; Jelly/WebView 151, CDP + adb; ekran görüntüleri
+      `docs/device-checks/2026-10-18-a32/`). **Cihazda doğrulandı:** sayfa
+      yükleniyor, konsol hatası yok, yatay kaydırma yok; tek parmak sürükle
+      döndürüyor (035° → 275°); iki parmak paralel sürükleme haritayı
+      **kaydırmıyor** (CDP dokunuşu), iki parmak açma yalnız zoom; kış mevsimi
+      (`season` 3) karlı tepe/buz; sert gölge (09:00 yazda koyu yamalar,
+      *Sun shadow* debug görünümü çalışıyor); gece şimşek 90 sn'de 2 çakma,
+      bulut altında bolt görünüyor. **Ölçüm (320², izometrik, yağmur/kar
+      açık):** boşta 31-36 fps (p50 22 ms, p95 56-78 ms, 1% düşük ~13 fps),
+      kışta aynı; kare süreleri 90 Hz vsync'in (11,1 ms) katları. cpu 3-4 ms,
+      yani darboğaz GPU. Panelde gpu zamanı yok (timer query yok).
+      **Bulundu:** (1) izometrik dokunmatik ipucu hâlâ "two fingers to pan ·
+      pinch to zoom" / "iki parmak: kaydır / yakınlaş" (`src/i18n.js`
+      `hint.iso.touch`); `cfd3853` iki parmağı yalnız zoom yaptı, ipucu bayat.
+      (2) Sayfa yüklemesi telefonda ~4,9 sn (üretim 320² sırasında ekran boş).
+      **Uğur'un gözü gereken:** kar tanelerinin göze görünürlüğü ve gölge/
+      şimşek zevki (ekran görüntüleri var), yosunlu göl (bataklık seed'i
+      aranmadı), gerçek iki parmak (adb ile değil CDP ile sentetik dokunuş).
+      Aşağıdaki iki maddenin telefon kısmı için bunlara bak; zevk maddeleri
+      işaretlenmedi.
+
 - [ ] **2026-10-14 kışın kar yağışına gözle bak** (`61c6837`, tek başına
       `git revert` ile geri alınır). Headless Edge'de (SwiftShader) sabit
       karede bakıldı, gerçek GPU ve telefonda değil. **Bak:** Isometric,

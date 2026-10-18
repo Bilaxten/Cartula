@@ -11,7 +11,16 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/ adresine taşınıyor.
 
-## Bu oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
+## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)
+
+Kod değişmedi. Telefon (A32, 90 Hz) kablosuz adb ile Mac'e bağlandı; Jelly
+tarayıcısının WebView'ı CDP ile ölçüldü. Sonuçlar ve ekran görüntüleri
+`docs/device-checks/2026-10-18-a32/`, ayrıntı `TODO.md` NOW başındaki madde.
+Özet: yükleme/konsol/kaydırma temiz, dokunma kuralları tutuyor, kış, gölge ve
+şimşek çalışıyor; 320² izometrikte 31-36 fps (GPU darboğaz). Açık: dokunma
+ipucu metni bayat (`hint.iso.touch`).
+
+## Önceki oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
 
 Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,
 yayında. Uğur'un aynı gün Mac'ten gelen iki dokunma commit'i (`cfd3853`
