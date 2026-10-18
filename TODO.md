@@ -143,8 +143,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 - [ ] **Portfolyo yol haritasından kalanlar (2026-09-22 sırası; 1-5 bitti):**
       - Vaka çalışması (`bilaxten.art`): canlı (2026-10-09); yalnız
         SES-TASLAK onayı kaldı — Uğur.
-      - Unity export gerçekten içe aktarılıp denenmedi (aşağıdaki not; özellik
-        2026-10-05'ten beri şimdilik kapalı).
+      - Unity export Unity 6'da denendi ve doğrulandı (2026-10-19, aşağıdaki not);
+        özellik 2026-10-05'ten beri şimdilik kapalı, açmak Uğur'un kararı.
       - Shader cilası (outline, mesafe sisi) — estetik karar, Uğur'la
         birlikte (paletten çıkma, ton az). Kıyı köpüğü 2026-10-05'te geldi
         (`7265a2a`).
@@ -184,22 +184,29 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       render'ı yakalamıyor. node-canvas ile PNG karşılaştırma mümkün ama bir
       **bağımlılık** (`AGENTS.md` §2: önce sor). Kararı verilmedi.
 
-## Unity export doğrulaması — açık (2026-09-29 notu, 2026-10-05 güncellendi)
+## Unity export doğrulaması — TAMAM (2026-10-19, Unity 6000.6.2f1)
 
-> ⚠️ 2026-10-05: Unity export arayüzde **şimdilik kapalı** (Uğur). Düğme gizli,
-> kod + `--export` duruyor; geri açmak `src/main.js` `UNITY_EXPORT_ENABLED = true`.
-> Aşağıdaki doğrulama ancak özellik geri açılınca anlamlı.
+> 2026-10-05'ten beri arayüzde **kapalı** (Uğur); kod + `--export` duruyor, geri
+> açmak `src/main.js` `UNITY_EXPORT_ENABLED = true`. Yön/ölçek doğrulandı, bu
+> yüzden açmanın teknik engeli yok; karar Uğur'da.
 
-Resmî Unity 6 dokümanı (Terrain > Import Raw) ilk RAW satırının hangi kenara
-düştüğünü açıkça yazmıyor. `export.js`'teki "row 0 = güney, Flip Vertically
-yok" iddiası **yalnız Unity'de denenerek** doğrulanabilir:
+Resmî Unity 6 dokümanı ilk RAW satırının hangi kenara düştüğünü yazmıyor; bu
+yüzden gerçek Unity'de denendi: yeni boş 3D proje, `TerrainData` (257², size
+192 x 100 x 192, konum 0,0,0), `heightmap.r16` Import Raw anlamıyla
+(16 bit, Windows bayt sırası, flip yok: dosya satırı r -> `heights[r, c]`)
+`SetHeights` ile yüklendi; `albedo.png` tek TerrainLayer, tileSize 192 x 192.
+Harita: seed 1337, 192², kuzeydoğu köşede 45x45 hücrelik tepe eklendi.
 
-1. Asimetrik bir harita export et (ör. fırçayla yalnız kuzeydoğu köşeye tepe).
-2. Unity 6'da Terrain > Import Raw: Depth 16, Byte Order Windows, Flip
-   Vertically kapalı; Terrain Width/Length = `map.json` width/height.
-3. Tepe terrain'in kuzeydoğusunda (+x, +z) mı? Değilse export yönü düzeltilir.
-4. `albedo.png`'yi tek TerrainLayer olarak (Size = terrain boyutu) ver; kıyı
-   çizgisi yükseklikle çakışıyor mu bak.
+- Köşeler (normalize yükseklik, ızgara -> Unity `SampleHeight`): KD 1.000 ->
+  0.996, GB 0.574 -> 0.571, GD 0.439 -> 0.438, KB 0.409 -> 0.419 (örnek
+  noktaları köşeden 0.5 m içeride). Tepe kuzeydoğuda (+x, +z): **yön doğru**.
+- Kıyı: 36864 hücre merkezinde "yükseklik < deniz" ile albedo'nun mavisi
+  %98.02 örtüşüyor (730 uyumsuz hücre, hepsi kıyı şeridi); albedo K-G ters
+  çevrilirse %57.6, D-B ters çevrilirse %54.8 — yani hizalama gerçek.
+- Üstten ve açılı ekran görüntüsünde albedo ile arazi (yanardağ batıda, tepe
+  kuzeydoğuda) çakışıyor.
+- Not: export koduna dokunulmadı; `--export` zip'i PNG içermez, deneyde PNG'ler
+  Node'da aynı `SM.renderTopDown` çağrısıyla (sahte canvas) üretildi.
 
 Bilinen sınırlar (kod tarafında ölçüldü, 2026-10-05):
 - Karanın ~%1'i (1337/192²: 271 hücre) kıyı de-speckle'ından dolayı deniz
