@@ -24,8 +24,8 @@
   // Continuous elevation (0..1), bilinear-resampled to res×res, as 16-bit
   // little-endian bytes. Row 0 is the map's SOUTH edge: Unity puts raw row 0
   // at terrain z = 0, so the terrain then reads the same way up as the
-  // top-down view with no "Flip Vertically" (⚠️ not yet confirmed inside
-  // Unity -- see TODO.md).
+  // top-down view with no "Flip Vertically" (confirmed in Unity 6000.6.2f1,
+  // 2026-10-19 -- see TODO.md).
   //
   // A cell is an AREA, not a point: cell k covers [k, k+1) and its height
   // belongs to its centre, k + 0.5. The heightmap spans the same W×H cells

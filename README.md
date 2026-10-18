@@ -90,9 +90,9 @@ Yükseklik örnekleri hücre MERKEZİNE oturur (`u·W − 0.5`), yani yükseklik
 haritası hücre başına 1 px'lik dokularla aynı alanı kaplar: Terrain genişliği
 = ızgara genişliği (m) verilirse tam 1 m/hücre.
 Doğrulama: `node tools/headless.js --export` (köşe/yön, hücre-merkezi
-hizası, CRC, zip dizini). ⚠️ Unity'de gerçekten içe aktarılmadı: satır yönü
-("flip yok") ve bayt sırası yalnız kod tarafında tutarlı, motor içinde
-denenmedi (`TODO.md`).
+hizası, CRC, zip dizini). Unity 6'da (6000.6.2f1) içe aktarılıp doğrulandı
+(2026-10-19): satır yönü (satır 0 = güney, flip yok), bayt sırası (Windows) ve
+1 m/hücre ölçek doğru; ayrıntı `TODO.md`.
 
 **Render debug görünümleri** (View → *Render debug view*, yalnız izometrik):
 aydınlatmanın tek bir terimini izole eder — ambient occlusion, normaller,
