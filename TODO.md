@@ -175,22 +175,7 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       bu işleri zaten anlatıyor (pipeline, Unity export, world type bölümleri);
       eski "README milestone listesi geride" kaygısı büyük ölçüde kalktı.
 
-- [ ] **Skill'lerde başka projeden kalan satırlar:** `devlog-entry` var
-      olmayan `<!-- NEW-ENTRIES-BELOW -->` işaretini, `PROJECT_STATE.md`'yi,
-      ADR klasörünü ve "LÖVE/Lua"yı anıyor; `handoff` `search_graph`'ı. Bu
-      depoda karşılıkları yok.
-
 ## LATER
-
-- [x] **OBSOLETE (2026-10-18): demo GitHub Pages'te değil, Vercel üzerinden
-      `bilaxten.art/cartula` (bilaxten.art `publish-site.sh`).** Eski madde:
-      **Pages önbellek karışması:** GitHub Pages `src/*.js`'i 10 dk
-      önbellekliyor; deploy'dan hemen sonra siteyi önceden açmış biri yeni
-      `index.html` + eski JS görebilir (2026-09-22'de canlıda görüldü).
-      Çözüm: script/link URL'lerine tek bir `?v=` sürümü + `checks.sh`'te
-      hepsinin aynı olduğu kontrolü (`checks.sh` §2 dosya-var-mı kontrolü
-      sorgu dizgisini ayıklamalı). Sürümü her yayında elle artırmak gerekir;
-      trafik düşükken acil değil.
 
 - [ ] **Yerleşim sayısı tavanı** (`min(12, …)`) tasarım tercihi; hata
       listesinden düştü. (Bulut mesh'inin iç yüzleri 2026-10-05'te kalktı.)
