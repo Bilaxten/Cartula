@@ -4,6 +4,23 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon (aynı gün, Uğur videoları izledikten sonra): izometrikte animasyon 3B
+voxel dünyada.** Uğur: *"izometrikte bekletiyoruz... orada çizimi voxel şekilde
+yapıp sonra yükselti değişikliği yapıp renklendirelim. animasyon 3d voxel üzerinde
+olsun"*, sonra *"render olmak zorunda değil... boş gönderip hareket ettirirken
+yükseltiyi yapıp renklendirerek... dalga şeklinde gelmesin; önce voxeller yükselsin,
+aynı anda; sonra boyansınlar, renk bazlı; sonra sular en derinden dolarak"*. Yapılan:
+boş plaka + nefes → hepsi birden yüksel → yükselti sırasıyla boya → deniz en derin
+katmandan dolsun, göl/nehir son (ayrıntı README *İzometrik yükleme animasyonu*).
+Karar: ayrı bir mini render yazmak yerine **gerçek mesh** vertex shader'daki dört
+uniform'la (`uIntro`) oynatılıyor; böylece geçiş piksel pikselin aynısına iniyor
+ve her kare ucuz (geometri yeniden kurulmuyor). Ölçüm (Edge, 390×844 @2x, gerçek
+GPU 144 Hz ekran; CPU x4 / x6, worker CDP ile kısılamadığı için bir gölgeyle
+yavaşlatıldı): her fazda 140 fps civarı, uzun görev yok (önceden bitişte rüzgâr
+alanı yüzünden x4'te 1 sn'lik bir blok vardı; rüzgâr/hava/duman worker'a taşındı).
+Gerçek telefon GPU'su (A32 Mali-G52) bu makinede yok: orada kare hızı bitmiş
+haritanınkine (31-36 fps) yakın beklenir, ölçülmedi.
+
 A32 bulgusu 2'nin çözümü (telefonda ~4,9 sn boş ekran; senkron 320² `regenerate()`).
 Uğur: *"tanıtım videosundaki gibi, katman katman güzel animasyonlu oluşsun"*.
 Dal `layered-intro`, PR açık; Uğur'un telefonda izleyip onaylaması bekleniyor,

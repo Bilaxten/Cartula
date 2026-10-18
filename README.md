@@ -80,14 +80,36 @@ grid'i transfer eder. Ana thread her pass'i küçük bir karede (ekrana yetecek 
 küçük tile) çizer ve lansman filmindeki gibi bir mürekkep çizgisi yukarıdan
 aşağı süpürerek bastırır (280 ms süpürme + 50 ms bekleme; çizgi `--accent`,
 yeni renk yok). Sıra: **noise → dağlar → deniz → biyom → nehirler → bitmiş
-harita**; üstten görünümde son kare gerçek `renderTopDown`, izometrikte (varsayılan)
-düz harita üstünde voxel dünya 520 ms'lik bir süpürmeyle belirir. Toplam, hızlı
-makinede ~2,4 sn; üretim yavaşsa (telefon) pass'ler geldikçe basılır, süpürme
-yarışmaz. **Atlama:** haritaya dokunmak / tuşa basmak, `regenerate()` (her slider/seed
+harita**. **Üstten görünümde** son kare gerçek `renderTopDown`. **İzometrikte
+(varsayılan, insanların beklediği yer) animasyon 3B voxel dünyanın kendisinde**
+(Uğur 2026-10-19: *"animasyon 3d voxel üzerinde olsun"*; *"render olmak zorunda değil"*),
+aşağıda. **Atlama:** haritaya dokunmak / tuşa basmak, `regenerate()` (her slider/seed
 değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-motion`
 (worker yine kullanılır, pass istenmez, harita hazır olunca doğrudan çıkar).
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
+**İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
+`setIntroSlab` / `buildIntroFloor`). (0) Sayfa açılır açılmaz haritanın ayak izinde
+**boş bir voxel plaka** (tek nötr ton = palet *Bare*, hafif hücre ızgarası) durur ve
+üretim sürerken yavaş, alçak bir **nefes** alır (kamera ± %0,6 sinüs; dalga değil);
+üretim süresini bu gizler (en az 380 ms). (1) **Yüksel**: bitmiş mesh plakanın yerini
+alır (sabit nötr kil tonu) ve bütün kolonlar *aynı anda* kendi yüksekliğine çıkar,
+tek yumuşak ease (950 ms; `uVScale`, geometri yeniden kurulmaz). (2) **Boya**: renk
+*yükselti sırasıyla*, alttan üste (kumsal/ova → çim → orman → kaya → kar), her bant
+üst banda biraz binerek çapraz solar (vertex shader'da `uIntro.x`, ~1 sn). (3) **Su**:
+deniz *en derin voksel katmanından* başlayarak katman katman sea level'a kadar dolar
+(düzlem, tam voksel katmanlarında yumuşak basamaklı: her deniz karosunun yatağı
+`buildIntroFloor`'dan, derinlik bandı = 1-3 katman), göl ve nehirler en son kalkar
+(`uIntro.y/z`; kıyı köpüğü su gelmeden görünmez). Toplam üretimden sonra ~2,85 sn,
+hepsi easeli. Bitişte uniform'lar kapanır ve değerler tam normal render'a iner (açma
+ve kapama arasında matematiksel fark yok; Edge'de intro sonu ve normal yükleme
+ekranlarının farkı 1,3 M pikselin 132'sinde, o da dalga fazı). **Mesh, gölge
+görüntüsü, rüzgâr alanı, hava ve duman worker'da kurulur** (`SM.buildIsoExtra`;
+eskiden ana thread'de ~170 ms rüzgâr + mesh) ve transfer edilir; sayfa hiç
+bloklanmaz. Gökyüzü, rüzgâr çizgileri, yağmur bulutları ve duman su fazında gelir.
+Atla: dokun / tuş / yeni seed / *Regenerate* / `prefers-reduced-motion`; kameralı
+paylaşım bağlantısı ve üstten görünüm eski yolda kalır.
+
 Doğrulama: `node tools/headless.js --intro` — worker betiği sahte worker
 kapsamında sürülür, grid ve pass kayıtları ana-thread çıktısıyla **bayt bayt**
 aynı olmalı; oynatıcı sırası/atla/iptal; kablolama. Tarayıcıda gözle bakılması

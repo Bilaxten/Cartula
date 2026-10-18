@@ -8,7 +8,11 @@
  *   SM.GenClient.run(cfg, {
  *     stages:  ['sample', ...]      pass ids to report as they finish
  *     onStage: function (id, snap)  once per reported pass, in pipeline order
- *     onDone:  function (grid, ms)  the finished grid (SM.createGrid shape)
+ *     mesh:    { sun: [x,y,z] }     also build everything the isometric view needs
+ *                                   (SM.buildIsoExtra: mesh, shadow, water beds,
+ *                                   wind, weather, smoke) off the page thread
+ *     onDone:  function (grid, ms, extra)  the finished grid (SM.createGrid
+ *                                   shape); extra = { mesh, shadow, floor } or null
  *     onError: function (message)   generation itself threw
  *   }) -> { cancel() }              no callback fires after cancel()
  */
@@ -33,11 +37,11 @@
       delivered[id] = true;
       if (o.onStage) o.onStage(id, snap);
     }
-    function done(grid, ms) {
+    function done(grid, ms, extra) {
       if (cancelled || finished) return;
       finished = true;
       if (worker) { worker.terminate(); worker = null; }
-      o.onDone(grid, ms);
+      o.onDone(grid, ms, extra || null);
     }
 
     // Same generation, this thread. Passes are collected first and delivered
@@ -55,8 +59,12 @@
         return;
       }
       var ms = performance.now() - t0;
+      var extra = null;
+      if (o.mesh && SM.buildVoxelMesh) {
+        extra = SM.buildIsoExtra(grid, o.mesh.sun);
+      }
       snaps.forEach(function (s) { stage(s[0], s[1]); });
-      done(grid, ms);
+      done(grid, ms, extra);
     }
     function runHereLater() {
       if (worker) { worker.terminate(); worker = null; }
@@ -71,7 +79,7 @@
         var m = ev.data;
         if (cancelled || !m) return;
         if (m.t === 'stage') stage(m.id, m.snap);
-        else if (m.t === 'done') done(toGrid(m.grid), m.ms);
+        else if (m.t === 'done') done(toGrid(m.grid), m.ms, m.extra);
         else if (m.t === 'error' && o.onError) o.onError(m.msg);
       };
       // Script load failures (file://, blocked, 404) surface here, not in the
@@ -81,7 +89,7 @@
         if (!cancelled && !finished) runHereLater();
       };
       worker.onmessageerror = worker.onerror;
-      worker.postMessage({ cfg: cfg, stages: o.stages || [] });
+      worker.postMessage({ cfg: cfg, stages: o.stages || [], mesh: o.mesh || null });
     } catch (e) {
       worker = null;
       runHereLater();

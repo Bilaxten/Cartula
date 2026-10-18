@@ -573,30 +573,46 @@
       a.minZ === b.minZ && a.maxZ === b.maxZ;
   }
 
-  function rebuildVoxelMesh(forceFit) {
-    var shouldFit;
-
-    if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
-    voxelMesh = SM.buildVoxelMesh(grid);
-    voxelRenderer.setVerticalScale(isoExag());
-    // The wind field follows the terrain, so it is rebuilt with the mesh
-    // (new map or brush edit). A few ms at 192².
+  // Wind, rain/snow and volcano smoke follow the terrain, so they are rebuilt
+  // with the mesh (new map or brush edit). The wind field alone is ~170 ms at
+  // 320², so the intro's worker builds all three (`pre`) and hands them over
+  // once, when the sky appears (`pre.applied`).
+  function applyVoxelEffects(pre) {
+    if (pre && pre.applied) return;
+    if (pre) pre.applied = true;
     if (SM.Wind && voxelRenderer.setWindField) {
-      var windField = SM.Wind.field(grid, grid.config && grid.config.seed);
+      var windField = pre && pre.wind ? pre.wind : SM.Wind.field(grid, grid.config && grid.config.seed);
       voxelRenderer.setWindField(windField);
       // Rain and snow: zones and particles per map seed; snow drifts with
       // the same prevailing wind.
       if (SM.Weather && voxelRenderer.setWeatherData) {
-        voxelRenderer.setWeatherData(SM.Weather.build(grid, grid.config && grid.config.seed),
+        voxelRenderer.setWeatherData(pre && pre.weather ? pre.weather : SM.Weather.build(grid, grid.config && grid.config.seed),
           windField.prevailing);
       }
       // Volcano smoke: a plume per crater, bent by this same wind field.
       if (SM.Smoke && voxelRenderer.setSmokeData) {
-        voxelRenderer.setSmokeData(SM.Smoke.build(grid, windField));
+        voxelRenderer.setSmokeData(pre && pre.smoke ? pre.smoke : SM.Smoke.build(grid, windField));
       }
     }
-    updateVoxelSun();
-    voxelRenderer.setMesh(voxelMesh);
+  }
+
+  // `pre` (SM.buildIsoExtra's result): the isometric intro already built the
+  // mesh and effects in the worker and handed the mesh to the renderer.
+  function rebuildVoxelMesh(forceFit, pre) {
+    var shouldFit;
+
+    if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
+    voxelMesh = pre ? pre.mesh : SM.buildVoxelMesh(grid);
+    voxelRenderer.setVerticalScale(isoExag());
+    applyVoxelEffects(pre);
+    if (pre) {
+      // Sun shadow came with the mesh (same sun, the intro only runs a few
+      // seconds); the sun direction itself is already set.
+      requestVoxelRender();
+    } else {
+      updateVoxelSun();
+      voxelRenderer.setMesh(voxelMesh);
+    }
     // Terrain edits can alter height, but only a new grid or XZ footprint
     // needs refitting.
     shouldFit = forceFit || voxelNeedsFit || !voxelCamera ||
@@ -915,6 +931,7 @@
   function cancelIntro() {
     if (introReveal) introReveal.finish();
     if (!intro) return;
+    if (intro.vox) voxIntroTeardown();
     intro.run.cancel();
     intro.player.cancel();
     intro = null;
@@ -931,6 +948,10 @@
   function startIntro() {
     var cfg = readConfig();
     var reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // Isometric (the default, where people wait): the loading animation is
+    // played ON the 3D voxel world. A shared link with a camera, reduced
+    // motion and a missing WebGL2 keep the plain path below.
+    if (!reduced && isVoxelMode() && !voxelCameraQuery && startVoxelIntro(cfg)) return;
     var defs = {};
     SM.PIPELINE_STAGES.forEach(function (s) { defs[s.id] = s; });
     var MAP_STAGE = { view: 'map' };
@@ -972,6 +993,168 @@
         if (intro === it) regenerate();
       }
     });
+  }
+
+  // --- isometric intro: the loading screen IS the voxel world --------------
+  // (Uğur 2026-10-19.) While the worker generates, a blank neutral slab at the
+  // map's footprint breathes gently. When the map arrives (its mesh built in
+  // the worker too) the finished mesh takes the slab's place and, all in the
+  // vertex shader (uniforms only, no geometry rebuilt per frame):
+  //   rise   every column lifts to its own height at once, one eased move
+  //   paint  land colours wash in bottom to top, band by band, overlapping
+  //   water  the sea fills layer by layer from its deepest voxel to sea
+  //          level; lakes and rivers lift last
+  // then it IS the normal render (the uniforms land exactly on it). A tap, a
+  // key, or a new map skips to the end.
+  var VI = { V0: 0.05, BLANK_MIN: 380,
+    RISE: [0, 950], PAINT: [880, 1900], SEA: [1700, 2650], LAKE: [2350, 2850], END: 2850 };
+
+  function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
+  function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
+  function span(t, w) { return Math.max(0, Math.min(1, (t - w[0]) / (w[1] - w[0]))); }
+
+  function startVoxelIntro(cfg) {
+    if (!SM.Voxel3D || !SM.Voxel3D.isSupported() || !SM.GenClient) return false;
+    if (!startVoxel()) return false;
+    var W = cfg.width, H = cfg.height;
+    var sunDir = sunModel(parseFloat($('sun').value)).iso;
+    if (performance.mark) performance.mark('sm-generate-start');
+    $('stats').textContent = T('gen.busy');
+    map.hidden = true;
+    var finalScale = isoExag();
+    // The camera the finished map will get, from a footprint estimate (levels
+    // are 0..11 incl. the plinth); the real fit replaces it when the mesh lands.
+    var est = { minX: -W / 2, maxX: W / 2, minY: -4, maxY: 11, minZ: -H / 2, maxZ: H / 2 };
+    voxelRenderer.setVerticalScale(finalScale);
+    voxelCamera = voxelRenderer.fitCamera(est);
+    var camA = { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
+      tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
+    voxelRenderer.setVerticalScale(VI.V0);
+    voxelRenderer.setSun(sunDir);
+    voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
+    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3 });
+    if (voxelRenderer.setSky) voxelRenderer.setSky(false);
+
+    var vi = { cfg: cfg, camA: camA, camB: camA, t0: performance.now(), tReady: 0, extra: null, g: null,
+      ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false };
+    var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
+    it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
+
+    function frame(now) {
+      vi.raf = 0;
+      if (vi.done || intro !== it) return;
+      var cam = { yaw: camA.yaw, pitch: camA.pitch, zoom: camA.zoom, tx: camA.tx, ty: camA.ty, tz: camA.tz };
+      if (!vi.extra || now - vi.t0 < VI.BLANK_MIN) {
+        // Waiting: a slow, low breath of the whole slab (camera lift and a
+        // hair of zoom, a sine, never a wave across the map).
+        var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4));
+        cam.ty = camA.ty + camA.zoom * 0.006 * s;
+        cam.zoom = camA.zoom * (1 + 0.004 * s);
+        voxelRenderer.setCamera(cam);
+        requestVoxelRender();
+        if (vi.extra && !vi.started) { /* ready, only the minimum wait left */ }
+        vi.raf = requestAnimationFrame(frame);
+        return;
+      }
+      if (!vi.started) voxIntroStart(now);
+      var t = now - vi.tStart;
+      var rise = easeInOutCubic(span(t, VI.RISE));
+      var paint = easeInOutSine(span(t, VI.PAINT));
+      var sea = easeInOutCubic(span(t, VI.SEA));
+      var lake = easeInOutSine(span(t, VI.LAKE));
+      voxelRenderer.setVerticalScale(VI.V0 + (finalScale - VI.V0) * rise);
+      voxelRenderer.setIntro({ paint: paint, sea: sea, lake: lake });
+      cam.zoom = camA.zoom + (vi.camB.zoom - camA.zoom) * rise;
+      cam.tx = camA.tx + (vi.camB.tx - camA.tx) * rise;
+      cam.ty = camA.ty + (vi.camB.ty - camA.ty) * rise;
+      cam.tz = camA.tz + (vi.camB.tz - camA.tz) * rise;
+      voxelRenderer.setCamera(cam);
+      if (!vi.skyOn && t >= VI.SEA[0]) {
+        vi.skyOn = true;
+        if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+        applyIntroEffects(vi);
+      }
+      requestVoxelRender();
+      if (t >= VI.END) { voxIntroFinish(); return; }
+      vi.raf = requestAnimationFrame(frame);
+    }
+    vi.frame = frame;
+
+    it.run = SM.GenClient.run(cfg, {
+      stages: [],
+      mesh: { sun: sunDir },
+      onDone: function (g, ms, extra) {
+        if (performance.mark) performance.mark('sm-generated');
+        vi.g = g; vi.ms = ms; vi.extra = extra;
+        if (!extra || !extra.mesh) { voxIntroTeardown(); intro = null; adoptGrid(g, cfg, ms, false); return; }
+        it.grid = g;
+        if (vi.skip) voxIntroFinish();
+      },
+      onError: function () { if (intro === it) regenerate(); }
+    });
+    vi.raf = requestAnimationFrame(frame);
+    if (performance.mark) performance.mark('sm-first-map');
+    return true;
+  }
+
+  // The mesh lands: it replaces the slab (flat, neutral, same place), the
+  // water beds and sun shadow go up with it.
+  function voxIntroStart(now) {
+    var vi = intro.vox, ex = vi.extra, g = vi.g;
+    vi.started = true;
+    vi.tStart = now;
+    voxelRenderer.setIntroFloor(ex.floor.data, ex.floor.width, ex.floor.height);
+    if (ex.shadow) voxelRenderer.setShadowMap(ex.shadow, g.width, g.height);
+    voxelRenderer.setMesh(ex.mesh);
+    voxelRenderer.setIntroSlab(null);
+    var fit = voxelRenderer.fitCamera(ex.mesh.bounds);
+    vi.camB = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
+    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: ex.mesh.bounds.maxY, seaY: 0, floorY: -3 });
+    if (performance.mark) performance.mark('sm-mesh-up');
+  }
+
+  function voxIntroTeardown() {
+    var vi = intro && intro.vox;
+    if (!vi) return;
+    vi.done = true;
+    if (vi.raf) cancelAnimationFrame(vi.raf);
+    vi.raf = 0;
+    if (voxelRenderer) {
+      voxelRenderer.setIntro(null);
+      voxelRenderer.setIntroSlab(null);
+      voxelRenderer.setVerticalScale(isoExag());
+      if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+    }
+  }
+
+  // Wind lines, rain clouds and smoke join the sky (their data came from the
+  // worker). They need the grid only for the weather's sake: set it now.
+  function applyIntroEffects(vi) {
+    if (vi.extra.applied) return;
+    grid = vi.g;                   // effects read grid.config; edits stay off until the end (introGuard)
+    applyVoxelEffects(vi.extra);
+    grid = null;
+  }
+
+  // Every uniform lands on the normal render; the grid becomes the map.
+  function voxIntroFinish() {
+    var it = intro;
+    if (!it || !it.vox || it.vox.done) return;
+    var vi = it.vox, ex = vi.extra;
+    if (!vi.started) voxIntroStart(performance.now());
+    voxIntroTeardown();
+    intro = null;
+    grid = vi.g;
+    undoStack = [];
+    redoStack = [];
+    editedSinceRender = false;
+    voxelNeedsFit = true;
+    updateUndoButtons();
+    rebuildVoxelMesh(true, ex);
+    var s = SM.summarize(grid);
+    lastStats = { w: vi.cfg.width, h: vi.cfg.height, ms: vi.ms.toFixed(1), landPct: s.landPct, editedLandPct: null };
+    renderStats();
+    if (performance.mark) performance.mark('sm-final-map');
   }
 
   // While the first map is still being built there is no grid to act on: a tap

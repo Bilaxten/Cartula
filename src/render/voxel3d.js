@@ -1157,6 +1157,15 @@
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
+      // Loading animation (2026-10-19, SM.Voxel3D setIntro): x = paint 0..1
+      // (land colours wash in bottom to top), y = sea fill 0..1, z = lake /
+      // river fill 0..1, w = on. Range = lowest / highest land level, sea
+      // level, deepest sea layer. The floor image: R = each water tile's bed
+      // (level, offset 8, over 32), G = 1 for sea. All off (w = 0) in normal use.
+      'uniform vec4 uIntro;',
+      'uniform vec4 uIntroRange;',
+      'uniform vec3 uIntroNeutral;',
+      'uniform highp sampler2D uIntroFloor;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -1251,9 +1260,45 @@
       '#ifdef SEASON',
       SM.Season ? SM.Season.VERTEX_GLSL : '',
       '#endif',
+      '  float introY = aPosition.y;',
+      '  if (uIntro.w > 0.5) {',
+      '    // Land: every column is the neutral clay tone until the paint front',
+      '    // (rising with elevation, soft edge) reaches its height.',
+      '    float span = max(uIntroRange.y - uIntroRange.x, 1.0);',
+      '    float yN = clamp((aPosition.y - uIntroRange.x) / span, 0.0, 1.0);',
+      '    float band = 0.24;',
+      '    float keep = clamp((uIntro.x * (1.0 + band) - yN) / band, 0.0, 1.0);',
+      '    keep = keep * keep * (3.0 - 2.0 * keep);',
+      '    if (aWater > 0.5) {',
+      '      // Water rides a surface that starts on its own bed and rises: the',
+      '      // sea as a plane climbing through whole voxel layers from the',
+      '      // deepest layer, lakes and rivers lifting last.',
+      '      ivec2 isz = textureSize(uIntroFloor, 0);',
+      '      ivec2 ic = clamp(ivec2(aCellUV * vec2(isz)), ivec2(0), isz - 1);',
+      '      vec2 bed = texelFetch(uIntroFloor, ic, 0).rg;',
+      '      float floorY = bed.r * 32.0 - 8.0;',
+      '      if (bed.g > 0.5) {',
+      '        float yw = mix(uIntroRange.w, uIntroRange.z, uIntro.y);',
+      '        float lay = floor(yw + 0.0001);',
+      '        float q = lay + smoothstep(0.3, 0.9, yw - lay);',
+      '        introY = clamp(q, floorY, aPosition.y);',
+      '        keep = smoothstep(floorY - 0.05, floorY + 0.8, q);',
+      '      } else {',
+      '        float f = uIntro.z * uIntro.z * (3.0 - 2.0 * uIntro.z);',
+      '        introY = mix(floorY, aPosition.y, f);',
+      '        keep = f;',
+      '      }',
+      '    }',
+      '    if (aWater > 0.5) {',
+      '      // No surf or foam line on water that is not there yet.',
+      '      vShore *= keep;',
+      '      if (aFall < 0.5) vFallCoord *= keep;',
+      '    }',
+      '    vColor = mix(uIntroNeutral, vColor, keep);',
+      '  }',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
-      '    (aPosition.y + wave) * uVScale,',
+      '    (introY + wave) * uVScale,',
       '    aPosition.z,',
       '    1.0',
       '  );',
@@ -1514,6 +1559,83 @@
    * uniform (the terrain shader needs the same numbers for the shadow), birds
    * derive their entire path in the shader from their index (nothing else in the
    * scene cares where a bird is). */
+  // The loading slab: a lit neutral box. Faint cell lines on its top fade out
+  // when a cell is only a few pixels wide (fwidth), where they would shimmer.
+  function makeSlabProgram(gl) {
+    var vs = [
+      '#version 300 es',
+      'layout(location = 0) in vec3 aPosition;',
+      'layout(location = 1) in vec3 aNormal;',
+      'uniform mat4 uViewProjection;',
+      'uniform float uVScale;',
+      'out vec3 vNormal;',
+      'out vec3 vPos;',
+      'void main() {',
+      '  vNormal = aNormal;',
+      '  vPos = aPosition;',
+      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * uVScale, aPosition.z, 1.0);',
+      '}'
+    ].join('\n');
+    var fs = [
+      '#version 300 es',
+      'precision mediump float;',
+      'in vec3 vNormal;',
+      'in vec3 vPos;',
+      'uniform vec3 uSunDirection;',
+      'uniform vec3 uColor;',
+      'out vec4 outColor;',
+      'void main() {',
+      '  float lit = 0.62 + 0.38 * max(dot(normalize(vNormal), normalize(uSunDirection)), 0.0);',
+      '  float top = step(0.5, vNormal.y);',
+      '  vec2 f = fract(vPos.xz);',
+      '  vec2 w = fwidth(vPos.xz);',
+      '  vec2 e = smoothstep(vec2(0.0), max(w * 1.2, vec2(0.0001)), min(f, 1.0 - f));',
+      '  float line = (1.0 - min(e.x, e.y)) * (1.0 - smoothstep(0.12, 0.34, max(w.x, w.y)));',
+      '  float check = mod(floor(vPos.x) + floor(vPos.z), 2.0) * 0.018;',
+      '  vec3 c = uColor * lit * (1.0 - top * (0.14 * line + check));',
+      '  outColor = vec4(c, 1.0);',
+      '}'
+    ].join('\n');
+    var v = compileShader(gl, gl.VERTEX_SHADER, vs);
+    var f = compileShader(gl, gl.FRAGMENT_SHADER, fs);
+    if (!v || !f) return null;
+    var program = gl.createProgram();
+    gl.attachShader(program, v);
+    gl.attachShader(program, f);
+    gl.linkProgram(program);
+    gl.deleteShader(v);
+    gl.deleteShader(f);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { gl.deleteProgram(program); return null; }
+    return {
+      program: program,
+      viewProjection: gl.getUniformLocation(program, 'uViewProjection'),
+      verticalScale: gl.getUniformLocation(program, 'uVScale'),
+      sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
+      color: gl.getUniformLocation(program, 'uColor')
+    };
+  }
+
+  /* Each water tile's bed for the loading animation (see uIntroFloor in the
+   * terrain vertex shader): RG8, W x H. R = bed level + 8 over 32, G = 255 on
+   * sea. A sea tile's bed is its depth band as whole voxel layers (1..3 below
+   * level 0, deepest where the sea is deepest); a lake or river tile's bed is
+   * one level under its surface. Pure: no GL, checked headless. */
+  function buildIntroFloor(grid) {
+    var W = grid.width, H = grid.height, n = W * H;
+    var data = new Uint8Array(n * 2);
+    var bands = 3;
+    for (var i = 0; i < n; i++) {
+      if (!grid.water[i]) { data[i * 2] = Math.round((grid.level[i] - 1 + 8) / 32 * 255); continue; }
+      var sea = SM.isSea(grid, i);
+      var bed;
+      if (sea) bed = -(1 + Math.min(bands - 1, SM.seaDepthBand(grid, i)));
+      else bed = grid.level[i] - 1;
+      data[i * 2] = Math.round((bed + 8) / 32 * 255);
+      data[i * 2 + 1] = sea ? 255 : 0;
+    }
+    return { data: data, width: W, height: H, bands: bands };
+  }
+
   function makeSkyProgram(gl) {
     var vertexSource = [
       '#version 300 es',
@@ -1765,7 +1887,11 @@
         iceColor: 'uIceColor',
         autumnA: 'uAutumnA',
         autumnB: 'uAutumnB',
-        bare: 'uBare'
+        bare: 'uBare',
+        intro: 'uIntro',
+        introRange: 'uIntroRange',
+        introNeutral: 'uIntroNeutral',
+        introFloor: 'uIntroFloor'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1784,6 +1910,15 @@
     var fogAmount = 0;
     var fogColor = [1, 1, 1];
     var FOG_MIN = 0.003;
+
+    // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
+    // neutral tone is the palette's Bare, so no new colour exists.
+    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3 };
+    var introNeutral = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'bare'; }).color)
+      .map(function (v) { return v / 255; });
+    var introFloorTexture = gl.createTexture();
+    var slab = null;
+    var slabProgram = null;
 
     // Seasons: the per-map bytes and the slider's winter / autumn amounts.
     var seasonTexture = gl.createTexture();
@@ -1985,6 +2120,15 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 0, 255]));
     acct.texture(seasonTexture, 4);
+    gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, 1, 1, 0, gl.RG, gl.UNSIGNED_BYTE, new Uint8Array([255, 0]));
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    acct.texture(introFloorTexture, 2);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2399,6 +2543,87 @@
       elapsedTime = Math.max(0, +seconds || 0);
     }
 
+    /* Loading animation (main.js startVoxelIntro). `s` null turns it off.
+     * Everything is a uniform: the mesh is the finished one, its columns
+     * rise with setVerticalScale, its colours and water follow these four
+     * numbers, so no frame rebuilds geometry. */
+    function setIntro(s) {
+      if (!s) { introState.on = 0; return; }
+      introState.on = 1;
+      introState.paint = s.paint;
+      introState.sea = s.sea;
+      introState.lake = s.lake;
+      if (s.low != null) introState.low = s.low;
+      if (s.high != null) introState.high = s.high;
+      if (s.seaY != null) introState.seaY = s.seaY;
+      if (s.floorY != null) introState.floorY = s.floorY;
+    }
+
+    // Each water tile's bed, from SM.buildIntroFloor (RG8, W x H).
+    function setIntroFloor(data, w, h) {
+      if (!data || disposed) return;
+      gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, w, h, 0, gl.RG, gl.UNSIGNED_BYTE, data);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      acct.texture(introFloorTexture, w * h * 2);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    /* The blank slab shown before any map exists (the first load): one box
+     * at the map's footprint, neutral tone, a faint voxel grid on top. It is
+     * only drawn while there is no mesh. info {w, h, top, bottom} or null. */
+    function setIntroSlab(info) {
+      if (disposed) return;
+      if (slab) {
+        gl.deleteBuffer(slab.vb); gl.deleteBuffer(slab.ib); gl.deleteVertexArray(slab.vao);
+        slab = null;
+      }
+      if (!info) return;
+      if (!slabProgram) slabProgram = makeSlabProgram(gl);
+      if (!slabProgram) return;
+      var x0 = -info.w / 2 - 1, x1 = info.w / 2 + 1, z0 = -info.h / 2 - 1, z1 = info.h / 2 + 1;
+      var yt = info.top, yb = info.bottom;
+      var faces = [
+        [0, 1, 0, x0, yt, z0, x0, yt, z1, x1, yt, z1, x1, yt, z0],
+        [0, 0, 1, x0, yb, z1, x1, yb, z1, x1, yt, z1, x0, yt, z1],
+        [0, 0, -1, x1, yb, z0, x0, yb, z0, x0, yt, z0, x1, yt, z0],
+        [1, 0, 0, x1, yb, z1, x1, yb, z0, x1, yt, z0, x1, yt, z1],
+        [-1, 0, 0, x0, yb, z0, x0, yb, z1, x0, yt, z1, x0, yt, z0]
+      ];
+      var vert = [], idx = [];
+      faces.forEach(function (f, k) {
+        for (var v = 0; v < 4; v++) vert.push(f[3 + v * 3], f[4 + v * 3], f[5 + v * 3], f[0], f[1], f[2]);
+        idx.push(k * 4, k * 4 + 1, k * 4 + 2, k * 4, k * 4 + 2, k * 4 + 3);
+      });
+      var vao2 = gl.createVertexArray();
+      var vb = gl.createBuffer(), ib = gl.createBuffer();
+      gl.bindVertexArray(vao2);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+      acct.bufferData(gl.ARRAY_BUFFER, vb, new Float32Array(vert), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, new Uint16Array(idx), gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      slab = { vao: vao2, vb: vb, ib: ib, count: idx.length };
+    }
+
+    function drawSlab() {
+      var P = slabProgram;
+      gl.useProgram(P.program);
+      gl.uniformMatrix4fv(P.viewProjection, false, combined);
+      gl.uniform1f(P.verticalScale, vScale);
+      gl.uniform3fv(P.sunDirection, sun);
+      gl.uniform3fv(P.color, introNeutral);
+      gl.enable(gl.CULL_FACE);
+      gl.bindVertexArray(slab.vao);
+      acct.drawElements(gl.TRIANGLES, slab.count, gl.UNSIGNED_SHORT, 0);
+      gl.bindVertexArray(null);
+    }
+
     function setShadowMap(data, mapWidth, mapHeight) {
       if (!data || !mapWidth || !mapHeight || disposed) return;
       // Only this R8 texture changes when the day-cycle slider moves.
@@ -2619,7 +2844,10 @@
       var bg = grade ? gradeColor(clearColor, grade) : clearColor;
       gl.clearColor(bg[0], bg[1], bg[2], clearColor[3]);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      if (!indexCount) return;
+      if (!indexCount) {
+        if (slab) drawSlab();
+        return;
+      }
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
@@ -2749,6 +2977,15 @@
         gl.uniform3f(U.autumnA, seasonColors.autumnA[0] / 255, seasonColors.autumnA[1] / 255, seasonColors.autumnA[2] / 255);
         gl.uniform3f(U.autumnB, seasonColors.autumnB[0] / 255, seasonColors.autumnB[1] / 255, seasonColors.autumnB[2] / 255);
         gl.uniform3f(U.bare, seasonColors.bare[0] / 255, seasonColors.bare[1] / 255, seasonColors.bare[2] / 255);
+      }
+      gl.uniform4f(U.intro, introState.paint, introState.sea, introState.lake, introState.on);
+      gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
+      gl.uniform3fv(U.introNeutral, introNeutral);
+      if (U.introFloor) {
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
+        gl.uniform1i(U.introFloor, 5);
+        gl.activeTexture(gl.TEXTURE0);
       }
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
     }
@@ -2983,6 +3220,10 @@
       acct.forget(seasonTexture);
       gl.deleteTexture(fogTexture);
       acct.forget(fogTexture);
+      gl.deleteTexture(introFloorTexture);
+      acct.forget(introFloorTexture);
+      if (slab) setIntroSlab(null);
+      if (slabProgram) gl.deleteProgram(slabProgram.program);
       gl.deleteTexture(flowTexture);
       acct.forget(flowTexture);
       if (sky) {
@@ -3030,6 +3271,9 @@
       setFlashLight: setFlashLight,
       setSeason: setSeason,
       setShadowMap: setShadowMap,
+      setIntro: setIntro,
+      setIntroFloor: setIntroFloor,
+      setIntroSlab: setIntroSlab,
       setSky: setSky,
       setDebugView: setDebugView,
       capture: capture,
@@ -3042,7 +3286,32 @@
     };
   }
 
+  /* Everything the isometric view needs from a finished grid, in one call:
+   * the mesh, the sun-shadow image, the loading animation's water beds, and
+   * the wind field, weather and volcano smoke (main.js used to build the last
+   * three on the page thread when a map arrived: ~170 ms for the wind alone).
+   * Pure, so the generation worker runs it (src/gen-worker.js) and the page
+   * falls back to it when there is no worker. Missing optional modules skip
+   * their part. */
+  function buildIsoExtra(grid, sun) {
+    var seed = grid.config && grid.config.seed;
+    var out = {
+      mesh: buildVoxelMesh(grid),
+      shadow: sun ? buildShadowMap(grid, sun) : null,
+      floor: buildIntroFloor(grid),
+      wind: null, weather: null, smoke: null
+    };
+    if (SM.Wind) {
+      out.wind = SM.Wind.field(grid, seed);
+      if (SM.Weather) out.weather = SM.Weather.build(grid, seed);
+      if (SM.Smoke) out.smoke = SM.Smoke.build(grid, out.wind);
+    }
+    return out;
+  }
+
   SM.buildVoxelMesh = buildVoxelMesh;
+  SM.buildIsoExtra = buildIsoExtra;
+  SM.buildIntroFloor = buildIntroFloor;
   SM.VOXEL_WAVE_DIP = WAVE_DIP;
   SM.voxelGradeColor = gradeColor;
   SM.voxelWaveField = waveField;

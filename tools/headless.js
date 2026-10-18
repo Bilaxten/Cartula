@@ -3813,10 +3813,11 @@ function runIntroChecks() {
   const repo = path.join(__dirname, '..');
 
   // Drive src/gen-worker.js in a vm context that looks like a worker scope.
-  function runWorker(cfg, stages) {
+  function runWorker(cfg, stages, mesh) {
     const out = [];
+    out.transfers = [];
     const self = {
-      postMessage(m) { out.push(m); },
+      postMessage(m, tr) { out.push(m); out.transfers.push(tr || []); },
       performance: { now: () => Number(process.hrtime.bigint()) / 1e6 },
       importScripts(...files) {
         for (const f of files) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
@@ -3825,7 +3826,7 @@ function runIntroChecks() {
     self.self = self;
     const ctx = vm.createContext(self);
     vm.runInContext(fs.readFileSync(path.join(root, 'gen-worker.js'), 'utf8'), ctx, { filename: 'gen-worker.js' });
-    self.onmessage({ data: { cfg, stages } });
+    self.onmessage({ data: { cfg, stages, mesh: mesh || null } });
     return out;
   }
   const bytes = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength);
@@ -3976,6 +3977,65 @@ function runIntroChecks() {
     delete global.requestAnimationFrame; delete global.cancelAnimationFrame;
   }
 
+  // Isometric intro: the worker also builds the mesh and effects. Same bytes
+  // as the page would build, nothing listed twice in the transfer list (a
+  // duplicate makes postMessage throw, the page then silently falls back to
+  // the main thread), and the water beds mean what the shader reads.
+  {
+    const cfg = { seed: 20261019, width: 160, height: 160, seaLevel: 0.45, rivers: 1.5 };
+    const sun = [0.4, 0.8, 0.3];
+    const ref = SM.generate(cfg);
+    const refX = SM.buildIsoExtra(ref, sun);
+    const msgs = runWorker(cfg, [], { sun });
+    const done = msgs.find(m => m.t === 'done');
+    push('iso: worker finishes with an extra when asked, without when not',
+      !!done && !!done.extra && !msgs.some(m => m.t === 'error') && runWorker(cfg, []).find(m => m.t === 'done').extra === null,
+      msgs.filter(m => m.t === 'error').map(m => m.msg).join('; '));
+    if (done && done.extra) {
+      const ex = done.extra;
+      const tr = msgs.transfers[msgs.length - 1];
+      push('iso: transfer list has no duplicate buffer and carries the mesh',
+        new Set(tr).size === tr.length && tr.includes(ex.mesh.positions.buffer), `${tr.length} entries, ${new Set(tr).size} distinct`);
+      const bad = [];
+      for (const k of ['positions', 'normals', 'colors', 'cellUV', 'indices', 'water', 'wave']) if (!same(refX.mesh[k], ex.mesh[k])) bad.push('mesh.' + k);
+      if (!same(refX.shadow, ex.shadow)) bad.push('shadow');
+      if (!same(refX.floor.data, ex.floor.data)) bad.push('floor');
+      if (JSON.stringify(refX.wind.prevailing) !== JSON.stringify(ex.wind.prevailing)) bad.push('wind');
+      if (JSON.stringify(refX.smoke) !== JSON.stringify(ex.smoke)) bad.push('smoke');
+      if (JSON.stringify(refX.weather.clouds) !== JSON.stringify(ex.weather.clouds)) bad.push('weather');
+      push('iso: worker mesh, sun shadow, water beds, wind, weather and smoke == what the page builds', bad.length === 0, bad.join(','));
+      // Last: a real transfer detaches the buffers.
+      let cloned = true;
+      try { structuredClone(done, { transfer: tr.map(b => b) }); } catch (e) { cloned = false; }
+      push('iso: the done message survives a real structured clone with that transfer list', cloned);
+    }
+    // Water beds: what uIntroFloor holds and what the shader decodes.
+    const fl = SM.buildIntroFloor(ref);
+    const n = ref.width * ref.height;
+    const badBed = [];
+    let seaN = 0, deepest = 0, shallowest = 0;
+    for (let i = 0; i < n; i++) {
+      const bed = fl.data[i * 2] / 255 * 32 - 8, isSea = fl.data[i * 2 + 1] > 127;
+      if (!ref.water[i]) { if (isSea) badBed.push('land flagged sea'); continue; }
+      if (SM.isSea(ref, i) !== isSea) badBed.push('sea flag');
+      if (isSea) {
+        seaN++;
+        if (Math.abs(bed - Math.round(bed)) > 0.13 || bed > -0.5 || bed < -3.5) badBed.push('sea bed ' + bed);
+        if (Math.round(bed) === -3) deepest++;
+        if (Math.round(bed) === -1) shallowest++;
+      } else if (Math.abs(bed - (ref.level[i] - 1)) > 0.13) badBed.push('fresh water bed');
+    }
+    push(`iso: water beds: sea is 1..3 whole layers under level 0 (deep tiles lowest), lakes and rivers one level under their surface (${seaN} sea tiles, ${deepest} deepest)`,
+      badBed.length === 0 && seaN > 0 && deepest > 0 && shallowest > 0, badBed.slice(0, 3).join('; '));
+    let mono = true;
+    for (let i = 0; i < n; i++) {
+      if (!SM.isSea(ref, i)) continue;
+      const band = SM.seaDepthBand(ref, i), bed = Math.round(fl.data[i * 2] / 255 * 32 - 8);
+      if (bed !== -(1 + band)) { mono = false; break; }
+    }
+    push('iso: a deeper sea band always has the lower bed (the water rises through the deepest layer first)', mono);
+  }
+
   // Wiring: the worker loads the same files the page does, in the same order;
   // the page loads the client and scheduler before main.js; the first map goes
   // through startIntro; any other regenerate cancels it.
@@ -3987,9 +4047,11 @@ function runIntroChecks() {
     const scripts = [...html.matchAll(/<script[^>]+src="src\/([^"]+)"/g)].map(m => m[1]);
     const imp = /importScripts\(([^)]*)\)/.exec(worker);
     const impFiles = imp ? imp[1].split(',').map(x => x.trim().replace(/['"]/g, '')) : [];
-    const pageGen = scripts.filter(f => ['noise.js', 'biome.js', 'grid.js', 'generate.js'].includes(f));
-    push('worker imports the generation files in the page\'s own order',
-      JSON.stringify(impFiles) === JSON.stringify(pageGen), `${impFiles} vs ${pageGen}`);
+    const pageGen = scripts.filter(f => impFiles.includes(f));
+    push('worker imports its files in the page\'s own order (generation first, then the isometric builders)',
+      JSON.stringify(impFiles) === JSON.stringify(pageGen) &&
+      JSON.stringify(impFiles.slice(0, 4)) === JSON.stringify(['noise.js', 'biome.js', 'grid.js', 'generate.js']),
+      `${impFiles} vs ${pageGen}`);
     push('worker script has no DOM and no Math.random', !/\bdocument\b|\bwindow\.(?!SM)|Math\.random/.test(worker.replace(/\/\*[\s\S]*?\*\//g, '')));
     push('index.html loads genclient.js and intro.js before main.js',
       scripts.indexOf('genclient.js') > scripts.indexOf('generate.js') && scripts.indexOf('intro.js') > scripts.indexOf('genclient.js') &&
@@ -4001,6 +4063,34 @@ function runIntroChecks() {
     push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
     const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
     push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
+    const vox = main.slice(main.indexOf('var VI = {'), main.indexOf('function introGuard'));
+    const vs = SM.voxelTerrainShaderSources('').vertex;
+    const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
+    push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
+      /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
+    push('intro timeline: rise, paint, sea fill, lakes in that order and overlapping, total 2.5-3.5 s, every move eased',
+      (() => {
+        const m = /RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], LAKE: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
+        if (!m) return false;
+        const [r0, r1, p0, p1, s0, s1, l0, l1, end] = m.slice(1).map(Number);
+        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && l0 > s0 && l0 < s1 && l1 >= s1 && end >= l1 && end >= 2500 && end <= 3600 &&
+          /easeInOutCubic\(span\(t, VI\.RISE\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
+          /easeInOutCubic\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.LAKE\)\)/.test(vox);
+      })());
+    push('intro: columns rise together (one vertical scale, no per-column delay), the sky and effects join with the water, geometry is never rebuilt per frame',
+      /setVerticalScale\(VI\.V0 \+ \(finalScale - VI\.V0\) \* rise\)/.test(vox) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
+      && /t >= VI\.SEA\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
+    push('intro ends on the normal render: uniforms off, scale back to isoExag, sky restored, mesh already uploaded (no second setMesh)',
+      /function voxIntroTeardown[\s\S]*?setIntro\(null\)[\s\S]*?setVerticalScale\(isoExag\(\)\)[\s\S]*?setSky/.test(vox) &&
+      /rebuildVoxelMesh\(true, ex\)/.test(vox) && /if \(pre\) \{[\s\S]*?requestVoxelRender\(\);\s*\} else \{[\s\S]*?setMesh\(voxelMesh\)/.test(main));
+    push('intro: tap, key, new seed or a new map skip/cancel it, with the slab and uniforms cleaned up',
+      /it\.player = \{ skip: function \(\) \{ vi\.skip = true; if \(vi\.extra\) voxIntroFinish\(\)/.test(vox) &&
+      /if \(intro\.vox\) voxIntroTeardown\(\);/.test(main));
+    push('terrain vertex shader: intro block is behind one uniform (uIntro.w), uses the neutral Bare tone and the existing palette only, no new colour literal',
+      /uniform vec4 uIntro;/.test(vs) && /if \(uIntro\.w > 0\.5\)/.test(vs) && vsb.length > 200 && !/#[0-9a-fA-F]{3,8}\b|vec3\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*\)/.test(vsb) &&
+      /b\.id === 'bare'/.test(fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8')));
+    push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',
+      /float introY = aPosition\.y;/.test(vs) && /\(introY \+ wave\) \* uVScale/.test(vs));
     push('intro frames are painted by SM.Intro.frame from recorded passes, never by a second generate on this thread',
       !/SM\.generate\(/.test(main.slice(main.indexOf('function startIntro'), main.indexOf('function introGuard'))));
 
