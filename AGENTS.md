@@ -64,7 +64,7 @@ bozma. Bir bağımlılık eklemek istiyorsan önce sor.
 
 1. **Tek doğru kaynak: grid veri modeli** (`src/grid.js`). Her hücre `elevation`,
    `moisture`, `temperature`, `biome`, `water`, `level` taşır. Üstten (`render/
-   topdown.js`) ve izometrik (`render/iso.js`) görünüm aynı modelin iki
+   topdown.js`) ve izometrik voxel (`render/voxel3d.js`) görünüm aynı modelin iki
    **projeksiyonudur** — ayrı harita değil. Bir renderer kendi terrain verisini
    türetmeye başlarsa iki doğru oluşur ve ikisi de çürür.
 

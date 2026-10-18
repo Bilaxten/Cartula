@@ -41,22 +41,21 @@ Sessizce yeşil gibi bırakma.
 Diff'ten okunamayacak olan **niyeti** yaz. Sonraki ajan `git diff`'i zaten görebiliyor;
 göremediği şey neden o yolu seçtiğin ve sırada ne olduğu.
 
-Şablon dosyanın altında. Doldururken kendine sor: *"Bunu ben yazmamış olsaydım, bu
+`CURRENT.md`'nin mevcut bölüm düzenini izle. Doldururken kendine sor: *"Bunu ben yazmamış olsaydım, bu
 diff'in ne yapmaya çalıştığını anlar mıydım?"*
 
 Bilerek kirli bırakıyorsan bunu **yaz** — yoksa sonraki ajan onu enkaz sanır.
 
 ### 4. Kuyruğu ve kalıcı belleği güncelle
 
-> **Bu skill birden fazla repoda kullanılır (2026-10-05).** Aşağıda adı geçen dosyalar
-> (`TODO.md`, `PROJECT_STATE.md`, `docs/DEVLOG.md`, `docs/decisions/`, `docs/research/`) her repoda
-> yoktur. Önce reponun `AGENTS.md`'sine bak: hangi bilgi nerede tutulur orada yazar. Bir dosya bu
-> repoda yoksa **oluşturma**; karşılığı olan dosyaya yaz, karşılığı da yoksa o adımı atla ve bunu söyle.
+Bu repoda durum üç dosyada tutulur: `CURRENT.md`, `TODO.md`, `docs/DEVLOG.md`. Başka
+bir devir dosyası (`PROJECT_STATE.md`), `docs/decisions/` ya da `docs/research/` yok;
+**oluşturma**. Uzun vadeli karar `AGENTS.md`'ye ya da DEVLOG'daki "Neden bu yaklaşım"a yazılır.
 
 - `TODO.md` — kuyruk değiştiyse. Biten maddeyi **sil**, işaretleme.
 - `README.md` — yalnızca kalıcı bir gerçek değiştiyse (yeni pass, yeni milestone durumu,
   bozulan şey, yeni tuzak). Mimari ve üretim hattının tek doğru kaynağı orası.
-- `docs/DEVLOG.md` — milestone kapandıysa breakdown notu (`devlog-entry`). Bu proje
+- `docs/DEVLOG.md` — milestone kapandıysa anlatı kaydı (`devlog-entry`). Bu proje
   portfolyo kanıtı; anlatılmayan iş yarım sayılır.
 
 ### 5. Commit

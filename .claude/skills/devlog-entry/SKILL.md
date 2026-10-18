@@ -22,22 +22,29 @@ git log --oneline -5
 
 ### 2. Kaydı yaz
 
-> **Bu skill birden fazla repoda kullanılır (2026-10-05).** Aşağıda adı geçen dosyalar
-> (`TODO.md`, `PROJECT_STATE.md`, `docs/DEVLOG.md`, `docs/decisions/`, `docs/research/`) her repoda
-> yoktur. Önce reponun `AGENTS.md`'sine bak: hangi bilgi nerede tutulur orada yazar. Bir dosya bu
-> repoda yoksa **oluşturma**; karşılığı olan dosyaya yaz, karşılığı da yoksa o adımı atla ve bunu söyle.
+`docs/DEVLOG.md` ters kronolojiktir (en yeni en üstte) ve işaret yorumu yoktur. Dosyanın
+ilk satırı `# DEVLOG`; kaydı bu başlığın **hemen altına**, mevcut ilk `## ` kaydının
+üstüne ekle (`grep -n '^## ' docs/DEVLOG.md | head -3` ile yerini gör). Aynı gün birden
+çok kayıt olabilir, yine en yenisi üstte.
 
-`docs/DEVLOG.md` içindeki `<!-- NEW-ENTRIES-BELOW -->` işaretini bul, kaydı **hemen
-altına** ekle (en yeni kayıt en üstte olmalı).
+Başlık biçimi `## YYYY-MM-DD — Kısa başlık`. Gövde, ihtiyaca göre şu kalın etiketlerden
+oluşur (dosyadaki kayıtlar bunları kullanıyor); hepsi zorunlu değil, **Ne yapıldı** ve
+**Neden bu yaklaşım** her zaman var:
 
 ```markdown
-## YYYY-MM-DD · Kısa başlık
-**Durum:** tamamlandı | devam ediyor | bloke
-**Ne yapıldı:** 1-3 cümle.
-**Değişen dosyalar:** yol listesi (git'ten al, elle uydurma)
+## YYYY-MM-DD — Kısa başlık
+
+**Ne yapıldı:** 1-3 paragraf; commit kısa hash'leriyle.
+
 **Neden bu yaklaşım:** Hangi alternatif elendi ve niye. Bir kısıt mı vardı,
-performans mı, platform/API sınırı mı?
-**Sonraki adım:** Tek cümle — bir sonraki session buradan başlar.
+performans mı, API sınırı mı?
+
+**Doğrulama:** Hangi `checks.sh` / `tools/headless.js` kontrolleri, hangi tarayıcı gözlemi.
+Otomatik doğrulanamayan görsel kısmı açıkça yaz.
+
+**Değişen dosyalar:** (gerekirse) git'ten al, elle uydurma.
+**Açık:** (varsa) bilerek bırakılan, doğrulanmamış ya da ertelenen.
+**Sonraki adım:** Tek cümle, bir sonraki session buradan başlar.
 ```
 
 Tarih için `date +%Y-%m-%d` kullan, tahmin etme.
@@ -50,17 +57,16 @@ DEVLOG **anlatı arşividir**; iş kuyruğu ya da aktif durum tutmaz. Bu ayrım 
 |---|---|
 | Açık iş / sıradaki iş | `TODO.md` |
 | Şu an nerede kalındı, niyet | `CURRENT.md` (`handoff` skill'i) |
-| Kalıcı gerçek değişti (sistem, bozuk şey, tuzak) | `PROJECT_STATE.md` |
-| Uzun vadeli sonucu olan karar | `docs/decisions/ADR-*.md` |
+| Kalıcı gerçek değişti (mimari, tuzak, kural) | `README.md` / `AGENTS.md` |
 | Bu session'da ne oldu ve neden | **buraya** |
 
-DEVLOG'a `- [ ]` maddesi ekleme — kuyruk iki yerde tutulursa ikisi de güvenilmez olur.
+DEVLOG'a `- [ ]` maddesi ekleme: kuyruk iki yerde tutulursa ikisi de güvenilmez olur.
 
 ### 4. Kararı yükselt
 
-Kayıttaki "neden bu yaklaşım" bölümünde altı ay sonra biri tarafından yeniden
-tartışılacak bir şey varsa, o bir DEVLOG satırı değil bir **ADR**'dir
-(`docs/decisions/`, ya da reponun `AGENTS.md`'sinin karar kaydı için gösterdiği yer). DEVLOG'da bırakılan karar kaybolur.
+"Neden bu yaklaşım" bölümünde altı ay sonra biri tarafından yeniden tartışılacak bir
+şey varsa, bunu ayrıca `AGENTS.md`'ye (mimari çapa / kural) ya da `README.md`'ye de
+yaz; yalnız DEVLOG'da bırakılan karar kaybolur. Bu repoda ayrı bir karar kaydı klasörü yok.
 
 ## Kurallar
 
