@@ -71,6 +71,8 @@ yasaklı çağrı yok, bağlantılar. Tarayıcıda (Edge): alan canlı, yapışt
 kontrolleri oynatıyor, geçersiz mesaj TR/EN, eski bağlantı açılıyor, Node ve
 Edge aynı parmak izi (`4586ca46`). Ölçülmedi: Safari, Firefox.
 
+Düzeltme (aynı gün, Uğur: *"regenerate aynı özelliklerde farklı map yapmasın, aynı seed aynı sonucu versin"*): *Regenerate* (R) artık yeni taban çekmiyor, geçerli kodun haritasını aynen yeniden kuruyor (fırça düzenlemelerini siler); yeni kodu yalnız *Random* veriyor. Edge'de R ve düğme sonrası kod ve canvas pikselleri aynı.
+
 ## Önceki oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
 
 Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,

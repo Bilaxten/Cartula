@@ -1861,8 +1861,10 @@
     setTimeout(function () { btn.classList.remove('rolling'); }, 360);
   }
 
+  // Regenerate rebuilds the map of the current seed code, exactly (Uğur
+  // 2026-10-19: "aynı seed aynı sonucu versin"): same code, same map. After
+  // brush edits it restores the pristine map. Only Random draws a new code.
   function regenMap() {
-    seedBase = SM.Seed.randomBase();
     syncSeedField();
     regenerate();
     spin('regenMap');

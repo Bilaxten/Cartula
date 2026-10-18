@@ -139,7 +139,8 @@ P7). *Moisture scale* kaldırıldı (en zayıf etki, %20-25). Temperature /
 Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını söyler.
 
 **Yeni harita (2026-10-05, Uğur):** iki düğme yan yana.
-- *Regenerate* / *Yeniden üret* (kısayol `R`): yeni rastgele seed tabanı, slider ayarları korunur.
+- *Regenerate* / *Yeniden üret* (kısayol `R`): geçerli seed kodunun haritasını **aynen** yeniden kurar
+  (aynı kod, aynı harita; fırça düzenlemelerini siler). Yeni kod vermez.
 - *Random* / *Rastgele* (kısayol `Shift+R`): rastgele bir dünya tipinden başlar, her üretim
   slider'ını aralığının en fazla dörtte biri kadar oynatır (uçlardaki %10 dışarıda; deniz
   seviyesi 0.30–0.62, altında harita %80–90 kara çıkıyordu) ve yeni seed verir. Harita boyutu değişmez.
@@ -159,8 +160,8 @@ ve tire önemsiz). Mantık `src/seed.js`'te (`SM.Seed`), DOM'suz.
   ayarları kontrollere uygular ve haritayı üretir. Geçersiz kodda neden yazılır
   (boş, karakter, uzunluk, sürüm, doğrulama tutmadı, eski sayısal seed) ve hiçbir
   şey değişmez; mesaj TR/EN.
-- *Regenerate* yeni taban + aynı ayarlar, *Random* yeni taban + yeni ayarlar:
-  ikisi de yeni bir kod verir.
+- *Regenerate* aynı kodu aynen yeniden kurar (Uğur: "aynı seed aynı sonucu
+  versin"), *Random* yeni taban + yeni ayarlar, yani yeni bir kod verir.
 - Harita **kodun saf fonksiyonu**: aynı kod her seferinde, her üretimden sonra
   ve ayar → kod → çözümle → üret yolundan da aynı grid'i verir
   (`node tools/headless.js --seed`, grid'in her tipli dizisinin baytı üzerinden
@@ -179,7 +180,7 @@ ve tire önemsiz). Mantık `src/seed.js`'te (`SM.Seed`), DOM'suz.
   **Doğrulanmayan:** Safari/JavaScriptCore ve Firefox/SpiderMonkey bu makinede
   yok; üretim yolu yalnız garantili işlemler kullandığı için aynı çıkması
   beklenir ama ölçülmedi. Mevsim yalnız görünümdür: kodla taşınır, haritayı
-  değiştirmez. Seed'siz kalan tek `Math.random`: *Regenerate* / *Random*'un yeni
+  değiştirmez. Seed'siz kalan tek `Math.random`: *Random*'un yeni
   taban ve ayar seçimi (girdi üretir, harita değil). Sahne animasyonu (bulut,
   yağmur, rüzgâr, dalga) haritanın seed'inden doğar ama saate göre akar; aynı
   harita farklı karede farklı görünür, bu görünümdür.
