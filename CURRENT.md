@@ -32,7 +32,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 - **Ölçüm paketi görsel yarısı:** 3 seed × üstten/voxel PNG + orbit klip, `docs/measurements/README.md`.
 - **İç deniz boyut eşiği** (256'da kenara değen sığ deniz kapanıp göl/kara oluyor): karar Uğur'da.
 - **Kıyı köpüğü sonrası shader cilası** (outline, mesafe sisi): estetik karar, Uğur'la.
-- **Unity export** arayüzde kapalı (`UNITY_EXPORT_ENABLED`); gerçek Unity'de denenmedi.
+- **Unity export** 2026-10-19'da açıldı (`UNITY_EXPORT_ENABLED = true`), Unity 6'da doğrulanmıştı.
 - Fırçalar yalnız üstten görünümde çalışıyor ama varsayılan açılış voxel: araç seçilince
   sekmeye otomatik geçmek düşünülebilir (karar verilmedi).
 

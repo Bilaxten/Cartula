@@ -144,7 +144,7 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       - Vaka çalışması (`bilaxten.art`): canlı (2026-10-09); yalnız
         SES-TASLAK onayı kaldı — Uğur.
       - Unity export Unity 6'da denendi ve doğrulandı (2026-10-19, aşağıdaki not);
-        özellik 2026-10-05'ten beri şimdilik kapalı, açmak Uğur'un kararı.
+        özellik Uğur'un kararıyla 2026-10-19'da arayüzde yeniden açıldı.
       - Shader cilası (outline, mesafe sisi) — estetik karar, Uğur'la
         birlikte (paletten çıkma, ton az). Kıyı köpüğü 2026-10-05'te geldi
         (`7265a2a`).
@@ -186,9 +186,8 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
 
 ## Unity export doğrulaması — TAMAM (2026-10-19, Unity 6000.6.2f1)
 
-> 2026-10-05'ten beri arayüzde **kapalı** (Uğur); kod + `--export` duruyor, geri
-> açmak `src/main.js` `UNITY_EXPORT_ENABLED = true`. Yön/ölçek doğrulandı, bu
-> yüzden açmanın teknik engeli yok; karar Uğur'da.
+> 2026-10-05'te kapatılmıştı; Uğur 2026-10-19'da açtı (`UNITY_EXPORT_ENABLED = true`).
+> Kapatmak için aynı bayrak `false` yapılır.
 
 Resmî Unity 6 dokümanı ilk RAW satırının hangi kenara düştüğünü yazmıyor; bu
 yüzden gerçek Unity'de denendi: yeni boş 3D proje, `TerrainData` (257², size

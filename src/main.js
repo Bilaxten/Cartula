@@ -1727,12 +1727,12 @@
     });
   });
   $('exportPng').addEventListener('click', exportPng);
-  // Unity export is OFF for now (Uğur 2026-10-05: "şimdilik kapalı"). The
-  // code path stays intact -- exportUnity above, src/export.js and its
-  // `--export` harness -- and the button stays in index.html, hidden. Setting
-  // this to true shows the row and wires the button again; nothing else
-  // changes. Never verified inside Unity either (TODO.md).
-  var UNITY_EXPORT_ENABLED = false;
+  // Unity export is ON (Uğur 2026-10-19, after the bundle was verified in
+  // Unity 6: row order, scale, shoreline). The row stays hidden in index.html
+  // until this flag shows it and wires the button; setting it to false hides
+  // the feature again with no other change (exportUnity, src/export.js and the
+  // `--export` harness stay).
+  var UNITY_EXPORT_ENABLED = true;
   if (UNITY_EXPORT_ENABLED) {
     $('exportUnityRow').hidden = false;
     $('exportUnity').addEventListener('click', exportUnity);

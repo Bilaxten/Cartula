@@ -1724,16 +1724,16 @@ function runExportChecks() {
   const again = X.buildUnityBundle(g, { albedo: png, biome: png });
   push('bundle is deterministic', Buffer.compare(Buffer.from(zip), Buffer.from(again)) === 0);
 
-  // The UI button is OFF for now (Uğur 2026-10-05, "şimdilik kapalı"), but the
-  // feature must stay one flag away from coming back: the hidden row and its
-  // button are still in index.html, and main.js still wires them behind
-  // UNITY_EXPORT_ENABLED. If either half is deleted this goes red.
+  // The UI button is ON (Uğur 2026-10-19), but the feature must stay one flag
+  // away from being switched off: the hidden row and its button are still in
+  // index.html, and main.js wires them behind UNITY_EXPORT_ENABLED. If either
+  // half is deleted this goes red.
   {
     const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
     const mainJs = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
     const flag = /var UNITY_EXPORT_ENABLED = (true|false);/.exec(mainJs);
     const row = /<div class="toolrow" id="exportUnityRow"( hidden)?>\s*<button id="exportUnity"/.exec(html);
-    push('Unity button is kept in index.html and wired behind UNITY_EXPORT_ENABLED (hidden while off)',
+    push('Unity button is kept in index.html and wired behind UNITY_EXPORT_ENABLED (row hidden until the flag shows it)',
       !!flag && !!row && /function exportUnity\(/.test(mainJs) &&
       /if \(UNITY_EXPORT_ENABLED\)[\s\S]{0,200}\$\('exportUnity'\)\.addEventListener\('click', exportUnity\)/.test(mainJs) &&
       (flag[1] === 'true' || !!row[1]),
