@@ -9,6 +9,7 @@
 #
 #   scripts/publish-site.sh           checks, publish, verify live
 #   scripts/publish-site.sh --check   only compare live with local (every app file)
+#   scripts/publish-site.sh --dry-run everything except the push (bilaxten.art scripts/push-master.sh --dry-run)
 #
 # Site repo location: $BILAXTEN_ART_DIR, else ~/bilaxten.art, else ~/Desktop/bilaxten.art.
 set -euo pipefail
@@ -42,7 +43,8 @@ if [ "${1:-}" = "--check" ]; then
   if live_matches -v; then echo "ok    canlı = yerel (uygulamanın tüm dosyaları)"; exit 0; fi
   echo "FARK  canlı Cartula yereldekiyle aynı değil (yukarıdaki dosyalar)"; exit 1
 fi
-[ -z "${1:-}" ] || die "bilinmeyen argüman: $1 (geçerli: --check ya da argümansız)"
+dry=""
+case "${1:-}" in "") ;; --dry-run) dry="--dry-run" ;; *) die "bilinmeyen argüman: $1 (geçerli: --check, --dry-run ya da argümansız)" ;; esac
 
 site="${BILAXTEN_ART_DIR:-}"
 if [ -z "$site" ]; then
@@ -51,6 +53,9 @@ if [ -z "$site" ]; then
   done
 fi
 [ -n "$site" ] && [ -d "$site/.git" ] || die "bilaxten.art reposu bulunamadı (BILAXTEN_ART_DIR ayarla)"
+
+pm="$site/scripts/push-master.sh"
+[ -f "$pm" ] || die "$pm yok — bilaxten.art checkout'unda 'site' dalını çek (git pull)"
 
 # 1. Only publish what is committed and pushed, so the live copy maps to a commit.
 say "1. Cartula durumu"
@@ -90,9 +95,10 @@ else
   [ -z "$outside" ] || die "cartula/ dışında değişiklik: $outside"
   git -C "$wt" commit -q -m "Cartula: $rev" \
     -m "Published from Bilaxten/Cartula scripts/publish-site.sh. Only cartula/ changes."
-  git -C "$wt" push -q origin HEAD:master
-  echo "ok    push edildi: $(git -C "$wt" rev-parse --short HEAD) → master"
+  # The only way to write live master: bilaxten.art scripts/push-master.sh (fetch, scope check, lease, retry).
+  bash "$pm" $dry "$wt" cartula/ || die "push-master başarısız — yayın yok"
 fi
+[ -z "$dry" ] || { echo "ok    DRY-RUN bitti (push edilmedi, canlı doğrulama atlandı)"; exit 0; }
 
 # 4. Wait for Vercel and verify the live bytes equal the local file.
 say "4. canlı doğrulama — $url"
