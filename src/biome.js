@@ -161,7 +161,8 @@
   // the sea ramp. Every view calls THIS (top-down bake, voxel mesh, the
   // editor's repaint), so they cannot drift apart. The season's ice is laid
   // over it afterwards (season.js), so a frozen lake looks like any other.
-  var MOSS_MIX = [0, 0.35, 0.65];
+  // 2026-10-19: was [0, 0.35, 0.65]; on a phone that read as plain blue (Uğur).
+  var MOSS_MIX = [0, 0.55, 0.9];
   var MOSS_RAMP = null;
 
   function lakeColor(grid, i) {

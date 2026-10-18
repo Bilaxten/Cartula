@@ -3462,9 +3462,9 @@ function runLayoutChecks() {
       /ev\.target !== stage && ev\.target !== map && ev\.target !== glCanvas/.test(main) &&
       /ev\.preventDefault\(\); \/\/ no compatibility mouse events/.test(main) &&
       /stage\.addEventListener\('pointercancel'/.test(main) && /'gesturestart'/.test(main), '');
-    push('a second finger ends the one-finger drag and starts a zoom-only pinch about a fixed anchor; a lifted finger leaves the others doing nothing until all are up',
-      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*if \(touch\.mode === 'dead'\) return;[^\n]*\s*var wasTwo = touch\.mode === 'two';[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);\s*if \(!wasTwo\) touch\.anchor = \{ x: touch\.frame\.x, y: touch\.frame\.y \};/.test(main) &&
-      /touchNavigate\(\{ x: a\.x, y: a\.y, d: touch\.frame\.d \}, \{ x: a\.x, y: a\.y, d: f\.d \}\);/.test(main) &&
+    push('a second finger ends the one-finger drag and starts a pan + zoom pinch about the midpoint; a lifted finger leaves the others doing nothing until all are up',
+      /if \(touch\.mode === 'one'\) endOneFinger\(\);\s*if \(touch\.mode === 'dead'\) return;[^\n]*\s*touch\.mode = 'two';\s*touch\.start = null;\s*touch\.frame = touchFrame\(\);/.test(main) &&
+      /touchNavigate\(touch\.frame, f\);/.test(main) &&
       /touch\.mode = touch\.order\.length \? 'dead' : null;/.test(main) &&
       /if \(touch\.mode === 'dead'\) return;/.test(main), '');
     // Real phone, 2026-10-13: the first finger of a pinch drifted into an

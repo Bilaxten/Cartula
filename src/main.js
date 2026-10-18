@@ -1987,7 +1987,8 @@
   // page zoom, for accessibility):
   //   one finger  = the mouse drag of that view (orbit in isometric; pan, or
   //                 the selected brush, in top-down)
-  //   two fingers = pan + pinch zoom about the fingers (SM.Touch, src/touch.js)
+  //   two fingers = pan + pinch zoom about the fingers (SM.Touch, src/touch.js;
+  //                 restored 2026-10-19, last paragraph below)
   // A second finger ends the one-finger drag where it is (a brush stroke
   // younger than 300 ms is taken back: it was the start of a pinch). When one
   // finger of a pinch lifts, the other keeps panning from where it is; it
@@ -2020,7 +2021,13 @@
   // dead zone. You travel by zooming out and in again elsewhere. When a
   // finger of a pinch lifts, the others do nothing until every finger is up
   // (mode 'dead'): no stray pan or orbit at the end of a pinch.
-  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false, anchor: null };
+  //
+  // Uğur 2026-10-19 (real phone): "iki parmak pan çalışmıyor sadece zoom".
+  // Two fingers pan again, in both views, together with the zoom: the
+  // midpoint's move pans, the spread ratio zooms about the midpoint, no
+  // pan-lock or dead zone (the 2026-10-13 pan-first/pinch-lock is not back).
+  // The 'dead' mode after a lifted finger stays.
+  var touch = { pts: {}, order: [], mode: null, frame: null, start: null, strokeAt: 0, orbit0: null, barClaim: false };
   var TOUCH_TAP_PX = 8, TOUCH_TAP_MS = 350, TOUCH_STROKE_UNDO_MS = 300;
 
   function stageXY(ev) {
@@ -2098,11 +2105,9 @@
     }
     if (touch.mode === 'one') endOneFinger();
     if (touch.mode === 'dead') return; // after a pinch: nothing until all fingers are up
-    var wasTwo = touch.mode === 'two'; // a third finger rides along
     touch.mode = 'two';
     touch.start = null;
     touch.frame = touchFrame();
-    if (!wasTwo) touch.anchor = { x: touch.frame.x, y: touch.frame.y };
   });
   stage.addEventListener('pointermove', function (ev) {
     if (ev.pointerType !== 'touch' || !touch.pts[ev.pointerId]) return;
@@ -2118,10 +2123,10 @@
       onMove(mouseLike(ev));
     } else if (touch.mode === 'two') {
       if (touch.order.indexOf(ev.pointerId) > 1) return; // a third finger rides along
-      // Zoom only, about the fixed anchor: same point before and after, so
-      // the pinch math moves nothing but the scale.
-      var f = touchFrame(), a = touch.anchor;
-      touchNavigate({ x: a.x, y: a.y, d: touch.frame.d }, { x: a.x, y: a.y, d: f.d });
+      // Pan by the midpoint's move and zoom by the spread ratio, about the
+      // midpoint: the map point under the fingers stays under them.
+      var f = touchFrame();
+      touchNavigate(touch.frame, f);
       touch.frame = f;
     }
   });
@@ -2137,7 +2142,7 @@
       if (!cancelled && s && !s.moved && performance.now() - s.t < TOUCH_TAP_MS &&
           view === 'top' && $('editTool').value === 'pan') onHover(mouseLike(ev));
     } else if (touch.mode === 'two' && touch.order.length >= 2) {
-      touch.frame = touchFrame(); // another pair: the ratio measures from it, same anchor
+      touch.frame = touchFrame(); // another pair: re-base so nothing jumps
     } else {
       touch.mode = touch.order.length ? 'dead' : null;
     }

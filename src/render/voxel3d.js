@@ -2674,7 +2674,8 @@
         weatherDraw.view = view;
         weatherDraw.vScale = vScale;
         weatherDraw.time = elapsedTime;
-        weatherDraw.pixelWorld = 2 * camera.zoom / width;
+        // CSS pixels, not device pixels: a flake must stay visible on a 2.6x phone.
+        weatherDraw.pixelWorld = 2 * camera.zoom / cssWidth;
         weatherDraw.setGrade = setGradeUniforms;
         weather.draw(weatherDraw);
       }

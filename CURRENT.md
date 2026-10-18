@@ -64,6 +64,15 @@ Kod değişmedi (bu bloğun yazıldığı oturumda). Telefon (Galaxy A32, Androi
 - **Uğur'un gözü gereken:** kar tanelerinin göze görünürlüğü, gölge/şimşek zevki, yosunlu
   göl (bataklık seed'i aranmadı), gerçek iki parmak.
 
+## 2026-10-19 telefon bulguları (Uğur, gerçek telefon)
+
+- İki parmak artık hem kaydırır hem yakınlaştırır (iki görünümde de; `src/main.js` touch bloğu,
+  kilit/ölü bölge yok; parmak kalkınca kalanlar yine `dead`). `hint.*.touch` metinleri buna göre.
+- Kar/yağmur parçacık asgari boyutu cihaz pikseli yerine CSS pikseli (DPR 2.6'da taneler
+  0,6 CSS px'ti, görünmüyordu). Yosunlu göl karışımı `[0, .55, .9]` (eskiden `.35/.65`, mavi okunuyordu).
+- Yayın (`publish-site.sh`) yapılmadı, Uğur'dan onay bekliyor. Yükleme ~4,9 sn: açılışta
+  senkron 320² üretim (masaüstü node'da ~0,9 sn; A32 ~5x yavaş); düzeltilmedi.
+
 ## Görünüm mimarisi — TEK CÜMLE
 
 **İzometrik = WebGL2 voxel. 2D = yalnızca üstten görünüm. Başka yol yok.**
