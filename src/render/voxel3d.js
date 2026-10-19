@@ -1172,7 +1172,11 @@
       'uniform vec4 uIntroRise;',
       INTRO_RISE_GLSL,
       'uniform vec3 uIntroNeutral;',
-      'uniform highp sampler2D uIntroFloor;',
+      // The flat map's colours (RGBA8, one texel per cell): what the slab shows
+      // while the worker is still generating. The mesh starts from them and
+      // eases into its own colours. x = image there, y = mesh colours' share.
+      'uniform highp sampler2D uIntroImage;',
+      'uniform vec2 uIntroBlend;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -1275,44 +1279,29 @@
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
       '    yScale = introRiseScale(uIntroRise, aPosition.xz, uVScale);',
-      '    // The paint is one wipe across the screen, left to right: every colour',
-      '    // at once, each column fading from the neutral clay tone to its own',
-      '    // colour as a wide soft front passes it. No order by colour or height.',
+      '    // The paint is one wipe across the screen, left to right, on the FLAT',
+      '    // map: every colour at once, each column fading from the neutral clay',
+      '    // tone to its colour as a wide soft front passes it. Water is just',
+      '    // coloured cells here; every surface keeps its own level and the land',
+      '    // rises around the sea afterwards.',
       '    float u = clamp(0.5 + dot(aPosition.xz, uIntroSweep.xy) * uIntroSweep.z, 0.0, 1.0);',
       '    float band = 0.55;',
       '    float keep = clamp((uIntro.x * (1.0 + band) - u) / band, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
-      '    float paintKeep = keep;',
-      '    float fill = 1.0;',
-      '    if (aWater > 0.5) {',
-      '      // Water is ONE level rising through the whole map, by height and',
-      '      // not by kind: a tile fills once the level passes its own bed and',
-      '      // stops at its own surface, so the sea fills first (deepest bed',
-      '      // first), then lakes and rivers high on the land as the level',
-      '      // reaches them. Whole voxel layers with a soft step between.',
-      '      ivec2 isz = textureSize(uIntroFloor, 0);',
+      '    // Colours: the stand-in image the slab showed, easing into the mesh\'s own.',
+      '    if (uIntroBlend.x > 0.5) {',
+      '      ivec2 isz = textureSize(uIntroImage, 0);',
       '      ivec2 ic = clamp(ivec2(aCellUV * vec2(isz)), ivec2(0), isz - 1);',
-      '      vec2 bed = texelFetch(uIntroFloor, ic, 0).rg;',
-      '      float floorY = bed.r * 32.0 - 8.0;',
-      '      float yw = mix(uIntroRange.w, uIntroRange.z, uIntro.y);',
-      '      float lay = floor(yw + 0.0001);',
-      '      float q = lay + smoothstep(0.12, 0.88, yw - lay);',
-      '      introY = clamp(q, floorY, aPosition.y);',
-      '      // The surface rises by height in the neutral tone; its colour is the',
-      '      // paint wipe, exactly as on land (keep stays paintKeep). Only the surf',
-      '      // and foam wait for the water to be there.',
-      '      fill = smoothstep(floorY - 0.05, floorY + 0.9, q);',
+      '      vColor = mix(texelFetch(uIntroImage, ic, 0).rgb, vColor, uIntroBlend.y);',
       '    }',
-      '    // Lava stays neutral and dark until the wipe reaches it, and only',
-      '    // glows once it has its colour.',
-      '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.75, 1.0, paintKeep);',
+      '    // Lava glows only as the relief rises, once it has its colour.',
+      '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.45, 1.0, uIntroRise.x);',
       '    if (aWater > 0.5) {',
-      '      // No surf or foam line on water that is not there yet.',
-      '      vShore *= keep * fill;',
-      '      if (aFall < 0.5) vFallCoord *= keep * fill;',
+      '      vShore *= keep;',
+      '      if (aFall < 0.5) vFallCoord *= keep;',
       '    }',
       '    vColor = mix(uIntroNeutral, vColor, keep);',
-      '    vIntroGrid.w = 1.0 - keep;',
+      '    vIntroGrid.w = uIntro.z;',   // the grid stays through the paint and fades before the rise
       '  }',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
@@ -1339,6 +1328,9 @@
       'in float vWaveShade;',
       'in float vWater;',
       'in highp vec4 vIntroGrid;',
+      // Loading animation: 0 on the flat map (plain light, no occlusion or cast
+      // shadow, no swell shading), 1 once the relief has risen.
+      'uniform float uIntroLight;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -1433,7 +1425,8 @@
       '  float shadowDepth = ' + glslFloat(SHADOW_DEPTH) + ' *',
       '    smoothstep(' + glslFloat(SHADOW_LOW_SUN[0]) + ', ' + glslFloat(SHADOW_LOW_SUN[1]) + ', daylight) *',
       '    mix(1.0, ' + glslFloat(SHADOW_WATER) + ', vWater);',
-      '  float shadowFactor = 1.0 - shadowDepth * shadowHit * shadow;',
+      '  aoFactor = mix(1.0, aoFactor, uIntroLight);',
+      '  float shadowFactor = 1.0 - shadowDepth * shadowHit * shadow * uIntroLight;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
       '  // Cell UV offsets lava so an entire volcano never pulses in lockstep.',
       '  float lavaPhase = dot(vCellUV, vec2(113.0, 173.0));',
@@ -1527,13 +1520,13 @@
       '#ifdef NIGHT',
       '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * sunShade * aoFactor *',
-      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
+      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade * uIntroLight) +',
       '      emission * (1.0 - uNightLight) + foamColor)) +',
       '    emission * (uNightLight * ' + glslFloat(LAVA_NIGHT) + ');',
       '#else',
       '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * sunShade * aoFactor *',
-      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
+      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade * uIntroLight) +',
       '      emission + foamColor));',
       '#endif',
       '  outColor = vec4(color, 1.0);',
@@ -1654,13 +1647,35 @@
       'in highp vec3 vPos;',
       'uniform vec3 uSunDirection;',
       'uniform vec3 uColor;',
+      'uniform highp sampler2D uIntroImage;',
+      // x = paint 0..1, y = image there, z = grid amount, w = sun strength.
+      'uniform vec4 uSlab;',
+      'uniform vec3 uIntroSweep;',
       INTRO_GRID_GLSL,
       'out vec4 outColor;',
       'void main() {',
-      '  float lit = 0.62 + 0.38 * max(dot(normalize(vNormal), normalize(uSunDirection)), 0.0);',
+      '  vec3 n = normalize(vNormal);',
+      '  // The terrain\'s own light on a flat top (no occlusion, no cast shadow), so',
+      '  // the mesh takes over without a change of brightness.',
+      '  float daylight = clamp(uSlab.w / 0.42, 0.0, 1.0);',
+      '  float lambert = mix(0.38, 0.47, daylight) + 0.61 * daylight * max(dot(n, normalize(uSunDirection)), 0.0);',
+      '  vec3 albedo = uColor;',
+      '  if (uSlab.y > 0.5) {',
+      '    // The flat map: the worker\'s colours, washed in by the same left to',
+      '    // right front as the mesh uses; the plinth takes its own colour with it.',
+      '    float u = clamp(0.5 + dot(vPos.xz, uIntroSweep.xy) * uIntroSweep.z, 0.0, 1.0);',
+      '    float keep = clamp((uSlab.x * 1.55 - u) / 0.55, 0.0, 1.0);',
+      '    keep = keep * keep * (3.0 - 2.0 * keep);',
+      '    if (n.y > 0.5) {',
+      '      ivec2 sz = textureSize(uIntroImage, 0);',
+      '      ivec2 ic = clamp(ivec2(floor(vPos.xz + 0.5 * vec2(sz))), ivec2(0), sz - 1);',
+      '      albedo = mix(uColor, texelFetch(uIntroImage, ic, 0).rgb, keep);',
+      '    } else {',
+      '      albedo = mix(uColor, vec3(' + BORD.map(function (v) { return glslFloat(v / 255); }).join(', ') + '), keep);',
+      '    }',
+      '  }',
       '  float line = introGridLine(vPos, vNormal, fwidth(vPos), 0.0);',
-      '  vec3 c = uColor * lit * (1.0 - 0.88 * line);',
-      '  outColor = vec4(c, 1.0);',
+      '  outColor = vec4(albedo * lambert * (1.0 - 0.88 * line * uSlab.z), 1.0);',
       '}'
     ].join('\n');
     var v = compileShader(gl, gl.VERTEX_SHADER, vs);
@@ -1678,30 +1693,12 @@
       viewProjection: gl.getUniformLocation(program, 'uViewProjection'),
       verticalScale: gl.getUniformLocation(program, 'uVScale'),
       rise: gl.getUniformLocation(program, 'uIntroRise'),
+      slab: gl.getUniformLocation(program, 'uSlab'),
+      sweep: gl.getUniformLocation(program, 'uIntroSweep'),
+      image: gl.getUniformLocation(program, 'uIntroImage'),
       sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
       color: gl.getUniformLocation(program, 'uColor')
     };
-  }
-
-  /* Each water tile's bed for the loading animation (see uIntroFloor in the
-   * terrain vertex shader): RG8, W x H. R = bed level + 8 over 32, G = 255 on
-   * sea. A sea tile's bed is its depth band as whole voxel layers (1..3 below
-   * level 0, deepest where the sea is deepest); a lake or river tile's bed is
-   * one level under its surface. Pure: no GL, checked headless. */
-  function buildIntroFloor(grid) {
-    var W = grid.width, H = grid.height, n = W * H;
-    var data = new Uint8Array(n * 2);
-    var bands = 3;
-    for (var i = 0; i < n; i++) {
-      if (!grid.water[i]) { data[i * 2] = Math.round((grid.level[i] - 1 + 8) / 32 * 255); continue; }
-      var sea = SM.isSea(grid, i);
-      var bed;
-      if (sea) bed = -(1 + Math.min(bands - 1, SM.seaDepthBand(grid, i)));
-      else bed = grid.level[i] - 1;
-      data[i * 2] = Math.round((bed + 8) / 32 * 255);
-      data[i * 2 + 1] = sea ? 255 : 0;
-    }
-    return { data: data, width: W, height: H, bands: bands };
   }
 
   function makeSkyProgram(gl) {
@@ -1964,7 +1961,9 @@
         introSweep: 'uIntroSweep',
         introRise: 'uIntroRise',
         introNeutral: 'uIntroNeutral',
-        introFloor: 'uIntroFloor'
+        introImage: 'uIntroImage',
+        introBlend: 'uIntroBlend',
+        introLight: 'uIntroLight'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1986,10 +1985,10 @@
 
     // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
     // neutral tone is the palette's Bare, so no new colour exists.
-    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3, sweep: [1, 0, 0.01], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
+    var introState = { on: 0, paint: 0, grid: 0, light: 1, imageOn: 0, blend: 1, sweep: [1, 0, 0.01], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
     var introNeutral = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'bare'; }).color)
       .map(function (v) { return v / 255; });
-    var introFloorTexture = gl.createTexture();
+    var introImageTexture = gl.createTexture();
     var slab = null;
     var slabProgram = null;
 
@@ -2199,15 +2198,15 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 0, 255]));
     acct.texture(seasonTexture, 4);
-    gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
+    gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, 1, 1, 0, gl.RG, gl.UNSIGNED_BYTE, new Uint8Array([255, 0]));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    acct.texture(introFloorTexture, 2);
+    acct.texture(introImageTexture, 4);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2674,13 +2673,11 @@
     function setIntro(s) {
       if (!s) { introState.on = 0; return; }
       introState.on = 1;
-      introState.paint = s.paint;
-      introState.sea = s.sea;
-      introState.lake = s.lake;
-      if (s.low != null) introState.low = s.low;
-      if (s.high != null) introState.high = s.high;
-      if (s.seaY != null) introState.seaY = s.seaY;
-      if (s.floorY != null) introState.floorY = s.floorY;
+      if (s.paint != null) introState.paint = s.paint;
+      if (s.grid != null) introState.grid = s.grid;
+      if (s.light != null) introState.light = s.light;
+      if (s.blend != null) introState.blend = s.blend;
+      if (s.imageOn != null) introState.imageOn = s.imageOn;
       if (s.sweep) introState.sweep = s.sweep;
       if (s.rise != null) introState.rise = s.rise;
       if (s.invR != null) introState.invR = s.invR;
@@ -2688,15 +2685,17 @@
       if (s.meshBlend != null) introState.meshBlend = s.meshBlend;
     }
 
-    // Each water tile's bed, from SM.buildIntroFloor (RG8, W x H).
-    function setIntroFloor(data, w, h) {
+    // The flat map's colours (RGBA8, W x H, one texel per cell). Replaced as
+    // better stand-ins arrive from the worker; the slab and the mesh both read it.
+    function setIntroImage(data, w, h) {
       if (!data || disposed) return;
-      gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
+      gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, w, h, 0, gl.RG, gl.UNSIGNED_BYTE, data);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-      acct.texture(introFloorTexture, w * h * 2);
+      acct.texture(introImageTexture, w * h * 4);
       gl.bindTexture(gl.TEXTURE_2D, null);
+      introState.imageOn = 1;
     }
 
     /* The slab shown before any map exists (the first load): a box at the
@@ -2751,7 +2750,7 @@
           }
         }
       } else {
-        var x0 = -info.w / 2 - 1, x1 = info.w / 2 + 1, z0 = -info.h / 2 - 1, z1 = info.h / 2 + 1;
+        var x0 = -info.w / 2, x1 = info.w / 2, z0 = -info.h / 2, z1 = info.h / 2;
         var yt = info.top;
         top(x0, x1, z0, z1, yt);
         wallPZ(x0, x1, z1, yb, yt);
@@ -2782,6 +2781,12 @@
       gl.uniform4f(P.rise, introState.rise, introState.invR, introState.v0, 1 - introState.meshBlend);
       gl.uniform3fv(P.sunDirection, sun);
       gl.uniform3fv(P.color, introNeutral);
+      gl.uniform4f(P.slab, introState.paint, introState.imageOn, introState.grid, strength);
+      gl.uniform3f(P.sweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+      gl.uniform1i(P.image, 5);
+      gl.activeTexture(gl.TEXTURE0);
       gl.enable(gl.CULL_FACE);
       gl.bindVertexArray(slab.vao);
       acct.drawElements(gl.TRIANGLES, slab.count, gl.UNSIGNED_INT, 0);
@@ -3141,15 +3146,17 @@
         gl.uniform3f(U.autumnB, seasonColors.autumnB[0] / 255, seasonColors.autumnB[1] / 255, seasonColors.autumnB[2] / 255);
         gl.uniform3f(U.bare, seasonColors.bare[0] / 255, seasonColors.bare[1] / 255, seasonColors.bare[2] / 255);
       }
-      gl.uniform4f(U.intro, introState.paint, introState.sea, introState.lake, introState.on);
+      gl.uniform4f(U.intro, introState.paint, 0, introState.grid, introState.on);
+      if (U.introLight) gl.uniform1f(U.introLight, introState.on ? introState.light : 1);
+      if (U.introBlend) gl.uniform2f(U.introBlend, introState.imageOn, introState.blend);
       gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
       if (U.introSweep) gl.uniform3f(U.introSweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
       if (U.introRise) gl.uniform4f(U.introRise, introState.rise, introState.invR, introState.v0, introState.meshBlend);
       gl.uniform3fv(U.introNeutral, introNeutral);
-      if (U.introFloor) {
+      if (U.introImage) {
         gl.activeTexture(gl.TEXTURE5);
-        gl.bindTexture(gl.TEXTURE_2D, introFloorTexture);
-        gl.uniform1i(U.introFloor, 5);
+        gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+        gl.uniform1i(U.introImage, 5);
         gl.activeTexture(gl.TEXTURE0);
       }
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
@@ -3385,8 +3392,8 @@
       acct.forget(seasonTexture);
       gl.deleteTexture(fogTexture);
       acct.forget(fogTexture);
-      gl.deleteTexture(introFloorTexture);
-      acct.forget(introFloorTexture);
+      gl.deleteTexture(introImageTexture);
+      acct.forget(introImageTexture);
       if (slab) setIntroSlab(null);
       if (slabProgram) gl.deleteProgram(slabProgram.program);
       gl.deleteTexture(flowTexture);
@@ -3437,7 +3444,7 @@
       setSeason: setSeason,
       setShadowMap: setShadowMap,
       setIntro: setIntro,
-      setIntroFloor: setIntroFloor,
+      setIntroImage: setIntroImage,
       setIntroSlab: setIntroSlab,
       setSky: setSky,
       setSkyGrow: setSkyGrow,
@@ -3466,7 +3473,6 @@
     var out = {
       mesh: buildVoxelMesh(grid),
       shadow: sun ? buildShadowMap(grid, sun) : null,
-      floor: buildIntroFloor(grid),
       wind: null, weather: null, smoke: null
     };
     if (SM.Wind) {
@@ -3479,7 +3485,6 @@
 
   SM.buildVoxelMesh = buildVoxelMesh;
   SM.buildIsoExtra = buildIsoExtra;
-  SM.buildIntroFloor = buildIntroFloor;
   SM.VOXEL_WAVE_DIP = WAVE_DIP;
   SM.voxelGradeColor = gradeColor;
   SM.voxelWaveField = waveField;

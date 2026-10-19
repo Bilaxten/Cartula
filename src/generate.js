@@ -168,7 +168,7 @@
 
   // The sea threshold (and the tallest reference sample) of a configuration:
   // an absolute value from a fixed 96 x 96 reference sample, so it does not
-  // depend on the map size. Used by generate() and by previewHeights().
+  // depend on the map size. Used by generate().
   function seaReference(cfg, baseN, ridgeN, warpN, rfield) {
     var RS = 96, ref = new Float32Array(RS * RS), rk = 0, x, y;
     for (y = 0; y < RS; y++) {
@@ -182,32 +182,6 @@
       seaThresh: ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))],
       refPeak: ref[ref.length - 1]
     };
-  }
-
-  /* A coarse stand-in for the elevation pass, available at once: the same
-   * world-space height function sampled at the middle of each cell of a
-   * bw x bh block grid, before the repair / plateau passes touch it. The
-   * loading animation shows it while the worker is still generating. Reads
-   * nothing of the real pipeline's state and changes none of it. Returns
-   * { elevation, seaThresh, landSpan } like the 'shape' pass snapshot. */
-  function previewHeights(opts, bw, bh) {
-    var cfg = Object.assign({}, DEFAULTS, opts || {});
-    var baseN = SM.makeNoise2D(cfg.seed);
-    var ridgeN = SM.makeNoise2D((cfg.seed ^ 0x2545f491) >>> 0);
-    var warpN = SM.makeNoise2D((cfg.seed ^ 0x27d4eb2f) >>> 0);
-    var rfield = makeRidgeField(cfg);
-    var ref = seaReference(cfg, baseN, ridgeN, warpN, rfield);
-    var cx0 = (cfg.width - 1) / 2, cy0 = (cfg.height - 1) / 2;
-    var out = new Float32Array(bw * bh), max = 0, x, y, v;
-    for (y = 0; y < bh; y++) {
-      for (x = 0; x < bw; x++) {
-        v = heightAt(baseN, ridgeN, warpN, rfield,
-          (((x + 0.5) / bw) * cfg.width - 0.5 - cx0) / REF, (((y + 0.5) / bh) * cfg.height - 0.5 - cy0) / REF, cfg);
-        out[y * bw + x] = v;
-        if (v > max) max = v;
-      }
-    }
-    return { elevation: out, seaThresh: ref.seaThresh, landSpan: Math.max(0.32, Math.max(max, ref.refPeak) - ref.seaThresh) };
   }
 
   function generate(opts, record) {
@@ -1930,7 +1904,6 @@
 
   SM.PIPELINE_STAGES = PIPELINE_STAGES;
   SM.generate = generate;
-  SM.previewHeights = previewHeights;
   SM.summarize = summarize;
   SM.elevationMeters = elevationMeters;
   SM.GEN_DEFAULTS = DEFAULTS;

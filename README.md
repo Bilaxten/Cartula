@@ -89,53 +89,35 @@ değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-mot
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
-`setIntroSlab` / `buildIntroFloor`, `generate.js` `SM.previewHeights`). Üretim
-bekleyişi tek bir boş plakada tutulmaz, adımlara yayılır. (0) Sayfa açılır açılmaz
-haritanın ayak izinde **boş bir voxel plaka** (tek nötr ton = palet *Bare*) durur ve
-alçak bir **nefes** alır (kamera ± %0,6 sinüs; dalga değil); yalnız ilk ~450 ms.
-Tek renk evresinde haritanın **hücre ızgarası siyah çizgilerle** görünür
-(`INTRO_GRID_GLSL`: tam birimlerde çizgi; hücre birkaç pikselin altına inince ince
-ızgara solar, her 4. ve 16. çizgi kalır, 320² haritada çamur olmaz). (1) **Yüksel**: plaka hemen haritanın kaba bir **basamaklı kabartmasına**
-dönüşür (`SM.previewHeights`: aynı yükseklik fonksiyonu 72×72 blokta örneklenir,
-birkaç ms; repair/plato pass'lerinden önceki ham hali, kara/deniz ayrımı shape
-pass'iyle %94+ uyuşur, `--intro` denetler) ve **her kolon kendi saatinde yükselir**:
-merkez önce, kenarlar biraz sonra (dışa yayılan bir kabarma, %40 gecikme), her kolon
-smootherstep ile (iki uçta eğim sıfır: yavaş başlar, yumuşak oturur;
-`introRiseScale`, plaka ve mesh aynı fonksiyon, geometri yeniden kurulmaz). Bitmiş
-mesh (worker'da kurulur) gelince kabartmayla **700 ms'de yer değiştirir**: kabartma
-alçalırken mesh yükselir, görünen ikisinin yüksek olanı (`uIntroRise.w`), yani şekil
-sıçramaz. Kamera farkı da 700 ms'de erir. Yükselişin hızı üretim süresine uyar: zaman
-saati kapıya (`GATE` = yükselişin sonu) kadar, preview'ın maliyetinden ve worker'ın
-yükselti pass'inin (`shape`) geliş zamanından tahmin edilen mesh varışına göre
-yavaşlar (en çok x0,4); mesh gelene kadar saat kapıda durur (nefes devam eder).
-(2) **Boya tek bir soldan sağa süpürme**: ekranda görünen haritanın sol kenarından
-sağ kenarına, kamera göreli (grid x'i değil; yön `introSweep`, vertex shader'da
-`uIntroSweep`). Her an bütün renkler birlikte boyanır (renge ya da yüksekliğe göre
-sıra yok); her kolon renksizden (plaka tonu) kendi rengine geniş ve yumuşak bir
-cephenin arkasında yavaşça geçer (bant 0,55; sine ease; şerit ya da basamak yok).
-**Izgara çizgileri aynı cephe geçtikçe silinir** (`vIntroGrid.w = 1 - keep`).
-**Lav** cephe ona ulaşana kadar nötr ve ışıksız kalır, rengini alınca parlar
-(`smoothstep(0.75, 1.0, paintKeep)`). **Su aynı boyayla boyanır**: su seviyesi nötr tonda
-yükselir, mavisi karayla aynı cephe, aynı yumuşaklıkla gelir (rengin tek kaynağı
-süpürme; kıyı köpüğü yalnız su oraya gelince görünür). (3) **Su tek seviye olarak yükselir**: renge ya da su türüne göre
-değil *yüksekliğe* göre; seviye en derin yataktan en yüksek su yüzeyine çıkar, her
-karo kendi yatağından yüzeyine kadar dolar. Yani önce deniz (en derin voksel
-katmanından, tam katmanlarda yumuşak basamaklı), seviye yüksek araziye ulaştıkça
-göl ve nehirler (`waterFraction`: hareketin %60'ı deniz). Sıra: önce yükseliş, sonra su
-seviyesi (nötr), boya cephesi su dolarken başlar ve kara ile suyu birlikte boyar. (4) **Bulutlar** harita
-merkezinden kenarlara doğru büyüyerek gelir (`uCloudGrow`: her bulut kendi
-merkezinde 0'dan tam boyuta ölçeklenir, cephe merkezden kenara ilerler; gölgesi de
-solukla birlikte büyür). Çizelge (yükselişin başından, ms; v4'ün ~1,7 katı, oturaklı): yüksel 0-2300,
-su seviyesi 2300-3800, boya 3300-5200, bulutlar 4000-5300; hepsi easeli.
-Bitişte el değiştirme **tık yapmaz**: mesh geldiğinde kamera, normal render'ın
-uyguladığı *son* dikey ölçekle oturtulur (`fitCamera` ölçeğe bağlı; yükseliş
-ortasındaki ölçekle oturtulunca intro kamerası bitişte yanlış `ty`'de kalıp son
-karede yerine sıçrıyordu). Bitişte
-uniform'lar kapanır ve değerler tam normal render'a iner (açma ve kapama arasında
-matematiksel fark yok). **Mesh, gölge görüntüsü, rüzgâr alanı, hava ve duman
-worker'da kurulur** (`SM.buildIsoExtra`) ve transfer edilir; sayfa hiç
-bloklanmaz. Rüzgâr çizgileri, yağmur bulutları ve duman bulutlarla birlikte gelir.
-Seed bayt bayt aynı: `previewHeights` boru hattının durumuna dokunmaz.
+`setIntroSlab` / `setIntroImage`). Kamera tüm süre boyunca izometrik kalır. Sıra
+(Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**:
+haritanın ayak izinde nötr (palet *Bare*) düz bir voksel plaka, üstünde **siyah
+hücre ızgarası**, alçak bir **nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms
+(ızgara çizgileri `INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin
+altına inince ince ızgara solar, her 4. ve 16. çizgi kalır). (1) **Düz haritayı
+boya**: harita *düz* haldeyken, ekranda soldan sağa tek geniş yumuşak cephe (kamera
+göreli yön `introSweep`, bant 0,55, sine ease) renklerini alır; bütün renkler birlikte
+(su da yalnız mavi hücreler), ızgara çizgileri bu sırada görünür kalır. Bitmiş harita
+worker'dan gelene kadar renkler **worker'ın kendi pass'lerinden**: ham yükselti
+(`sample`), kara/deniz (`sea`), biyomlar (`climate`) `SM.Intro.pixels` ile düz bir
+RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gösterilir ve
+görüntüler birbirine 600 ms'de eriyerek geçer. Mesh gelince plaka kalkar, mesh aynı
+görüntüden başlar (`uIntroImage`) ve 700 ms'de kendi renklerine erir; ışık da aynı
+(düz tepede AO/gölge/dalga gölgesi yok, `uIntroLight`), yani el değiştirmede renk ya da
+parlaklık sıçraması olmaz. (2) **Izgara söner** (boya bittikten sonra, yükselmeden
+önce). (3) **Yükselti yükselir**: her kolon kendi saatinde, merkez önce, kenarlar
+%40 sonra, smootherstep (`introRiseScale`, geometri yeniden kurulmaz). Sular
+kendi seviyesinde kalır: kara denizin etrafında yükselir (deniz yüzeyi 0'da durur),
+göl ve nehirler kendi zeminleriyle yükselir; ayrı bir su animasyonu yoktur. AO, gölge ve
+dalga gölgesi yükselişle birlikte devreye girer; lav yükselirken parlar. (4)
+**Bulutlar** merkezden kenara büyür (`uCloudGrow`). Çizelge (ilk boyadan, ms): boya
+0-2000, ızgara 1800-2600, yükseliş 2600-4900, bulut 4300-5500. Yükseliş mesh ister:
+zaman saati kapıda (`GATE` = yükselişin başı) düz ve renkli haritada nefes alarak
+bekler. Yavaş cihazda saat kapıya kadar yavaşlar (en çok x0,4; her pass'in geldiği
+an mesh varışını tahmin ettirir), yani bekleyiş renkli düz haritada geçer, renksiz
+plakada değil. Bitişte uniform'lar kapanır ve değerler tam normal render'a iner.
+**Mesh, gölge görüntüsü, rüzgâr alanı, hava ve duman worker'da kurulur**
+(`SM.buildIsoExtra`). Seed bayt bayt aynı (üretim koduna dokunulmadı).
 **Yeni harita da aynı animasyonla gelir**: *Random*, seed alanı (kapanınca/Enter) ve
 dünya tipi seçimi eski haritayı bırakıp (`renderer.clearMesh`, eski rüzgâr/yağmur/
 duman gizli) aynı animasyonu oynatır; slider bırakmaları anlıktır (tekrar tekrar

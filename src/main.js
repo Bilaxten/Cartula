@@ -1002,34 +1002,33 @@
   }
 
   // --- isometric intro: the loading screen IS the voxel world --------------
-  // (Uğur 2026-10-19.) The generation wait is spread over the steps instead of
-  // being held on one blank slab:
-  //   slab   a blank neutral slab at the map's footprint breathes for the first
-  //          ~0.45 s only
-  //   rise   a coarse stand-in for the terrain (SM.previewHeights: the height
-  //          function itself, sampled sparsely, a few ms) replaces the slab as
-  //          a stepped relief and every column lifts at once, one slow eased
-  //          move. When the finished mesh arrives (built in the worker too) it
-  //          takes the relief's place in mid-move, uniforms only, no geometry
-  //          rebuilt per frame
-  //   paint  one slow wipe across the screen from the left edge of the map to
-  //          the right: all colours at once, each column fading from the
-  //          neutral tone to its colour behind a wide soft front. The black
-  //          cell grid fades with the same front; lava stays neutral until
-  //          the front reaches it and glows only after
-  //   water  one water level rises through the whole map, layer by layer:
-  //          the sea fills from its deepest voxel, lakes and rivers fill when
-  //          the level reaches them
+  // (Uğur 2026-10-19.) The camera stays isometric throughout. Colour comes
+  // first, on the FLAT map; the relief rises afterwards:
+  //   slab   a blank neutral slab at the map's footprint, a black cell grid on
+  //          it, breathing, for the first ~0.45 s only
+  //   paint  the flat map takes its colours in one slow wipe across the screen
+  //          from the left edge of the map to the right: all colours at once
+  //          (water is just coloured cells), each column fading from the
+  //          neutral tone to its colour behind a wide soft front, the grid
+  //          still visible. Until the finished map exists the colours are the
+  //          worker's own passes (raw relief, land and sea, then biomes: SM.Intro.pixels),
+  //          shown flat on the slab and eased into one another; the mesh then
+  //          starts from them and eases into its own colours
+  //   grid   the grid lines fade out
+  //   rise   the relief rises, every column on its own clock (the centre
+  //          first, a swell rolling outward, smootherstep each). Water keeps
+  //          its own level, so the land rises around the sea; lakes and
+  //          rivers rise with their ground. Occlusion, cast shadow and swell
+  //          shading ease in with the rise. Lava glows as it rises
   //   clouds grow in from the map centre out to the edges
-  // then it IS the normal render (the uniforms land exactly on it). Paint and
-  // water need the mesh: the clock holds at GATE until it is there. The
-  // worker's elevation pass ('shape', ~12% of its time incl. the mesh) says how
-  // long the rest will take, and so does the cost of the preview itself
-  // (~PREVIEW_COST times less than the worker's whole job); on a slow device
-  // the clock before the gate runs slower so the rise fills the wait. A tap, a key, or a new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2300, CAM_EASE: 700, RELIEF_BLOCKS: 72, SHAPE_SHARE: 0.12, PREVIEW_COST: 45, MIN_RATE: 0.4, MORPH: 700,
-    SEA_SHARE: 0.6, SEA_FLOOR: -3,
-    RISE: [0, 2300], PAINT: [3300, 5200], SEA: [2300, 3800], CLOUD: [4000, 5300], END: 5300 };
+  // then it IS the normal render (the uniforms land exactly on it). The rise
+  // needs the mesh: the clock holds at GATE (flat, coloured map, breathing)
+  // until it is there. Each worker pass that lands (stageShare of its time incl.
+  // the mesh) says how long the rest will take; on a slow device the clock
+  // before the gate runs slower so the paint fills the wait. A tap, a key, or a
+  // new map skips to the end.
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2600, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 2000], GRID: [1800, 2600], RISE: [2600, 4900], CLOUD: [4300, 5500], END: 5500 };
 
   // The screen's rightward direction on the ground for a camera yaw, and the
   // reciprocal of the map's extent along it: the paint wipe runs from the
@@ -1041,18 +1040,38 @@
   }
 
   function smootherstep(x) { return x * x * x * (x * (x * 6 - 15) + 10); }
-  function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
   function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
-  // The water level rising through the whole map, as a 0..1 fraction of the
-  // range deepest bed .. highest surface. The sea (bed to sea level) gets
-  // SEA_SHARE of the move, lakes and rivers on higher ground the rest; the
-  // level itself only ever goes up.
-  function waterFraction(p, top) {
-    var lo = VI.SEA_FLOOR, hi = Math.max(top, 1), level;
-    level = p < VI.SEA_SHARE ? lo + (0 - lo) * (p / VI.SEA_SHARE) : hi * ((p - VI.SEA_SHARE) / (1 - VI.SEA_SHARE));
-    return (level - lo) / (hi - lo);
-  }
   function span(t, w) { return Math.max(0, Math.min(1, (t - w[0]) / (w[1] - w[0]))); }
+
+  // A stand-in colour image from the worker arrived (RGBA, one texel per
+  // cell): the first one appears as it is, later ones are eased into.
+  function introImage(vi, px, w, h) {
+    var data = new Uint8Array(px.buffer, px.byteOffset, px.length);
+    var im = vi.img;
+    if (!im) {
+      vi.img = { w: w, h: h, cur: new Uint8Array(data), from: null, to: null, t0: 0 };
+      voxelRenderer.setIntroImage(vi.img.cur, w, h);
+      if (performance.mark) performance.mark('sm-image');
+      return;
+    }
+    im.from = new Uint8Array(im.cur);
+    im.to = new Uint8Array(data);
+    im.t0 = performance.now();
+  }
+
+  // One step of the image ease (per frame, only while a new image arrives).
+  function introImageStep(vi, now) {
+    var im = vi.img;
+    if (!im || !im.to) return;
+    var k = easeInOutSine(span(now - im.t0, [0, VI.IMG_FADE])), i, n = im.cur.length;
+    for (i = 0; i < n; i += 4) {
+      im.cur[i] = im.from[i] + (im.to[i] - im.from[i]) * k;
+      im.cur[i + 1] = im.from[i + 1] + (im.to[i + 1] - im.from[i + 1]) * k;
+      im.cur[i + 2] = im.from[i + 2] + (im.to[i + 2] - im.from[i + 2]) * k;
+    }
+    voxelRenderer.setIntroImage(im.cur, im.w, im.h);
+    if (k >= 1) im.to = im.from = null;
+  }
 
   // `replay`: a new map while one is on screen (Random, a seed, a world type).
   // The old map is dropped first and the same animation plays.
@@ -1083,14 +1102,16 @@
     var camA = { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
       tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
     // The scale stays final all through: the rise is per column, in the shaders.
+    var sweep = introSweep(cfg, camA.yaw);
     voxelRenderer.setSun(sunDir);
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
-    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3,
-      rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 0 });
+    voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep,
+      rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 1 });
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
-    var vi = { cfg: cfg, camA: camA, camB: camA, corr: null, corrT: 0, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
-      amp: 1, waterTop: 1, tMesh: 0, slabGone: false, sweep: introSweep(cfg, camA.yaw), extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
+    var vi = { cfg: cfg, camA: camA, camB: camA, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
+      amp: 1, tMesh: 0, sweep: sweep, img: null, staged: false, extra: null, g: null, ms: 0, raf: 0, skip: false,
+      started: false, done: false, skyOn: false };
     var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
     it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
 
@@ -1104,14 +1125,15 @@
       if (vi.done || intro !== it) return;
       var dt = vi.last ? now - vi.last : 0;
       vi.last = now;
-      // The rise starts once the minimum wait is over and either the relief or
-      // the mesh is there; until then the clock sits at 0.
-      if (!vi.tR0 && now - vi.t0 >= VI.BLANK_MIN && (vi.relief || vi.extra)) {
+      // The paint starts once the minimum wait is over and either a colour
+      // image or the mesh is there; until then the clock sits at 0.
+      if (!vi.tR0 && now - vi.t0 >= VI.BLANK_MIN && (vi.img || vi.extra)) {
         vi.tR0 = now;
         if (performance.mark) performance.mark('sm-rise-start');
       }
       if (vi.extra && !vi.started) voxIntroStart(now);
-      // The timeline clock: stands at 0 until the rise starts, runs at `rate`
+      introImageStep(vi, now);
+      // The timeline clock: stands at 0 until the paint starts, runs at `rate`
       // (slower than real time while a slow generation is being covered), and
       // holds at the gate until the mesh is there.
       if (vi.tR0) vi.clock += Math.min(dt, 100) * (vi.extra ? 1 : vi.rate);   // a long task must not eat the move
@@ -1120,22 +1142,13 @@
       var waiting = !vi.tR0 || (!vi.extra && t >= VI.GATE);
       vi.amp += ((waiting ? 1 : 0) - vi.amp) * Math.min(1, dt / 160);
       var riseP = span(t, VI.RISE);          // linear: the shaders ease each column
-      var rise = smootherstep(riseP);        // the camera's share of the same move
+      var rise = smootherstep(riseP);        // the camera's and the lighting's share of the same move
       var paint = easeInOutSine(span(t, VI.PAINT));
-      var sea = waterFraction(easeInOutSine(span(t, VI.SEA)), vi.waterTop);
-      // The mesh and the stand-in relief trade places over MORPH ms: the relief
-      // lowers as the mesh lifts, the higher of the two is what shows.
-      var blend = vi.started ? smootherstep(span(now - vi.tMesh, [0, VI.MORPH])) : 0;
-      if (vi.started && blend >= 1 && !vi.slabGone) { vi.slabGone = true; voxelRenderer.setIntroSlab(null); }
-      voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea, sweep: vi.sweep, rise: riseP, meshBlend: blend });
+      var gridAmt = 1 - easeInOutSine(span(t, VI.GRID));
+      // The mesh starts from the stand-in colours and eases into its own.
+      var cblend = vi.started ? smootherstep(span(now - vi.tMesh, [0, VI.MORPH])) : 1;
+      voxelRenderer.setIntro({ paint: paint, grid: gridAmt, light: rise, rise: riseP, imageOn: vi.img ? 1 : 0, blend: cblend });
       var cam = lerpCam(camA, vi.camB, rise);
-      if (vi.corr) {
-        // The real fit differs a little from the estimate the rise started
-        // toward; the difference melts away instead of jumping.
-        var k = 1 - easeInOutSine(Math.min(1, (now - vi.corrT) / VI.CAM_EASE));
-        cam.zoom += vi.corr.zoom * k; cam.tx += vi.corr.tx * k; cam.ty += vi.corr.ty * k; cam.tz += vi.corr.tz * k;
-        if (k <= 0) vi.corr = null;
-      }
       // Waiting: a slow, low breath of the whole map (camera lift and a hair
       // of zoom, a sine, never a wave across it).
       var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4)) * vi.amp;
@@ -1157,15 +1170,20 @@
     }
     vi.frame = frame;
 
+    // The passes worth showing and how far into the worker's whole job (mesh
+    // included) each one lands.
+    var stageDefs = { sample: { view: 'height' }, sea: { view: 'sea' }, climate: { view: 'map' } };
+    var stageShare = { sample: 0.083, sea: 0.136, climate: 0.2 };
     it.run = SM.GenClient.run(cfg, {
-      stages: ['shape'],
+      stages: ['sample', 'sea', 'climate'],
       mesh: { sun: sunDir },
-      onStage: function () {
-        // The elevation pass: the worker has run ~SHAPE_SHARE of its work, so
-        // the mesh is due in about (now / share) from the start.
-        if (intro !== it || vi.extra || vi.shape) return;
-        vi.shape = true;
-        var now = performance.now(), due = vi.t0 + (now - vi.t0) / VI.SHAPE_SHARE;
+      onStage: function (id, snap) {
+        if (intro !== it || vi.extra || !stageDefs[id]) return;
+        introImage(vi, SM.Intro.pixels(snap, stageDefs[id]), snap.width, snap.height);
+        // The worker has run stageShare[id] of its work, so the mesh is due in
+        // about (now / share) from the start.
+        vi.staged = true;
+        var now = performance.now(), due = vi.t0 + (now - vi.t0) / stageShare[id];
         var start = Math.max(vi.tR0 || now, vi.t0 + VI.BLANK_MIN);
         vi.rate = Math.max(VI.MIN_RATE, Math.min(1, (VI.GATE - vi.clock) / Math.max(1, due - Math.max(now, start))));
       },
@@ -1178,70 +1196,28 @@
       },
       onError: function () { if (intro === it) regenerate(); }
     });
-    introRelief(vi, est, finalScale);
     vi.raf = requestAnimationFrame(frame);
     if (performance.mark) performance.mark('sm-first-map');
     return true;
   }
 
-  // The mesh lands: it replaces the slab (flat, neutral, same place), the
-  // water beds and sun shadow go up with it.
+  // The mesh lands: it replaces the slab (flat, same colours, same light, same
+  // place) and the sun shadow goes up with it.
   function voxIntroStart(now) {
     var vi = intro.vox, ex = vi.extra, g = vi.g;
     vi.started = true;
-    voxelRenderer.setIntroFloor(ex.floor.data, ex.floor.width, ex.floor.height);
     if (ex.shadow) voxelRenderer.setShadowMap(ex.shadow, g.width, g.height);
     voxelRenderer.setMesh(ex.mesh);
+    voxelRenderer.setIntroSlab(null);
     vi.tMesh = now;
     // The fit depends on the vertical scale, and the normal render fits at
     // the final one: fit at it too, or the camera ends the intro off by the
     // height difference and snaps into place when the intro hands over (the
-    // "click" at the end, Uğur 2026-10-19). The frame sets the real scale.
+    // "click" at the end, Uğur 2026-10-19).
     voxelRenderer.setVerticalScale(isoExag());
     var fit = voxelRenderer.fitCamera(ex.mesh.bounds);
-    var real = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
-    if (vi.tR0) {
-      // Mid-rise: keep the camera where it is and let the difference to the
-      // real fit fade (see frame()).
-      var k = smootherstep(span(vi.clock, VI.RISE));
-      var was = (function (a, b) { return { zoom: a.zoom + (b.zoom - a.zoom) * k, tx: a.tx + (b.tx - a.tx) * k,
-        ty: a.ty + (b.ty - a.ty) * k, tz: a.tz + (b.tz - a.tz) * k }; })(vi.camA, vi.camB);
-      var now2 = { zoom: vi.camA.zoom + (real.zoom - vi.camA.zoom) * k, tx: vi.camA.tx + (real.tx - vi.camA.tx) * k,
-        ty: vi.camA.ty + (real.ty - vi.camA.ty) * k, tz: vi.camA.tz + (real.tz - vi.camA.tz) * k };
-      vi.corr = { zoom: was.zoom - now2.zoom, tx: was.tx - now2.tx, ty: was.ty - now2.ty, tz: was.tz - now2.tz };
-      vi.corrT = now;
-    }
-    vi.camB = real;
-    vi.waterTop = Math.max(1, ex.mesh.bounds.maxY);
-    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: ex.mesh.bounds.maxY, seaY: vi.waterTop, floorY: VI.SEA_FLOOR });
-    if (performance.mark) performance.mark('sm-mesh-up');
-  }
-
-  // Show the map's shape right away as a coarse stepped relief on the slab so
-  // the rise can start without waiting for the worker. Heights follow the
-  // generator's own land quantisation; sea sits at a typical bed depth (the
-  // real beds come with the mesh).
-  function introRelief(vi, est, finalScale) {
-    if (!SM.previewHeights || !SM.quantLandLevel) return;
-    var W = vi.cfg.width, H = vi.cfg.height, B = Math.max(1, Math.ceil(Math.max(W, H) / VI.RELIEF_BLOCKS));
-    var bw = Math.ceil(W / B), bh = Math.ceil(H / B);
-    var tp = performance.now();
-    var pv = SM.previewHeights(vi.cfg, bw, bh), heights = new Int8Array(bw * bh);
-    var cost = performance.now() - tp;
-    var levels = vi.cfg.levels || 10, maxLv = 1;
-    for (var i = 0; i < heights.length; i++) {
-      var lv = pv.elevation[i] < pv.seaThresh ? -2 : SM.quantLandLevel(pv.elevation[i], pv.seaThresh, pv.landSpan, levels);
-      if (lv > maxLv) maxLv = lv;
-      heights[i] = lv;
-    }
-    voxelRenderer.setIntroSlab({ w: W, h: H, bottom: -4, block: B, bw: bw, bh: bh, heights: heights });
-    var bounds = { minX: est.minX, maxX: est.maxX, minY: est.minY, maxY: maxLv, minZ: est.minZ, maxZ: est.maxZ };
-    voxelRenderer.setVerticalScale(finalScale);
-    var fit = voxelRenderer.fitCamera(bounds);
     vi.camB = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
-    vi.relief = true;
-    vi.rate = Math.max(VI.MIN_RATE, Math.min(1, VI.GATE / Math.max(1, cost * VI.PREVIEW_COST - VI.BLANK_MIN)));
-    if (performance.mark) performance.mark('sm-relief');
+    if (performance.mark) performance.mark('sm-mesh-up');
   }
 
   function voxIntroTeardown() {

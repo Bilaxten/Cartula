@@ -3999,41 +3999,15 @@ function runIntroChecks() {
       const bad = [];
       for (const k of ['positions', 'normals', 'colors', 'cellUV', 'indices', 'water', 'wave']) if (!same(refX.mesh[k], ex.mesh[k])) bad.push('mesh.' + k);
       if (!same(refX.shadow, ex.shadow)) bad.push('shadow');
-      if (!same(refX.floor.data, ex.floor.data)) bad.push('floor');
       if (JSON.stringify(refX.wind.prevailing) !== JSON.stringify(ex.wind.prevailing)) bad.push('wind');
       if (JSON.stringify(refX.smoke) !== JSON.stringify(ex.smoke)) bad.push('smoke');
       if (JSON.stringify(refX.weather.clouds) !== JSON.stringify(ex.weather.clouds)) bad.push('weather');
-      push('iso: worker mesh, sun shadow, water beds, wind, weather and smoke == what the page builds', bad.length === 0, bad.join(','));
+      push('iso: worker mesh, sun shadow, wind, weather and smoke == what the page builds', bad.length === 0, bad.join(','));
       // Last: a real transfer detaches the buffers.
       let cloned = true;
       try { structuredClone(done, { transfer: tr.map(b => b) }); } catch (e) { cloned = false; }
       push('iso: the done message survives a real structured clone with that transfer list', cloned);
     }
-    // Water beds: what uIntroFloor holds and what the shader decodes.
-    const fl = SM.buildIntroFloor(ref);
-    const n = ref.width * ref.height;
-    const badBed = [];
-    let seaN = 0, deepest = 0, shallowest = 0;
-    for (let i = 0; i < n; i++) {
-      const bed = fl.data[i * 2] / 255 * 32 - 8, isSea = fl.data[i * 2 + 1] > 127;
-      if (!ref.water[i]) { if (isSea) badBed.push('land flagged sea'); continue; }
-      if (SM.isSea(ref, i) !== isSea) badBed.push('sea flag');
-      if (isSea) {
-        seaN++;
-        if (Math.abs(bed - Math.round(bed)) > 0.13 || bed > -0.5 || bed < -3.5) badBed.push('sea bed ' + bed);
-        if (Math.round(bed) === -3) deepest++;
-        if (Math.round(bed) === -1) shallowest++;
-      } else if (Math.abs(bed - (ref.level[i] - 1)) > 0.13) badBed.push('fresh water bed');
-    }
-    push(`iso: water beds: sea is 1..3 whole layers under level 0 (deep tiles lowest), lakes and rivers one level under their surface (${seaN} sea tiles, ${deepest} deepest)`,
-      badBed.length === 0 && seaN > 0 && deepest > 0 && shallowest > 0, badBed.slice(0, 3).join('; '));
-    let mono = true;
-    for (let i = 0; i < n; i++) {
-      if (!SM.isSea(ref, i)) continue;
-      const band = SM.seaDepthBand(ref, i), bed = Math.round(fl.data[i * 2] / 255 * 32 - 8);
-      if (bed !== -(1 + band)) { mono = false; break; }
-    }
-    push('iso: a deeper sea band always has the lower bed (the water rises through the deepest layer first)', mono);
   }
 
   // Wiring: the worker loads the same files the page does, in the same order;
@@ -4062,23 +4036,6 @@ function runIntroChecks() {
       /prefers-reduced-motion: reduce\)'\)\.matches\);/.test(main) && /stages: reduced \? \[\]/.test(main));
     push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
     const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
-    push('previewHeights: deterministic, same sea threshold as the pipeline, land/sea agrees with the shape pass on >=94% of blocks, touches no pipeline state',
-      (() => {
-        const cfg = { width: 320, height: 320, seed: 1337 };
-        const a = SM.previewHeights(cfg, 72, 72), b = SM.previewHeights(cfg, 72, 72);
-        let shape = null;
-        const g1 = SM.generate(cfg, (id, sn) => { if (id === 'shape') shape = sn; });
-        const g2 = SM.generate(cfg);
-        if (!shape || a.seaThresh !== shape.seaThresh || a.landSpan !== shape.landSpan) return false;
-        if (a.elevation.some((v, i) => v !== b.elevation[i])) return false;
-        if (g1.level.some((v, i) => v !== g2.level[i])) return false;
-        let agree = 0;
-        for (let by = 0; by < 72; by++) for (let bx = 0; bx < 72; bx++) {
-          const x = Math.min(319, Math.floor((bx + 0.5) * 320 / 72)), y = Math.min(319, Math.floor((by + 0.5) * 320 / 72));
-          if ((a.elevation[by * 72 + bx] < a.seaThresh) === (shape.elevation[y * 320 + x] < shape.seaThresh)) agree++;
-        }
-        return agree / 5184 >= 0.94;
-      })());
     push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
     const vox = main.slice(main.indexOf('var VI = {'), main.indexOf('function introGuard'));
     const vs = SM.voxelTerrainShaderSources('').vertex;
@@ -4087,31 +4044,22 @@ function runIntroChecks() {
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: rise, paint, water level, clouds in that order and overlapping, 4.6-5.8 s from the first rise, every move eased; paint waits at GATE for the mesh',
+    push('intro timeline: paint first on the flat map, then the grid fades, then the relief rises, then clouds; 5-6 s from the first paint, every move eased; the rise waits at GATE for the mesh',
       (() => {
-        const m = /SEA_SHARE: [\d.]+, SEA_FLOOR: -?\d+,\s*RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
+        const m = /PAINT: \[(\d+), (\d+)\], GRID: \[(\d+), (\d+)\], RISE: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
-        const [r0, r1, p0, p1, s0, s1, c0, c1, end] = m.slice(1).map(Number);
+        const [p0, p1, g0, g1, r0, r1, c0, c1, end] = m.slice(1).map(Number);
         const gate = /GATE: (\d+)/.exec(vox);
-        return r0 === 0 && s0 >= r1 - 100 && s0 <= r1 + 100 && p0 > s0 && p0 < s1 && p1 > s1 && c0 > p0 && c1 <= end && s1 <= end && end >= 4600 && end <= 5800 &&
-          gate && +gate[1] >= r1 - 100 && +gate[1] <= r1 + 100 &&
+        return p0 === 0 && g0 > p0 && g0 < p1 && g1 <= r0 + 50 && r0 >= p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && end >= 5000 && end <= 6000 &&
+          gate && +gate[1] >= r0 - 100 && +gate[1] <= r0 + 100 &&
           /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
-          /easeInOutSine\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
+          /easeInOutSine\(span\(t, VI\.GRID\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
       })());
-    push('intro water: one level rising by height (sea first), a pure function of progress that never goes down',
-      (() => {
-        const f = new Function('VI', vox.slice(vox.indexOf('function waterFraction'), vox.indexOf('function span(t, w)')) + '; return waterFraction;');
-        const wf = f({ SEA_SHARE: 0.6, SEA_FLOOR: -3 });
-        let prev = -1;
-        for (let i = 0; i <= 100; i++) { const v = wf(i / 100, 9); if (v < prev - 1e-9) return false; prev = v; }
-        // 0 at the start, the sea line (level 0) at SEA_SHARE, the highest surface at the end
-        return Math.abs(wf(0, 9)) < 1e-9 && Math.abs(wf(0.6, 9) - 3 / 12) < 1e-9 && Math.abs(wf(1, 9) - 1) < 1e-9;
-      })());
-    push('intro: the slab is blank for ~0.5 s only; the rise starts at once on a coarse stepped relief (SM.previewHeights), the elevation pass paces it, the mesh replaces it mid-rise',
-      /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['shape'\]/.test(vox) && /SM\.previewHeights\(vi\.cfg/.test(vox) &&
-      /function introRelief/.test(vox) && /setIntroSlab\(\{ w: W, h: H, bottom: -4, block: B/.test(vox) && /vi\.corr/.test(vox));
-    push('intro: columns rise together (one vertical scale, no per-column delay), the sky and effects join with the water, geometry is never rebuilt per frame',
-      /rise: riseP, meshBlend: blend/.test(vox) && !/setVerticalScale/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame'))) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
+    push('intro: the slab is blank for ~0.5 s only; the flat map is coloured from the worker\'s own passes (sample, sea, climate) until the mesh exists, no previews, no water animation',
+      /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['sample', 'sea', 'climate'\]/.test(vox) &&
+      /SM\.Intro\.pixels\(snap, stageDefs\[id\]\)/.test(vox) && /function introImage\(/.test(vox) && !/previewHeights|introRelief|waterFraction|setIntroFloor/.test(vox));
+    push('intro: every column rises on its own clock in the shader (no global scale change), the mesh is never rebuilt per frame, the sky and effects join after the rise starts',
+      /rise: riseP/.test(vox) && !/setVerticalScale/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame'))) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
       && /t >= VI\.CLOUD\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
     push('intro ends on the normal render: uniforms off, scale back to isoExag, sky restored, mesh already uploaded (no second setMesh)',
       /function voxIntroTeardown[\s\S]*?setIntro\(null\)[\s\S]*?setVerticalScale\(isoExag\(\)\)[\s\S]*?setSky/.test(vox) &&
@@ -4127,19 +4075,13 @@ function runIntroChecks() {
       /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
       /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
       /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
-    push('terrain shader intro: the paint is one left-to-right wipe on screen (no order by colour or height), grid lines fade with it, lava glows only after its own paint, one water level by height whose colour is the same wipe as land (never its own fill)',
+    push('terrain shader intro: the paint is one left-to-right wipe on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
       /float u = clamp\(0\.5 \+ dot\(aPosition\.xz, uIntroSweep\.xy\) \* uIntroSweep\.z, 0\.0, 1\.0\)/.test(vs) &&
       /float keep = clamp\(\(uIntro\.x \* \(1\.0 \+ band\) - u\) \/ band, 0\.0, 1\.0\)/.test(vs) && !/yN/.test(vs) &&
-      /vIntroGrid\.w = 1\.0 - keep/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
-      /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.75, 1\.0, paintKeep\)/.test(vs) &&
-      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && /fill = smoothstep\(floorY - 0\.05/.test(vs) && !/smoothstep\(floorY - 0\.05, floorY \+ 0\.9, q\) \* paintKeep/.test(vs) && /vShore \*= keep \* fill/.test(vs) && !/bed\.g > 0\.5/.test(vs));
-    push('intro sweep: direction is the camera right on the ground (sin yaw, -cos yaw), extent covers the footprint, 0..1 left to right',
-      (() => {
-        const f = new Function(vox.slice(vox.indexOf('function introSweep'), vox.indexOf('function easeInOutCubic')) + '; return introSweep;');
-        const sw = f(), r = sw({ width: 320, height: 200 }, 35);
-        const dots = [[-160, -100], [160, -100], [-160, 100], [160, 100]].map(c => 0.5 + (c[0] * r[0] + c[1] * r[1]) * r[2]);
-        return Math.abs(Math.min(...dots)) < 1e-9 && Math.abs(Math.max(...dots) - 1) < 1e-9 && Math.abs(r[0] - Math.sin(35 * Math.PI / 180)) < 1e-12;
-      })());
+      /vIntroGrid\.w = uIntro\.z/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
+      /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.45, 1\.0, uIntroRise\.x\)/.test(vs) &&
+      /vColor = mix\(texelFetch\(uIntroImage, ic, 0\)\.rgb, vColor, uIntroBlend\.y\)/.test(vs) && !/uIntroFloor|yw = mix/.test(vs) &&
+      /aoFactor = mix\(1\.0, aoFactor, uIntroLight\)/.test(fsrc) && /shadow \* uIntroLight/.test(fsrc));
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',

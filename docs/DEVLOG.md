@@ -4,6 +4,22 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 6 (aynı gün): önce renk, sonra yükselti.** Uğur: *"sonradan boyama
+olmasın. boyamayı da öne alalım zaten 2d çıkarken renkli çıkıyor direkt 2d olarak
+gelsin. ama yine izometrik görelim biz. sonra yükselti oluşacakken grid'i söndür
+sonrasında yükseltiler gelmeye başlasın"*. Yeni sıra: düz plaka + ızgara → düz haritada
+soldan sağa boya (ızgara görünür) → ızgara söner → yükselti yükselir → bulutlar. Karar
+ve gerekçeler: (a) Bitmiş renkler mesh'ten gelir, mesh en sonda; bekleyiş renksiz plakada
+geçmesin diye worker'ın zaten yolladığı pass'ler (`sample` ham yükselti, `sea` kara/deniz,
+`climate` biyom) `SM.Intro.pixels` ile düz görüntüye çevrilip plakaya doku olarak
+konur ve birbirine erir; mesh gelince aynı görüntüden başlayıp kendi renklerine erir
+(ışık da aynı: düz tepede AO/gölge yok, yükselişle gelir; böylece el değiştirmede
+sıçrama yok). (b) Su: ayrı su animasyonu kalktı. En yumuşak yol buydu: deniz yüzeyi zaten
+0'da, kara etrafında yükselir; göl ve nehirler kendi zeminleriyle yükselir, sonuç
+doğru çıkar, ek geçiş gerekmez. (c) Lav boyayla renklenir, yükselirken parlar.
+(d) Kabartma önizlemesi (`previewHeights`), su yatakları (`buildIntroFloor`) ve su
+seviyesi kodu artık gereksiz, silindi.
+
 **Revizyon 5 (aynı gün, Uğur v4'ü izledikten sonra).** Uğur: *"suların
 renklendirilmesi yanlış. onları da boyuyormuş gibi yapalım. gridden yükseltiye
 geçerkenki yükseliş çok ani oluyor gibi. oraya yumuşatma yapalım. genel olarak map
