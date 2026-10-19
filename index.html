@@ -86,7 +86,18 @@
           </select>
 
           <label for="seed" data-i18n="seed.label">Seed</label>
-          <input type="text" id="seed" value="" title="The seed is the whole map: it carries the random base and every setting. Paste a seed here to load that map." data-i18n-title="seed.title" maxlength="48" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-describedby="seedMsg">
+          <div class="seed-row">
+            <input type="text" id="seed" value="" title="The seed is the whole map: it carries the random base and every setting. Paste a seed here and leave the field to load that map." data-i18n-title="seed.title" maxlength="48" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-describedby="seedMsg">
+            <button id="seedCopy" type="button" title="Copy seed" aria-label="Copy seed" data-i18n-title="seed.copy" data-i18n-aria-label="seed.copy">
+              <svg class="ico-copy" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <rect x="9" y="9" width="11" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+                <path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <svg class="ico-check" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
           <div id="seedMsg" role="status" aria-live="polite" hidden></div>
 
           <label for="size" data-i18n="size.label">Map size <span id="sizeVal">192²</span></label>
@@ -231,13 +242,6 @@
     </div>
 
     <div class="gen-actions">
-    <button id="regenMap" type="button" title="Rebuild the map of this seed exactly, brush edits undone (R)" data-i18n-title="regen.title">
-      <svg class="regen" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path d="M20 12a8 8 0 1 1-2.34-5.66" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span data-i18n="regen.label">Regenerate</span>
-    </button>
     <button id="randomMap" type="button" class="primary" title="Random settings and a new seed (Shift+R)" data-i18n-title="random.title">
       <svg class="dice" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="2"/>

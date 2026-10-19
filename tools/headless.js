@@ -4282,21 +4282,22 @@ function runSeedChecks() {
       const code = Seed.encode(base, st);
       const d = Seed.decode(code);
       n++;
-      if (!/^1(-[0-9a-hjkmnp-tv-z]{4}){5}$/.test(code)) shape = false;
+      if (!/^1[0-9a-hjkmnp-tv-z]{20}$/.test(code)) shape = false;
       if (!d.ok || d.base !== base || Seed.FIELDS.some(f => d.settings[f.id] !== st[f.id])) bad++;
       else if (Seed.encode(d.base, d.settings) !== code) bad++;
     }
     push(`settings -> seed -> settings is exact (${n} codes incl. both extremes)`, bad === 0, `${bad} mismatches`);
-    push('a seed is "1-" + five groups of four characters, no i/l/o/u', shape, '');
+    push('a seed is "1" + 20 characters, no dashes, no i/l/o/u', shape, '');
   }
 
   // 3) Spelling: case, dashes, spaces and the look-alikes o/l/u decode to the same code.
   {
     const st = randomSettings(), code = Seed.encode(777, st);
-    const variants = [code.toUpperCase(), code.replace(/-/g, ''), '  ' + code.replace(/-/g, ' ') + ' ',
+    const dashed = '1-' + code.slice(1).replace(/(.{4})(?=.)/g, '$1-');
+    const variants = [code.toUpperCase(), dashed, '  ' + dashed.replace(/-/g, ' ') + ' ',
       code.replace(/0/g, 'o').replace(/1/g, 'l').replace(/v/g, 'u')];
     const bad = variants.filter(v => Seed.normalize(v) !== code);
-    push('upper case, no dashes, spaces and o/l/u for 0/1/v all read as the same seed', bad.length === 0, bad.join(' | '));
+    push('upper case, pasted dashes or spaces and o/l/u for 0/1/v all read as the same seed', bad.length === 0, bad.join(' | '));
   }
 
   // 4) Invalid input names its reason instead of generating something.
@@ -4400,16 +4401,23 @@ function runSeedChecks() {
     push('#seed is a text field (not a number input) with a status line for errors',
       /<input\b[^>]*type="text"[^>]*id="seed"/.test(html) && /id="seedMsg"[^>]*role="status"/.test(html), '');
     push('src/seed.js loads before main.js in index.html', html.indexOf('src/seed.js') > 0 && html.indexOf('src/seed.js') < html.indexOf('<script src="src/main.js">'), '');
-    push('Random draws a new base (SM.Seed.randomBase); Regenerate keeps the code (no new base); no 1e6 numeric seed left',
+    push('Random draws a new base (SM.Seed.randomBase); no Regenerate button, hotkey or handler is left; no 1e6 numeric seed left',
       (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 1 &&
-      /function regenMap\(\) \{\n\s*syncSeedField\(\);\n\s*regenerate\(\);/.test(mainJs) &&
+      !/regenMap|regen\.(label|title)/.test(mainJs + html + fs.readFileSync(path.join(root, 'i18n.js'), 'utf8')) &&
+      /key === 'r' && !ev\.altKey && ev\.shiftKey/.test(mainJs) &&
       !/Math\.random\(\) \* 1e6/.test(mainJs), '');
     push('every generation slider and the season keep the field in step on input; world type too',
       /SM\.Seed\.FIELDS\.forEach\(function \(f\) \{ \$\(f\.id\)\.addEventListener\('input', syncSeedField\)/.test(mainJs) &&
       /syncSeedField\(\);\n\s*regenerate\(\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
-    push('typing, Enter or pasting a code applies it (settings into controls, then generate); invalid shows a message',
+    push('a code applies on blur or Enter only (no per-keystroke or paste apply); invalid shows a message and keeps the text',
       /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(\)/.test(mainJs) &&
-      /addEventListener\('paste'/.test(mainJs) && /ev\.key === 'Enter'/.test(mainJs), '');
+      /\$\('seed'\)\.addEventListener\('blur', commitSeedField\)/.test(mainJs) && /ev\.key === 'Enter'/.test(mainJs) &&
+      !/\$\('seed'\)\.addEventListener\('(paste|change)'/.test(mainJs) &&
+      !/function showSeedError[\s\S]{0,300}\$\('seed'\)\.value\s*=/.test(mainJs), '');
+    push('Copy button: copies the applied code (currentSeedCode), clipboard with execCommand fallback, labelled TR+EN',
+      /id="seedCopy"[^>]*data-i18n-aria-label="seed\.copy"/.test(html) &&
+      /copyText\(currentSeedCode\(\)\)/.test(mainJs) && /execCommand\('copy'\)/.test(mainJs) &&
+      /navigator\.clipboard && window\.isSecureContext/.test(mainJs), '');
     push('readConfig takes the base from seedBase and carries the code (grid.config.seedCode)',
       /seed: seedBase,\n\s*seedCode: currentSeedCode\(\)/.test(mainJs), '');
     push('share link carries the code (not the individual settings); an old numeric link still opens',
@@ -4418,7 +4426,7 @@ function runSeedChecks() {
       /seed: cfg\.seedCode \|\| cfg\.seed/.test(exportJs) && /seedBase: cfg\.seed/.test(exportJs), '');
     const src = fs.readFileSync(path.join(root, 'i18n.js'), 'utf8');
     const keys = ['seed.title', 'seed.err.empty', 'seed.err.chars', 'seed.err.length', 'seed.err.version',
-      'seed.err.checksum', 'seed.err.range', 'seed.err.old'];
+      'seed.err.checksum', 'seed.err.range', 'seed.err.old', 'seed.copy', 'seed.copied', 'seed.copyFailed'];
     push('every seed message exists in both languages (EN and TR)',
       keys.every(k => (src.match(new RegExp("'" + k.replace(/\./g, '\\.') + "':", 'g')) || []).length === 2), '');
   }

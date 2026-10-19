@@ -362,6 +362,20 @@ details.group .body { padding: 2px 18px 18px; }
 /* The seed is a code (src/seed.js), not a number. */
 #panel input#seed { width: 100%; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; letter-spacing: 0.02em; }
 #panel input#seed[aria-invalid="true"] { border-color: var(--accent); }
+/* Copy button sits inside the field's right edge. */
+.seed-row { position: relative; }
+#panel .seed-row input#seed { padding-right: 38px; }
+#panel .seed-row button {
+  position: absolute; top: 1px; right: 1px; bottom: 1px;
+  width: 36px; min-height: 0; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: 5px; color: var(--muted);
+}
+#panel .seed-row button:hover { background: var(--panel-2); color: var(--text); }
+#seedCopy .ico-check { display: none; }
+#seedCopy.ok { color: var(--accent); }
+#seedCopy.ok .ico-copy { display: none; }
+#seedCopy.ok .ico-check { display: block; }
 #seedMsg { margin: 4px 0 0; font-size: 12px; line-height: 1.35; color: var(--accent); }
 #panel select { width: 100%; padding-right: 28px; }
 #panel input[type=number]:focus,
@@ -467,13 +481,11 @@ details.group .body { padding: 2px 18px 18px; }
   letter-spacing: 0.01em;
 }
 #panel button.primary:hover { background: var(--accent-press); border-color: var(--accent-press); }
-/* Regenerate (new seed, same settings) and Random (random settings + new seed) side by side
- * (Uğur 2026-10-05). The primary button's own margin moves to the row. */
-.gen-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 13px 18px; }
+/* Random (random settings + new seed) is the only generate button since
+ * 2026-10-19. The primary button's own margin moves to the row. */
+.gen-actions { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 13px 18px; }
 #panel .gen-actions button.primary { margin: 0; }
-#regenMap, #randomMap { display: flex; align-items: center; justify-content: center; gap: 8px; }
-#regenMap .regen { flex: none; transition: transform 0.35s ease; }
-#regenMap.rolling .regen { transform: rotate(180deg); }
+#randomMap { display: flex; align-items: center; justify-content: center; gap: 8px; }
 #randomMap .dice { flex: none; transition: transform 0.35s ease; }
 #randomMap.rolling .dice { transform: rotate(180deg); }
 

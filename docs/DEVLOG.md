@@ -90,6 +90,8 @@ Edge aynı parmak izi (`4586ca46`). Ölçülmedi: Safari, Firefox.
 
 Düzeltme (aynı gün, Uğur: *"regenerate aynı özelliklerde farklı map yapmasın, aynı seed aynı sonucu versin"*): *Regenerate* (R) artık yeni taban çekmiyor, geçerli kodun haritasını aynen yeniden kuruyor (fırça düzenlemelerini siler); yeni kodu yalnız *Random* veriyor. Edge'de R ve düğme sonrası kod ve canvas pikselleri aynı.
 
+İkinci düzeltme (aynı gün, Uğur: *"tireler olmasın seed içinde, yeniden üret tuşu hiç olmasın, random tuşu olsun sadece, seed kutucuğu kapandığında apply olsun"*, sonra *"seed input field'ına copy butonu ekle"*): kod tiresiz (`1k3m90bx74h2dq8wn5ztc`; yapıştırılan koddaki tire/boşluk hâlâ atılıp okunur ama hiçbir yerde gösterilmez ya da yazılmaz); *Regenerate* düğmesi, `R` kısayolu ve metinleri kalktı, yalnız *Random* (`Shift+R`) var; kod alandan çıkınca (`blur`, telefonda klavye kapanınca) ya da Enter'da uygulanır, yapıştırınca ya da tuşlarken değil; geçersizse alan yazılanı tutar, neden yazılır, harita değişmez. Alanın içine *Kopyala* düğmesi: uygulanmış kodu (taslak değil) `navigator.clipboard` ile, güvenli olmayan bağlamda `execCommand('copy')` ile alır, ~1,5 sn onay ikonu; düğmeye basmak alanın odağını bırakmaz (taslak kendiliğinden uygulanmasın). `--seed` ve Edge'de masaüstü + dokunmatik doğrulandı (blur/Enter/tireli yapıştırma/geçersiz/R/Shift+R/pano).
+
 ## Önceki oturum — kışın kar yağar, bayat yorumlar, ölçüm manifesti (2026-10-14)
 
 Uğur'un üç isteği (ana oturum üzerinden), push'landı, `checks.sh` temiz,

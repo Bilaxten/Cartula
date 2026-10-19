@@ -160,30 +160,32 @@ karayı eritmez, merkezde toplar (deniz eşiği falloff'u hesaba katar; `--geo`
 P7). *Moisture scale* kaldırıldı (en zayıf etki, %20-25). Temperature /
 Rainfall / Rivers kelimeyle okunur; her slider'ın tooltip'i ne yaptığını söyler.
 
-**Yeni harita (2026-10-05, Uğur):** iki düğme yan yana.
-- *Regenerate* / *Yeniden üret* (kısayol `R`): geçerli seed kodunun haritasını **aynen** yeniden kurar
-  (aynı kod, aynı harita; fırça düzenlemelerini siler). Yeni kod vermez.
-- *Random* / *Rastgele* (kısayol `Shift+R`): rastgele bir dünya tipinden başlar, her üretim
-  slider'ını aralığının en fazla dörtte biri kadar oynatır (uçlardaki %10 dışarıda; deniz
-  seviyesi 0.30–0.62, altında harita %80–90 kara çıkıyordu) ve yeni seed verir. Harita boyutu değişmez.
+**Yeni harita (Uğur 2026-10-19):** tek düğme, *Random* / *Rastgele* (kısayol `Shift+R`):
+rastgele bir dünya tipinden başlar, her üretim slider'ını aralığının en fazla dörtte biri
+kadar oynatır (uçlardaki %10 dışarıda; deniz seviyesi 0.30–0.62, altında harita %80–90 kara
+çıkıyordu) ve yeni seed verir. Harita boyutu değişmez. *Regenerate* kalktı: aynı kod zaten
+her zaman aynı haritayı verir, yeniden kurmak bir şey değiştirmezdi.
 
 Fırça düzenlemelerini geri almak Edit → *Reset to generated*.
 
 **Seed haritanın tamamıdır** (Uğur 2026-10-19: *"ayarlar değişince seed de
 değişecek, seed ayarları da temsil edecek"*). Seed tek bir kısa, kopyalanabilir
-kod: `1-k3m9-0bx7-4h2d-q8wn-5ztc`. İçinde rastgele taban (32 bit) **ve** her
+kod, tiresiz: `1k3m90bx74h2dq8wn5ztc`. İçinde rastgele taban (32 bit) **ve** her
 üretim ayarı var: harita boyutu, deniz seviyesi, engebe, çarpıtma, yükselti
 ölçeği, oktav, ada, sıcaklık/nem eğilimi, nehirler ve mevsim (54 bit, her
 slider'ın adım indeksi olarak) + 14 bitlik doğrulama. `1` sürüm karakteri; alfabe
 32 sembol (`i l o u` yok; `o`→`0`, `i`/`l`→`1`, `u`→`v` okunur, büyük/küçük harf
-ve tire önemsiz). Mantık `src/seed.js`'te (`SM.Seed`), DOM'suz.
+önemsiz; yapıştırılan kodun tire ve boşlukları atılır,
+kod hiçbir yerde tireyle gösterilmez ya da yazılmaz). Mantık `src/seed.js`'te (`SM.Seed`), DOM'suz.
 - Herhangi bir ayar değişince kod **hemen** değişir (slider sürüklenirken de).
-- Koda yazmak/yapıştırmak (Enter, alandan çıkma ya da yapıştırma) o koddaki bütün
-  ayarları kontrollere uygular ve haritayı üretir. Geçersiz kodda neden yazılır
+- Koda yazmak/yapıştırmak: kod **alan kapanınca** (odak çıkınca, telefonda klavye kapanınca) ya da
+  Enter'da uygulanır, her tuşta değil; o koddaki bütün ayarları kontrollere uygular ve haritayı üretir. Geçersiz kodda neden yazılır
   (boş, karakter, uzunluk, sürüm, doğrulama tutmadı, eski sayısal seed) ve hiçbir
   şey değişmez; mesaj TR/EN.
-- *Regenerate* aynı kodu aynen yeniden kurar (Uğur: "aynı seed aynı sonucu
-  versin"), *Random* yeni taban + yeni ayarlar, yani yeni bir kod verir.
+- Alanın sağındaki *Kopyala* düğmesi uygulanmış kodu panoya alır (taslak değil); güvenli
+  olmayan bağlamda `execCommand` yedeği, ~1,5 sn "Kopyalandı" geri bildirimi.
+- Yeni kodu yalnız *Random* verir (yeni taban + yeni ayarlar); aynı kod her zaman aynı haritadır
+  (Uğur: "aynı seed aynı sonucu versin"). *Regenerate* düğmesi ve `R` kısayolu yok.
 - Harita **kodun saf fonksiyonu**: aynı kod her seferinde, her üretimden sonra
   ve ayar → kod → çözümle → üret yolundan da aynı grid'i verir
   (`node tools/headless.js --seed`, grid'in her tipli dizisinin baytı üzerinden
@@ -607,7 +609,7 @@ terimine eklenir). `--lightning`.
 
 **Mevsim** (2026-10-06, `src/render/season.js`; View → *Season*, TR
 *Mevsim*): ilkbahar / yaz / sonbahar / kış, sürekli slider (0..3). Yalnız
-görünüm: hiçbir biyom, kademe ya da seed değişmez; *Random* / *Regenerate*
+görünüm: hiçbir biyom, kademe ya da seed değişmez; *Random*
 ona dokunmaz (harita boyutu gibi); paylaşım linkinde *Time of day* gibi
 taşınır. İlkbahar ve yaz üretilen harita. Sonbahar: yaprak döken orman
 (`forest` biyomu; tayga ve yağmur ormanı yeşil kalır) her tile kendi tonunda

@@ -33,10 +33,11 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 - **İç deniz boyut eşiği** (256'da kenara değen sığ deniz kapanıp göl/kara oluyor): karar Uğur'da.
 - **Kıyı köpüğü sonrası shader cilası** (outline, mesafe sisi): estetik karar, Uğur'la.
 - **Seed = harita ve Kaydır düğmesi (2026-10-19, canlı):** seed artık tek kod
-  (`1-k3m9-…`, rastgele taban + her ayar + mevsim, `src/seed.js`); ayar değişince kod değişir,
+  (`1k3m90bx…`, tiresiz, rastgele taban + her ayar + mevsim, `src/seed.js`); ayar değişince kod değişir,
   kod yapıştırılınca ayarlar uygulanır; eski sayısal seed'ler çalışmaz. Üretim yolu motora bağlı
   `Math.sin/cos/pow` yerine `SM.dmath` kullanır. Telefonda iki parmak kaydırma kalktı, yerine
-  *Kaydır* düğmesi. Ayrıntı README "Seed haritanın tamamıdır" ve "Kaydır düğmesi", `--seed`
+  *Kaydır* düğmesi. 2026-10-19 sonrası: Regenerate düğmesi ve `R` kalktı (yalnız Random), kod
+  alan kapanınca/Enter'da uygulanır, alanın içinde Kopyala düğmesi. Ayrıntı README "Seed haritanın tamamıdır" ve "Kaydır düğmesi", `--seed`
   denetimi. Safari/Firefox'ta ölçülmedi.
 - **Unity export** 2026-10-19'da açıldı (`UNITY_EXPORT_ENABLED = true`), Unity 6'da doğrulanmıştı.
 - Fırçalar yalnız üstten görünümde çalışıyor ama varsayılan açılış voxel: araç seçilince
