@@ -1193,6 +1193,7 @@
       // Loading animation: raw position for the grid lines, w = how much line
       // is left (1 on the neutral map, 0 once the paint arrives).
       'out highp vec4 vIntroGrid;',
+      'out float vIntroKeep;',     // 1 outside the intro; in it, 1 once the paint front has passed the cell
       '#ifdef RIVER',
       // World x/z for the flow pattern (highp: a quarter-tile hash cell on a
       // 448-tile map needs more than mediump's 10-bit mantissa).
@@ -1278,6 +1279,7 @@
       '  float introY = aPosition.y;',
       '  float yScale = uVScale;',
       '  vIntroGrid = vec4(aPosition, 0.0);',
+      '  vIntroKeep = 1.0;',
       '  if (uIntro.w > 0.5) {',
       '    yScale = introRiseScale(uIntroRise, pow((1.5 - introFront(aPosition.xz, uIntroSweep)) / 1.48, 1.5), uVScale);',   // ^1.5: a visible area lifts at once
       '    // The paint, on the FLAT map: a hard, rough front (INTRO_FRONT_GLSL) that',
@@ -1294,10 +1296,16 @@
       '    }',
       '    // Lava glows only as the relief rises, once it has its colour.',
       '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.45, 1.0, uIntroRise.x);',
-      '    if (aWater > 0.5) {',
-      '      vShore *= keep;',
-      '      if (aFall < 0.5) vFallCoord *= keep;',
-      '    }',
+      '    // Nothing but the blank tone before the front arrives: no surf or foam (on',
+      '    // beaches too), no white waterfall, no flowing glints, no lava light.',
+      '    vShore *= keep;',
+      '    vFall *= keep;',
+      '    if (aFall < 0.5) vFallCoord *= keep;',
+      '#if defined(SEASON) && defined(RIVER)',
+      '    vFrozen = max(vFrozen, 1.0 - keep);',
+      '#endif',
+      '    if (keep < 0.5) vEmissive = 0.0;',
+      '    vIntroKeep = keep;',
       '    vColor = keep > 0.5 ? vColor : uIntroNeutral;',
       '    vIntroGrid.w = uIntro.z;',   // the grid stays through the paint and fades before the rise
       '  }',
@@ -1326,6 +1334,7 @@
       'in float vWaveShade;',
       'in float vWater;',
       'in highp vec4 vIntroGrid;',
+      'in float vIntroKeep;',
       // Loading animation: 0 on the flat map (plain light, no occlusion or cast
       // shadow, no swell shading), 1 once the relief has risen.
       'uniform float uIntroLight;',
@@ -1457,6 +1466,7 @@
       '  vec3 fallColor = mix(vColor, vec3(0.80, 0.90, 0.94),',
       '    0.30 + 0.45 * fallStreak);',
       '  vec3 baseColor = mix(vColor, fallColor, vFall);',
+      '  vec3 preRiver = baseColor;',
       '#ifdef RIVER',
       '  // Rivers and plunge pools: the advected flow pattern (flow.js).',
       '#if defined(SEASON)',
@@ -1466,6 +1476,8 @@
       '  baseColor = riverFlow(baseColor);',
       '#endif',
       '#endif',
+      '  // Not yet painted: no flowing river glints either, just the blank tone.',
+      '  baseColor = mix(preRiver, baseColor, step(0.5, vIntroKeep));',
       '  // Loading animation: dim light cell lines on the near-black map and on',
       '  // the colours as they arrive, faded out before the rise (vIntroGrid.w).',
       '  // The derivative is taken outside the branch.',

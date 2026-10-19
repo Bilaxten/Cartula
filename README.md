@@ -89,11 +89,11 @@ değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-mot
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
-`setIntroSlab` / `setIntroImage`). Kamera tüm süre boyunca izometrik kalır. Sıra
+`setIntroSlab` / `setIntroImage`). İlk açılışta kamera düz yukarıdan başlar (2B haritanın görünümü), izometrik kameraya kayar ve renk ancak oraya varınca gelir (aşağıda); sonraki haritalar izometrik başlar. Sıra
 (Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**: haritanın ayak izinde **neredeyse siyah (#131313)** düz bir voksel
 plaka, üstünde **soluk açık gri hücre ızgarası** (koyu zeminde okunsun diye çizgiler
 artık siyah değil: albedo'yu %30 açık griye (0,62) doğru karıştırır), alçak bir
-**nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms. Izgara çizgileri
+**nefes** (kamera ± %0,6 sinüs); yalnız ilk 250 ms. Izgara çizgileri
 `INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin altına inince ince ızgara
 solar, her 4. ve 16. çizgi kalır. (1) **Düz haritayı boya**: harita *düz* haldeyken
 renkler köşelerden ve kenarlardan gelir, boyanmamış bölge orta civarında kapanır ama
@@ -112,7 +112,16 @@ RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gö
 görüntüler birbirine 600 ms'de eriyerek geçer. Mesh gelince plaka kalkar, mesh aynı
 görüntüden başlar (`uIntroImage`) ve 700 ms'de kendi renklerine erir; ışık da aynı
 (düz tepede AO/gölge/dalga gölgesi yok, `uIntroLight`), yani el değiştirmede renk ya da
-parlaklık sıçraması olmaz. (2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
+parlaklık sıçraması olmaz. **Kamera**: önce siyah plaka düz aşağıdan (pitch 89, 2B harita gibi) 250 ms görünür, sonra kamera
+~1,2 sn'de (`TILT` 250-1450 ms, smootherstep) normal izometrik kameraya eğilir; **renk ancak eğilme
+bittikten sonra** başlar (boya saati eğilmenin bitişinden sonra, önizleme görüntüleri de boya
+başlayınca) ve boya eğilmeyle çakışmaz. Yaw hiç değişmez (dönme yok), pitch tam normal
+kameranın pitch'inde biter. Atla ya da iptal anında kamera hemen normal izometriğe döner.
+**Eğilme yalnız sayfa ilk açıldığında oynar.** Sonraki her yeni harita (Random, seed, dünya
+tipi) üstten başlamaz ve eğilmez: kamera olduğu gibi izometrik kalır (eski `regenerate` gibi
+yaw/pitch korunur, yakınlaşma ve hedef sıfırlanır), siyah plaka kısa bir an (`REPLAY_SLAB`
+250 ms) görünür ve boya hemen başlar, eğilmenin yerine bekleme konmaz.
+(2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
 boya bitmeden ~300 ms önce başlar** (kapanan lekenin üstünde, ölü boşluk yok),
 **boyanın tersi sırayla**: en son boyanan yer (ortada kapanan leke) ilk yükselir,
 boyanın başladığı köşeler ve kenarlar en son. Sıra aynı çarpık/gürültülü cephe
@@ -125,7 +134,7 @@ kendi seviyesinde kalır: kara denizin etrafında yükselir (deniz yüzeyi 0'da 
 göl ve nehirler kendi zeminleriyle yükselir; ayrı bir su animasyonu yoktur. AO, gölge ve
 dalga gölgesi yükselişle birlikte devreye girer; lav yükselirken parlar. (4)
 **Bulutlar** merkezden kenara büyür (`uCloudGrow`). Çizelge (ilk boyadan, ms): boya
-0-2400, ızgara 2000-2900, yükseliş 2100-3800, bulut 3300-4500. Yükseliş mesh ister:
+0-2400, ızgara 2000-2900, yükseliş 2100-3800, bulut 3300-4500 (boya saati eğilme bitince, ~1450 ms'de başlar; yükselişten önce hiçbir şey renkli değildir). Yeni bir düzeltme: boyanmamış hücrede kıyı köpüğü, şelale, nehir parıltısı ve lav ışığı da görünmez (`vIntroKeep`). Yükseliş mesh ister:
 zaman saati kapıda (`GATE` = yükselişin başı) düz ve renkli haritada nefes alarak
 bekler. Yavaş cihazda saat kapıya kadar yavaşlar (en çok x0,4; her pass'in geldiği
 an mesh varışını tahmin ettirir), yani bekleyiş renkli düz haritada geçer, renksiz

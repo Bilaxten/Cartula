@@ -4,6 +4,41 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 13: eğilme yalnız ilk açılışta.** Uğur: *"bir kere yüklendikten sonra tekrar 2d
+görünümden gelme olmasın. sayfa ilk açıldığında olsun sadece. random'a basınca 2d animasyonu
+olmadan izometrik olarak devam edebilir."* İlk yükleme v12 ile aynı. Sonraki her yeni harita
+(Random, seed alanı, dünya tipi: `startVoxelIntro(cfg, true)`) üstten başlamaz ve eğilmez:
+kamera izometrik kalır, siyah plaka `REPLAY_SLAB` (250 ms) görünür ve boya hemen başlar,
+eğilmenin yerine bekleme yok. Ölçüm (Random, bekletmesiz): boya 0,25 sn'de başlıyor, son
+harita 4,76 sn (v12 ilk yükleme 5,97 sn); yavaş worker x4'te ilk renk 0,36 sn, x6'da 0,53 sn
+(ilk `sample` görüntüsünün gelişi). Bitiş kare farkı ikinci haritada da taban düzeyinde.
+
+**Revizyon 12 (`intro-topdown`): renk izometriğe döndükten sonra gelsin.** Uğur: *"renk
+izometriğe döndükten sonra gelsin önce değil"*. Yeni sıra: üstten siyah plaka + ızgara
+(250 ms) → kamera izometriğe eğilir (~1,2 sn, aynı smootherstep, sabit yaw) → eğilme bittikten
+sonra v10 boyası (köşelerden ortaya, sert/kaba, 2400 ms), yükseliş boyadan ~300 ms önce,
+ızgara sönmesi, bulutlar. Eğilme artık zaman saatinde değil duvar saatinde (başlangıçtan
+250-1450 ms); boya saati `now - t0 >= TILT[1]` ve bir görüntü ya da mesh olunca başlar,
+yani boya eğilmeyle çakışmaz. Yavaş cihazda dürüst bekleme aynı: eğilme bekleyişin içinde
+geçer, mesh geç gelirse kapı (yükselişin başı) tutar. Bu sırayla fark edilen bir kusur
+düzeldi: mesh artık boyadan önce uzun süre ekranda kalabildiği için boyanmamış hücrelerde
+(a) kıyı köpüğü (plaj dahil), (b) beyaz şelale, (c) akan nehir parıltıları, (d) lav ışığı
+görünüyordu; hepsi artık boyayla birlikte gelir (`vIntroKeep`). Toplam ~1 sn uzadı
+(renk ilk 1,45 sn'de başlıyor).
+
+**Revizyon 11 (2026-10-19, `intro-topdown` dalı, v10 canlıya çıktıktan sonra): üstten 2B
+görünümden izometriğe kayma.** Uğur: *"bir de mapi düz 2d görünümünden, izometriğe
+kaydırarak getirelim kalan kısımlar aynı."* Kamera düz aşağı (pitch 89) başlar, plaka ve
+boya sırasında 2B harita gibi görünür, sonra `TILT` 1900-3100 ms'de (boya bitişinden
+~500 ms önce başlar, ~1,2 sn, smootherstep) normal izometrik pitch'e eğilir; yükselti
+(2100) kamera hâlâ eğilirken başlar. Yaw sabit (dönme yok): üstten bakışta harita 35°
+döndürülmüş bir kare görünür, 2B görünümdeki gibi eksenlere hizalı değil; hizalı olması
+istenirse yaw 90'dan 35'e dönerdi ama kamera dönüp savrulur, onu seçmedim. Zoom ve hedef
+aynı kalır (fit zaten her pitch'i kapsıyor). Toplam süre değişmedi (eğilme yükselişin
+içinde bitiyor). Atla/iptal: kamera hemen normal izometriğe (yaw/pitch), böylece sonraki
+`fitCamera` yanlış pitch'i miras almaz. Random/seed: aynı hareket; kullanıcı kamerayı
+döndürmüşse eski `regenerate`'ın yaptığı gibi yaw/pitch'i korunur, eğilme o açıya biter.
+
 **Revizyon 10 (aynı gün): hızlandırma.** Uğur: *"renklendirme ve yükseltme arasındaki
 geçiş çok yavaş. renklendirme ve yükseltmenin kendi animasyonları da aşırı yavaş çok
 bekliyoruz. hızlandıralım"*. Şekil, sıra, renkler v9 ile aynı; yalnız süre: boya
