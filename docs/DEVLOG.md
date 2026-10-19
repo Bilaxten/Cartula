@@ -4,6 +4,31 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 4 (aynı gün, Uğur v3'ü localhost'ta izledikten sonra), altı istek.**
+Uğur: *"random'a basınca da aynı şekilde mapler create edilsin. sular doluyormuş gibi
+animasyon olsun katman katman. renge göre değil. daha yumuşak geçişlerle yapalım. ilk
+tek renkken map gridler gözükür olsun siyah çizgilerle. sonrasında renkleri atarken o
+çizgileri de renk geldikçe silelim. bulutlar ortadan başlayarak kenarlara doğru
+büyüme animasyonuna sahip olsun. lav en başta belli oluyor onu en son boyanınca belli
+olacak şekilde yapalım"*. Yapılan: (1) Random, seed alanı ve dünya tipi yeni haritayı
+aynı animasyonla getirir (`regenerate(true)`; eski harita `clearMesh` ile bırakılır,
+eski rüzgâr/yağmur/duman/şimşek `setEffects(false)` ile gizli kalır); slider
+bırakmaları anlık kaldı (kullanıcı onları art arda dener), üstten görünüm ve
+reduced-motion de. (2) Su artık tek seviye: en derin yataktan en yüksek su yüzeyine
+çıkar, her karo yatağından yüzeyine dolar; yani deniz önce, göl/nehir seviye
+yüksek araziye gelince; hareket tam katmanlarda yumuşak basamaklı ve easeInOutSine
+(boya bandı da 0,24 → 0,34 daha yumuşak). (3) Tek renkte siyah hücre ızgarası, boya
+cephesiyle silinir; plaka ve mesh aynı fonksiyonu kullanır, hücre küçüldükçe ince
+ızgara solar (4. ve 16. çizgiler kalır). (4) Bulutlar merkezden kenara büyür (bulut
+başına ölçek + fade, gölge fade'i izler). (5) Lav en başta belliydi: rengi nötrdü ama
+emisyonu (`vEmissive`) nötr tonun üstüne binip parlıyordu. Artık boyanın son
+%20'sinde rengini alır, ardından parlar. Çizelge: 0-1400 yüksel,
+1050-2300 boya, 1700-3100 su, 1900-3100 bulut.
+Ölçüm (aynı düzen: gerçek GPU, 390×844 @2x, CPU x4 / x6, worker 4 / 6 sn
+yavaşlatılmış): v3 → v4 sadece-plaka 0,46 → 0,46 sn; son harita 6,03 → 6,16 sn (x4),
+8,09 → 8,19 sn (x6); bekletmesiz 3,47 → 3,58 sn; fps 59-60. Bedel: toplam yaklaşık
+0,1 sn uzadı (su seviyesi penceresi uzun). Random ile ikinci harita aynı süreleri verir.
+
 **Revizyon 3 (aynı gün): bekleyiş adımlara yayıldı.** Uğur v2 videosunu görünce:
 *"baştaki grimsi kahverengimsi tek renk yer çok uzun süre duruyor ekranda adım adım
 gösterirken diğer adımları biraz uzak ya da yumuşak ki bu kadar uzun kalmasın"*.

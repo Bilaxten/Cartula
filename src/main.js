@@ -221,7 +221,7 @@
     seedBase = d.base;
     writeSettings(d.settings);
     syncSeedField();
-    regenerate();
+    regenerate(true);
     return true;
   }
 
@@ -813,10 +813,16 @@
     startRiverAnim();
   }
 
-  function regenerate() {
+  // `animate`: a new map the user asked for (Random, a seed, a world type)
+  // plays the loading animation on the voxel world, like the first load.
+  // Slider tweaks stay instant: they are retried over and over. Not under
+  // reduced motion, not in the top view, not with a camera link pending.
+  function regenerate(animate) {
     cancelIntro();
     exitPipeline(true);
     var cfg = readConfig();
+    var reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (animate === true && !reduced && isVoxelMode() && voxelRenderer && !voxelCameraQuery && startVoxelIntro(cfg, true)) return;
     var t0 = performance.now();
     var g = SM.generate(cfg);
     adoptGrid(g, cfg, performance.now() - t0, false);
@@ -1006,9 +1012,13 @@
   //          move. When the finished mesh arrives (built in the worker too) it
   //          takes the relief's place in mid-move, uniforms only, no geometry
   //          rebuilt per frame
-  //   paint  land colours wash in bottom to top, band by band, overlapping
-  //   water  the sea fills layer by layer from its deepest voxel to sea
-  //          level; lakes and rivers lift last
+  //   paint  the black cell grid of the single-tone map fades away as land
+  //          colours wash in bottom to top, band by band, overlapping; lava
+  //          is painted last (it is neutral and dark until then)
+  //   water  one water level rises through the whole map, layer by layer:
+  //          the sea fills from its deepest voxel, lakes and rivers fill when
+  //          the level reaches them
+  //   clouds grow in from the map centre out to the edges
   // then it IS the normal render (the uniforms land exactly on it). Paint and
   // water need the mesh: the clock holds at GATE until it is there. The
   // worker's elevation pass ('shape', ~12% of its time incl. the mesh) says how
@@ -1016,15 +1026,37 @@
   // (~PREVIEW_COST times less than the worker's whole job); on a slow device
   // the clock before the gate runs slower so the rise fills the wait. A tap, a key, or a new map skips to the end.
   var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 1050, CAM_EASE: 700, RELIEF_BLOCKS: 72, SHAPE_SHARE: 0.12, PREVIEW_COST: 45, MIN_RATE: 0.4,
-    RISE: [0, 1400], PAINT: [1050, 2200], SEA: [1900, 2850], LAKE: [2550, 3000], END: 3000 };
+    SEA_SHARE: 0.6, SEA_FLOOR: -3,
+    RISE: [0, 1400], PAINT: [1050, 2300], SEA: [1700, 3100], CLOUD: [1900, 3100], END: 3100 };
 
   function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
   function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
+  // The water level rising through the whole map, as a 0..1 fraction of the
+  // range deepest bed .. highest surface. The sea (bed to sea level) gets
+  // SEA_SHARE of the move, lakes and rivers on higher ground the rest; the
+  // level itself only ever goes up.
+  function waterFraction(p, top) {
+    var lo = VI.SEA_FLOOR, hi = Math.max(top, 1), level;
+    level = p < VI.SEA_SHARE ? lo + (0 - lo) * (p / VI.SEA_SHARE) : hi * ((p - VI.SEA_SHARE) / (1 - VI.SEA_SHARE));
+    return (level - lo) / (hi - lo);
+  }
   function span(t, w) { return Math.max(0, Math.min(1, (t - w[0]) / (w[1] - w[0]))); }
 
-  function startVoxelIntro(cfg) {
+  // `replay`: a new map while one is on screen (Random, a seed, a world type).
+  // The old map is dropped first and the same animation plays.
+  function startVoxelIntro(cfg, replay) {
     if (!SM.Voxel3D || !SM.Voxel3D.isSupported() || !SM.GenClient) return false;
     if (!startVoxel()) return false;
+    if (replay) {
+      grid = null;                    // like the first load: no map to act on until the new one is there
+      voxelMesh = null;
+      undoStack = [];
+      redoStack = [];
+      updateUndoButtons();
+      voxelRenderer.clearMesh();
+    }
+    if (voxelRenderer.setEffects) voxelRenderer.setEffects(false);   // the old map's wind / rain / smoke
+    if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(0);
     var W = cfg.width, H = cfg.height;
     var sunDir = sunModel(parseFloat($('sun').value)).iso;
     if (performance.mark) performance.mark('sm-generate-start');
@@ -1045,7 +1077,7 @@
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
     var vi = { cfg: cfg, camA: camA, camB: camA, corr: null, corrT: 0, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
-      amp: 1, extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
+      amp: 1, waterTop: 1, extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
     var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
     it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
 
@@ -1076,10 +1108,9 @@
       vi.amp += ((waiting ? 1 : 0) - vi.amp) * Math.min(1, dt / 160);
       var rise = easeInOutCubic(span(t, VI.RISE));
       var paint = easeInOutSine(span(t, VI.PAINT));
-      var sea = easeInOutCubic(span(t, VI.SEA));
-      var lake = easeInOutSine(span(t, VI.LAKE));
+      var sea = waterFraction(easeInOutSine(span(t, VI.SEA)), vi.waterTop);
       voxelRenderer.setVerticalScale(VI.V0 + (finalScale - VI.V0) * rise);
-      if (vi.started) voxelRenderer.setIntro({ paint: paint, sea: sea, lake: lake });
+      if (vi.started) voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea });
       var cam = lerpCam(camA, vi.camB, rise);
       if (vi.corr) {
         // The real fit differs a little from the estimate the rise started
@@ -1094,10 +1125,14 @@
       cam.ty += camA.zoom * 0.006 * s;
       cam.zoom *= 1 + 0.004 * s;
       voxelRenderer.setCamera(cam);
-      if (!vi.skyOn && vi.started && t >= VI.SEA[0]) {
-        vi.skyOn = true;
-        if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
-        applyIntroEffects(vi);
+      if (vi.started && t >= VI.CLOUD[0]) {
+        if (!vi.skyOn) {
+          vi.skyOn = true;
+          if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+          applyIntroEffects(vi);
+          if (voxelRenderer.setEffects) voxelRenderer.setEffects(true);
+        }
+        if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(easeInOutSine(span(t, VI.CLOUD)));
       }
       requestVoxelRender();
       if (vi.started && t >= VI.END) { voxIntroFinish(); return; }
@@ -1155,7 +1190,8 @@
       vi.corrT = now;
     }
     vi.camB = real;
-    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: ex.mesh.bounds.maxY, seaY: 0, floorY: -3 });
+    vi.waterTop = Math.max(1, ex.mesh.bounds.maxY);
+    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: ex.mesh.bounds.maxY, seaY: vi.waterTop, floorY: VI.SEA_FLOOR });
     if (performance.mark) performance.mark('sm-mesh-up');
   }
 
@@ -1196,6 +1232,8 @@
     if (voxelRenderer) {
       voxelRenderer.setIntro(null);
       voxelRenderer.setIntroSlab(null);
+      if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(null);
+      if (voxelRenderer.setEffects) voxelRenderer.setEffects(true);
       voxelRenderer.setVerticalScale(isoExag());
       if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
     }
@@ -2052,7 +2090,7 @@
       $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value);
     });
     syncSeedField();
-    regenerate();
+    regenerate(true);
   }
 
   // Which world type the sliders currently match (a shared link, or a user
@@ -2149,7 +2187,7 @@
     randomSettings();
     seedBase = SM.Seed.randomBase();
     syncSeedField();
-    regenerate();
+    regenerate(true);
     spin('randomMap');
   }
   $('randomMap').addEventListener('click', randomMap);

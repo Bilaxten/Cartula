@@ -2663,7 +2663,7 @@ function runSmokeChecks() {
       /pow\(age, 1\.4\)/.test(src) && /glslFloat\(RISE\) \+ ' \* life \* \(1\.0 - ' \+ glslFloat\(DECEL\)/.test(src) &&
       /hash\(aPuff\.z, 4\.0\)/.test(src) && /smoothstep\(0\.0, ' \+ glslFloat\(EDGE\)/.test(src));
     const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
-    push('the smoke is drawn only outside debug views, before the sky', /if \(smoke && !debugView\)[\s\S]{0,400}smoke\.draw\(smokeDraw\);\s*\}\s*drawSky\(\);/.test(voxel));
+    push('the smoke is drawn only outside debug views, before the sky', /if \(smoke && !debugView && effectsOn\)[\s\S]{0,400}smoke\.draw\(smokeDraw\);\s*\}\s*drawSky\(\);/.test(voxel));
     push('colours are palette mixes (volcanic, rock, snow, lava), no new colour',
       /mix\(rgb01\('volcanic'\), rgb01\('rock'\)/.test(src) && /mix\(rgb01\('rock'\), rgb01\('snow'\)/.test(src) &&
       /rgb01\('lava'\)/.test(src) && !/#[0-9a-f]{6}/i.test(src));
@@ -2912,7 +2912,7 @@ function runLightningChecks() {
     const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
     const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
     push('the flash reaches the terrain only during a strike, with Rain & snow on, outside debug views, and not for reduced motion',
-      /if \(SM\.Lightning && weatherNow\.length && !debugView\)/.test(voxel) &&
+      /if \(SM\.Lightning && weatherNow\.length && !debugView && effectsOn\)/.test(voxel) &&
       /strike\.active && flashLight && !debugView \? strike\.flash \* SM\.Lightning\.FLASH_LIGHT : 0/.test(voxel) &&
       /prefers-reduced-motion: reduce/.test(main) && /setFlashLight\(/.test(main));
     push('every lit terrain variant takes the flash light (uFlash) into its lambert term',
@@ -3686,10 +3686,10 @@ function runWeatherChecks() {
       /float falls = step\(0\.5, g\.y\) \* onMap;/.test(wsrc) && /\* o\.fades\[n\];/.test(wsrc), '');
     push('one cloudsAt per frame feeds the weather cloud and its rain; weather clouds cast no shadow (cost); Rain & snow off removes both',
       (vsrc.match(/SM\.Weather\.cloudsAt\(/g) || []).length === 1 &&
-      /var list = weatherBuilt && showWeather && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
+      /var list = weatherBuilt && showWeather && effectsOn && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
       (vsrc.match(/SM\.Sky\.cloudShadowUniforms\(/g) || []).length === 1 &&
       /SM\.Sky\.cloudShadowUniforms\(cloudNow, meshBounds/.test(vsrc) &&
-      /if \(weather && showWeather && !debugView && weatherNow\.length\) \{/.test(vsrc) &&
+      /if \(weather && showWeather && !debugView && weatherNow\.length && effectsOn\) \{/.test(vsrc) &&
       /if \(weatherNow\.length && sky\.weatherCount\) \{/.test(vsrc) &&
       /weatherDraw\.centres = weatherCentres;/.test(vsrc), '');
   }
@@ -4057,7 +4057,7 @@ function runIntroChecks() {
       scripts.indexOf('genclient.js') > scripts.indexOf('generate.js') && scripts.indexOf('intro.js') > scripts.indexOf('genclient.js') &&
       scripts.indexOf('main.js') > scripts.indexOf('intro.js'));
     push('main.js starts the first map with startIntro(); regenerate() cancels a running intro',
-      /\n {2}startIntro\(\);\n {2}applyDayNight\(\);/.test(main) && /function regenerate\(\) \{\n {4}cancelIntro\(\);/.test(main));
+      /\n {2}startIntro\(\);\n {2}applyDayNight\(\);/.test(main) && /function regenerate\(animate\) \{\n(?:.*\n)*? {4}cancelIntro\(\);/.test(main));
     push('prefers-reduced-motion skips the sweeps and asks the worker for no passes',
       /prefers-reduced-motion: reduce\)'\)\.matches\);/.test(main) && /stages: reduced \? \[\]/.test(main));
     push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
@@ -4082,24 +4082,37 @@ function runIntroChecks() {
     push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
     const vox = main.slice(main.indexOf('var VI = {'), main.indexOf('function introGuard'));
     const vs = SM.voxelTerrainShaderSources('').vertex;
+    const fsrc = SM.voxelTerrainShaderSources('').fragment;
+    const v3d = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: rise, paint, sea fill, lakes in that order and overlapping, 3-4 s from the first rise, every move eased; paint waits at GATE for the mesh',
+    push('intro timeline: rise, paint, water level, clouds in that order and overlapping, 2.8-3.4 s from the first rise, every move eased; paint waits at GATE for the mesh',
       (() => {
-        const m = /RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], LAKE: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
+        const m = /SEA_SHARE: [\d.]+, SEA_FLOOR: -?\d+,\s*RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
-        const [r0, r1, p0, p1, s0, s1, l0, l1, end] = m.slice(1).map(Number);
-        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && l0 > s0 && l0 < s1 && l1 >= s1 && end >= l1 && end >= 3000 && end <= 4000 && /GATE: (\d+)/.test(vox) &&
+        const [r0, r1, p0, p1, s0, s1, c0, c1, end] = m.slice(1).map(Number);
+        const gate = /GATE: (\d+)/.exec(vox);
+        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && s1 > p1 && c0 > p0 && c1 <= end && s1 <= end && end >= 2800 && end <= 3400 &&
+          gate && +gate[1] >= p0 - 100 && +gate[1] <= p0 + 100 &&
           /easeInOutCubic\(span\(t, VI\.RISE\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
-          /easeInOutCubic\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.LAKE\)\)/.test(vox);
+          /easeInOutSine\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
+      })());
+    push('intro water: one level rising by height (sea first), a pure function of progress that never goes down',
+      (() => {
+        const f = new Function('VI', vox.slice(vox.indexOf('function waterFraction'), vox.indexOf('function span(t, w)')) + '; return waterFraction;');
+        const wf = f({ SEA_SHARE: 0.6, SEA_FLOOR: -3 });
+        let prev = -1;
+        for (let i = 0; i <= 100; i++) { const v = wf(i / 100, 9); if (v < prev - 1e-9) return false; prev = v; }
+        // 0 at the start, the sea line (level 0) at SEA_SHARE, the highest surface at the end
+        return Math.abs(wf(0, 9)) < 1e-9 && Math.abs(wf(0.6, 9) - 3 / 12) < 1e-9 && Math.abs(wf(1, 9) - 1) < 1e-9;
       })());
     push('intro: the slab is blank for ~0.5 s only; the rise starts at once on a coarse stepped relief (SM.previewHeights), the elevation pass paces it, the mesh replaces it mid-rise',
       /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['shape'\]/.test(vox) && /SM\.previewHeights\(vi\.cfg/.test(vox) &&
       /function introRelief/.test(vox) && /setIntroSlab\(\{ w: W, h: H, bottom: -4, block: B/.test(vox) && /vi\.corr/.test(vox));
     push('intro: columns rise together (one vertical scale, no per-column delay), the sky and effects join with the water, geometry is never rebuilt per frame',
       /setVerticalScale\(VI\.V0 \+ \(finalScale - VI\.V0\) \* rise\)/.test(vox) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
-      && /t >= VI\.SEA\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
+      && /t >= VI\.CLOUD\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
     push('intro ends on the normal render: uniforms off, scale back to isoExag, sky restored, mesh already uploaded (no second setMesh)',
       /function voxIntroTeardown[\s\S]*?setIntro\(null\)[\s\S]*?setVerticalScale\(isoExag\(\)\)[\s\S]*?setSky/.test(vox) &&
       /rebuildVoxelMesh\(true, ex\)/.test(vox) && /if \(pre\) \{[\s\S]*?requestVoxelRender\(\);\s*\} else \{[\s\S]*?setMesh\(voxelMesh\)/.test(main));
@@ -4109,6 +4122,17 @@ function runIntroChecks() {
     push('terrain vertex shader: intro block is behind one uniform (uIntro.w), uses the neutral Bare tone and the existing palette only, no new colour literal',
       /uniform vec4 uIntro;/.test(vs) && /if \(uIntro\.w > 0\.5\)/.test(vs) && vsb.length > 200 && !/#[0-9a-fA-F]{3,8}\b|vec3\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*\)/.test(vsb) &&
       /b\.id === 'bare'/.test(fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8')));
+    push('intro: Random, a seed and a world type play the animation on the voxel world; sliders stay instant; skip and reduced motion intact',
+      /function regenerate\(animate\)/.test(main) && /animate === true && !reduced && isVoxelMode\(\)[^\n]*startVoxelIntro\(cfg, true\)/.test(main) &&
+      /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
+      /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
+      /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
+    push('terrain shader intro: black grid lines fade with the paint (vIntroGrid.w = 1 - keep), lava stays neutral until the end of the paint and glows after, one water level by height',
+      /vIntroGrid\.w = 1\.0 - keep/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
+      /aEmissive > 0\.01[\s\S]*?smoothstep\(0\.80, 0\.97, uIntro\.x\)[\s\S]*?vEmissive = aEmissive \* smoothstep\(0\.93, 1\.0, uIntro\.x\)/.test(vs) &&
+      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && !/bed\.g > 0\.5/.test(vs));
+    push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
+      /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',
       /float introY = aPosition\.y;/.test(vs) && /\(introY \+ wave\) \* uVScale/.test(vs));
     push('intro frames are painted by SM.Intro.frame from recorded passes, never by a second generate on this thread',
@@ -4422,15 +4446,15 @@ function runSeedChecks() {
       /<input\b[^>]*type="text"[^>]*id="seed"/.test(html) && /id="seedMsg"[^>]*role="status"/.test(html), '');
     push('src/seed.js loads before main.js in index.html', html.indexOf('src/seed.js') > 0 && html.indexOf('src/seed.js') < html.indexOf('<script src="src/main.js">'), '');
     push('Random draws a new base (SM.Seed.randomBase); no Regenerate button, hotkey or handler is left; no 1e6 numeric seed left',
-      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 1 &&
+      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(true\);/g) || []).length === 1 &&
       !/regenMap|regen\.(label|title)/.test(mainJs + html + fs.readFileSync(path.join(root, 'i18n.js'), 'utf8')) &&
       /key === 'r' && !ev\.altKey && ev\.shiftKey/.test(mainJs) &&
       !/Math\.random\(\) \* 1e6/.test(mainJs), '');
     push('every generation slider and the season keep the field in step on input; world type too',
       /SM\.Seed\.FIELDS\.forEach\(function \(f\) \{ \$\(f\.id\)\.addEventListener\('input', syncSeedField\)/.test(mainJs) &&
-      /syncSeedField\(\);\n\s*regenerate\(\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
+      /syncSeedField\(\);\n\s*regenerate\(true\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
     push('a code applies on blur or Enter only (no per-keystroke or paste apply); invalid shows a message and keeps the text',
-      /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(\)/.test(mainJs) &&
+      /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(true\)/.test(mainJs) &&
       /\$\('seed'\)\.addEventListener\('blur', commitSeedField\)/.test(mainJs) && /ev\.key === 'Enter'/.test(mainJs) &&
       !/\$\('seed'\)\.addEventListener\('(paste|change)'/.test(mainJs) &&
       !/function showSeedError[\s\S]{0,300}\$\('seed'\)\.value\s*=/.test(mainJs), '');

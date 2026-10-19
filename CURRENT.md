@@ -51,9 +51,10 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
    izometrikte 3B voxel animasyon: boş plaka → yüksel → boya → su dolsun; üstten görünümde
    2D katman süpürmesi; `README.md` → *İlk yükleme*, DEVLOG 2026-10-19); Uğur onaylayınca
    `master`'a, sonra yayın. Kalan: ilk yükleme dışı `regenerate()` hâlâ senkron, voxel
-   mesh/shader derlemesi ana thread'de. v3 (2026-10-19): sadece-plaka evresi ~0,45 sn'ye indi,
-   yükseliş kaba bir kabartmayla üretim beklerken başlıyor (DEVLOG *Revizyon 3*); videolar
-   Drive `aktarim/cartula/2026-10-19-intro/v3-*`, Uğur izleyip onaylayacak.
+   mesh/shader derlemesi ana thread'de. v3/v4 (2026-10-19): sadece-plaka evresi ~0,45 sn'ye indi,
+   yükseliş kaba bir kabartmayla üretim beklerken başlıyor (DEVLOG *Revizyon 3, 4*; v4: Random/seed/dünya tipi de animasyonlu, su tek seviye,
+   siyah ızgara, bulut büyümesi, lav en son); videolar
+   Drive `aktarim/cartula/2026-10-19-intro/v4-*`, Uğur izleyip onaylayacak.
 3. Küçük, bağımsız: fırça sonrası komşu hücreler (`TODO.md` NEXT).
 
 ## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)

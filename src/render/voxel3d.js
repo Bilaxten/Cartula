@@ -1178,6 +1178,9 @@
       'out float vFallCoord;',
       'out float vWaveShade;',
       'out float vWater;',
+      // Loading animation: raw position for the grid lines, w = how much line
+      // is left (1 on the neutral map, 0 once the paint arrives).
+      'out highp vec4 vIntroGrid;',
       '#ifdef RIVER',
       // World x/z for the flow pattern (highp: a quarter-tile hash cell on a
       // 448-tile map needs more than mediump's 10-bit mantissa).
@@ -1261,33 +1264,36 @@
       SM.Season ? SM.Season.VERTEX_GLSL : '',
       '#endif',
       '  float introY = aPosition.y;',
+      '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
       '    // Land: every column is the neutral clay tone until the paint front',
       '    // (rising with elevation, soft edge) reaches its height.',
       '    float span = max(uIntroRange.y - uIntroRange.x, 1.0);',
       '    float yN = clamp((aPosition.y - uIntroRange.x) / span, 0.0, 1.0);',
-      '    float band = 0.24;',
+      '    float band = 0.34;',
       '    float keep = clamp((uIntro.x * (1.0 + band) - yN) / band, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
       '    if (aWater > 0.5) {',
-      '      // Water rides a surface that starts on its own bed and rises: the',
-      '      // sea as a plane climbing through whole voxel layers from the',
-      '      // deepest layer, lakes and rivers lifting last.',
+      '      // Water is ONE level rising through the whole map, by height and',
+      '      // not by kind: a tile fills once the level passes its own bed and',
+      '      // stops at its own surface, so the sea fills first (deepest bed',
+      '      // first), then lakes and rivers high on the land as the level',
+      '      // reaches them. Whole voxel layers with a soft step between.',
       '      ivec2 isz = textureSize(uIntroFloor, 0);',
       '      ivec2 ic = clamp(ivec2(aCellUV * vec2(isz)), ivec2(0), isz - 1);',
       '      vec2 bed = texelFetch(uIntroFloor, ic, 0).rg;',
       '      float floorY = bed.r * 32.0 - 8.0;',
-      '      if (bed.g > 0.5) {',
-      '        float yw = mix(uIntroRange.w, uIntroRange.z, uIntro.y);',
-      '        float lay = floor(yw + 0.0001);',
-      '        float q = lay + smoothstep(0.3, 0.9, yw - lay);',
-      '        introY = clamp(q, floorY, aPosition.y);',
-      '        keep = smoothstep(floorY - 0.05, floorY + 0.8, q);',
-      '      } else {',
-      '        float f = uIntro.z * uIntro.z * (3.0 - 2.0 * uIntro.z);',
-      '        introY = mix(floorY, aPosition.y, f);',
-      '        keep = f;',
-      '      }',
+      '      float yw = mix(uIntroRange.w, uIntroRange.z, uIntro.y);',
+      '      float lay = floor(yw + 0.0001);',
+      '      float q = lay + smoothstep(0.12, 0.88, yw - lay);',
+      '      introY = clamp(q, floorY, aPosition.y);',
+      '      keep = smoothstep(floorY - 0.05, floorY + 0.9, q);',
+      '    }',
+      '    // Lava stays the neutral tone, unlit, until the very end of the',
+      '    // paint; then it takes its colour and only afterwards its glow.',
+      '    if (aEmissive > 0.01) {',
+      '      keep = smoothstep(0.80, 0.97, uIntro.x);',
+      '      vEmissive = aEmissive * smoothstep(0.93, 1.0, uIntro.x);',
       '    }',
       '    if (aWater > 0.5) {',
       '      // No surf or foam line on water that is not there yet.',
@@ -1295,6 +1301,7 @@
       '      if (aFall < 0.5) vFallCoord *= keep;',
       '    }',
       '    vColor = mix(uIntroNeutral, vColor, keep);',
+      '    vIntroGrid.w = 1.0 - keep;',
       '  }',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
@@ -1320,6 +1327,7 @@
       'in float vFallCoord;',
       'in float vWaveShade;',
       'in float vWater;',
+      'in highp vec4 vIntroGrid;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -1368,6 +1376,7 @@
       '#else',
       '#define GRADE(c) (c)',
       '#endif',
+      INTRO_GRID_GLSL,
       'out vec4 outColor;',
       '',
       'void main() {',
@@ -1455,6 +1464,13 @@
       '  baseColor = riverFlow(baseColor);',
       '#endif',
       '#endif',
+      '  // Loading animation: black cell lines on the neutral map, gone where',
+      '  // the paint has arrived (vIntroGrid.w -> 0). The derivative is taken',
+      '  // outside the branch.',
+      '  highp vec3 gridW = fwidth(vIntroGrid.xyz);',
+      '  if (vIntroGrid.w > 0.002) {',
+      '    baseColor *= 1.0 - 0.88 * vIntroGrid.w * introGridLine(vIntroGrid.xyz, vNormal, gridW, step(0.5, vWater));',
+      '  }',
       '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
       '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
       '  // line is blocky like the voxels; its reach follows the SAME per-tile',
@@ -1561,6 +1577,31 @@
    * scene cares where a bird is). */
   // The loading slab: a lit neutral box. Faint cell lines on its top fade out
   // when a cell is only a few pixels wide (fwidth), where they would shimmer.
+  /* Loading animation: the cell grid as black lines on the single-tone map.
+   * p = raw world position (x, level, z), n = the face normal (axis aligned),
+   * w = fwidth(p) (world units per pixel). Lines sit on whole units; the
+   * fine grid thins out as cells shrink below a few pixels and every 4th and
+   * 16th line carry on, so the grid never turns to mush at 320 x 320. Used by
+   * the terrain shader (faded away with the paint front) and the slab. */
+  var INTRO_GRID_GLSL = [
+    'float introGridLine(highp vec3 p, vec3 n, highp vec3 w, float water) {',
+    '  vec3 ax = vec3(1.0) - abs(n);',
+    '  ax.y *= 1.0 - water;',
+    '  highp float wmax = max(max(w.x * ax.x, w.y * ax.y), w.z * ax.z);',
+    '  float line = 0.0;',
+    '  for (int k = 0; k < 3; k++) {',
+    '    highp float s = k == 0 ? 1.0 : (k == 1 ? 4.0 : 16.0);',
+    '    highp vec3 d = abs(fract(p / s + 0.5) - 0.5);',
+    '    highp vec3 ww = w / s;',
+    '    vec3 l = vec3(1.0) - smoothstep(vec3(0.0), ww * 1.4 + vec3(0.0001), d);',
+    '    float vis = 1.0 - smoothstep(0.22, 0.45, wmax / s);',
+    '    float hit = max(l.x * ax.x, max(l.y * ax.y, l.z * ax.z));',
+    '    line = max(line, hit * vis * (k == 0 ? 0.75 : 1.0));',
+    '  }',
+    '  return line;',
+    '}'
+  ].join('\n');
+
   function makeSlabProgram(gl) {
     var vs = [
       '#version 300 es',
@@ -1569,7 +1610,7 @@
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'out vec3 vNormal;',
-      'out vec3 vPos;',
+      'out highp vec3 vPos;',
       'void main() {',
       '  vNormal = aNormal;',
       '  vPos = aPosition;',
@@ -1580,19 +1621,15 @@
       '#version 300 es',
       'precision mediump float;',
       'in vec3 vNormal;',
-      'in vec3 vPos;',
+      'in highp vec3 vPos;',
       'uniform vec3 uSunDirection;',
       'uniform vec3 uColor;',
+      INTRO_GRID_GLSL,
       'out vec4 outColor;',
       'void main() {',
       '  float lit = 0.62 + 0.38 * max(dot(normalize(vNormal), normalize(uSunDirection)), 0.0);',
-      '  float top = step(0.5, vNormal.y);',
-      '  vec2 f = fract(vPos.xz);',
-      '  vec2 w = fwidth(vPos.xz);',
-      '  vec2 e = smoothstep(vec2(0.0), max(w * 1.2, vec2(0.0001)), min(f, 1.0 - f));',
-      '  float line = (1.0 - min(e.x, e.y)) * (1.0 - smoothstep(0.12, 0.34, max(w.x, w.y)));',
-      '  float check = mod(floor(vPos.x) + floor(vPos.z), 2.0) * 0.018;',
-      '  vec3 c = uColor * lit * (1.0 - top * (0.14 * line + check));',
+      '  float line = introGridLine(vPos, vNormal, fwidth(vPos), 0.0);',
+      '  vec3 c = uColor * lit * (1.0 - 0.88 * line);',
       '  outColor = vec4(c, 1.0);',
       '}'
     ].join('\n');
@@ -1649,6 +1686,9 @@
       // Per-cloud opacity (SM.Sky.cloudFade). Vertex-only, so no cross-stage
       // precision question; the fragment gets it through vFade.
       'uniform float uCloudFade[6];',
+      // Growth of each cloud (1 = full size), the loading animation's radial
+      // grow-in: the cloud scales up about its own centre.
+      'uniform float uCloudGrow[6];',
       // ⚠️ EXPLICIT PRECISION ON BOTH STAGES. `int` defaults to highp in the
       // vertex shader and mediump in the fragment shader, and a uniform of the
       // same name with different precision is a LINK ERROR -- silent, because
@@ -1669,7 +1709,7 @@
       'void main() {',
       '  vec3 world;',
       '  if (uMode == 0) {',
-      '    world = aPosition + uCloudPos[int(aCloudIndex)];',
+      '    world = aPosition * uCloudGrow[int(aCloudIndex)] + uCloudPos[int(aCloudIndex)];',
       '    vShade = 1.0;',
       '    vFade = uCloudFade[int(aCloudIndex)];',
       '    // A fully faded cloud is not drawn at all: without this it would',
@@ -2042,6 +2082,12 @@
     var FAIR_CLOUD_COLOR = new Float32Array([0.93, 0.95, 0.99]);
     var meshBounds = null;
     var showSky = true;
+    // Loading animation: the sky grows in from the map centre (0 = nothing yet,
+    // 1 = done / off) and the effects of the previous map stay hidden until the
+    // new map's own arrive.
+    var skyGrow = 1;
+    var effectsOn = true;
+    var cloudGrowData = new Float32Array(SM.Sky.MAX_CLOUDS).fill(1);
     var debugView = 0;
     // Tuned by eye against the map: below ~0.4 the shadow reads as a smudge,
     // above ~0.6 it competes with the sun shadow and the terrain goes muddy.
@@ -2233,6 +2279,7 @@
           time: gl.getUniformLocation(skyProgram, 'uTime'),
           cloudPosUniform: gl.getUniformLocation(skyProgram, 'uCloudPos'),
           cloudFadeUniform: gl.getUniformLocation(skyProgram, 'uCloudFade'),
+          cloudGrowUniform: gl.getUniformLocation(skyProgram, 'uCloudGrow'),
           mode: gl.getUniformLocation(skyProgram, 'uMode'),
           color: gl.getUniformLocation(skyProgram, 'uColor'),
           sunDirection: gl.getUniformLocation(skyProgram, 'uSunDirection'),
@@ -2287,6 +2334,20 @@
       gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
     }
 
+    /* The loading animation's radial grow-in for a cloud at (x, z): clouds near
+     * the map centre start first and the front moves out to the edges, each
+     * cloud easing from nothing to full size over a stretch of the front. */
+    function cloudGrowAt(x, z) {
+      if (skyGrow >= 1 || !meshBounds) return 1;
+      var cx = (meshBounds.minX + meshBounds.maxX) * 0.5, cz = (meshBounds.minZ + meshBounds.maxZ) * 0.5;
+      var reach = Math.sqrt(Math.pow(meshBounds.maxX - cx, 2) + Math.pow(meshBounds.maxZ - cz, 2));
+      var d = Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz)) / Math.max(reach, 1e-3);
+      var span = 0.5;
+      var k = (skyGrow * (1 + span) - Math.min(d, 1)) / span;
+      k = k < 0 ? 0 : k > 1 ? 1 : k;
+      return k * k * (3 - 2 * k);
+    }
+
     /* Resolve this frame's cloud positions once, for both programs. */
     function updateClouds() {
       var f;
@@ -2301,6 +2362,11 @@
       // no allocation at all.
       if (cloudInstances.length) {
         SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
+        // Growth multiplies the fade too, so the cloud's shadow grows with it.
+        for (f = 0; f < cloudNow.length; f++) {
+          cloudNow[f].grow = cloudGrowAt(cloudNow[f].x, cloudNow[f].z);
+          cloudNow[f].fade *= cloudNow[f].grow;
+        }
       } else {
         cloudNow = [];
       }
@@ -2324,7 +2390,7 @@
      * underside in levels (so the rain starts exactly under it at any
      * height scale). Empty while Rain & snow is off. */
     function updateWeatherClouds() {
-      var list = weatherBuilt && showWeather && sky && sky.weatherCount ? weatherBuilt.clouds : [];
+      var list = weatherBuilt && showWeather && effectsOn && sky && sky.weatherCount ? weatherBuilt.clouds : [];
       var n;
 
       weatherNow.length = list.length;
@@ -2336,7 +2402,8 @@
         e.z = weatherCentres[n * 2 + 1] - gridSize[1] / 2;
         e.y = list[n].bottom * vScale + SM.Sky.CLOUD_LAYER * 0.5;
         e.radius = list[n].radius;
-        e.fade = list[n].alpha * weatherFades[n];
+        e.grow = cloudGrowAt(e.x, e.z);
+        e.fade = list[n].alpha * weatherFades[n] * e.grow;
         e.lobes = list[n].lobes;
       }
     }
@@ -2465,6 +2532,7 @@
 
       flat.fill(0);
       cloudFadeData.fill(0);
+      cloudGrowData.fill(1);
       if (weatherGroup) {
         for (n = 0; n < weatherNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
           flat[n * 3] = weatherNow[n].x;
@@ -2473,6 +2541,7 @@
           // A glowing cloud keeps its opacity: the bolt behind it must
           // still show through.
           cloudFadeData[n] = weatherNow[n].fade;
+          cloudGrowData[n] = weatherNow[n].grow == null ? 1 : weatherNow[n].grow;
         }
         gl.bindVertexArray(sky.weatherVao);
       } else {
@@ -2481,15 +2550,37 @@
           flat[n * 3 + 1] = cloudNow[n].y;
           flat[n * 3 + 2] = cloudNow[n].z;
           cloudFadeData[n] = cloudNow[n].fade * SM.Sky.CLOUD_ALPHA;
+          cloudGrowData[n] = cloudNow[n].grow == null ? 1 : cloudNow[n].grow;
         }
         gl.bindVertexArray(sky.cloudVao);
       }
       gl.uniform3fv(sky.cloudPosUniform, flat);
       gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
+      gl.uniform1fv(sky.cloudGrowUniform, cloudGrowData);
     }
 
     function setSky(enabled) {
       showSky = enabled !== false;
+    }
+
+    /* Loading animation: 0..1 grows the clouds in from the map centre outward;
+     * null (or 1) is the normal sky. */
+    function setSkyGrow(g) {
+      skyGrow = g == null ? 1 : Math.max(0, Math.min(1, +g));
+    }
+
+    /* Loading animation: false hides wind lines, rain / snow, lightning and
+     * volcano smoke (they belong to the previous map until the new one's data
+     * is handed over). */
+    function setEffects(on) {
+      effectsOn = on !== false;
+    }
+
+    /* Loading animation: forget the drawn mesh (the next setMesh replaces its
+     * buffers), so the slab can stand in while a new map is generated. */
+    function clearMesh() {
+      indexCount = 0;
+      riverIndexStart = 0;
     }
 
     // 0 = lit; 1 AO, 2 normals, 3 height, 4 albedo, 5 sun shadow, 6 waterfalls
@@ -2885,7 +2976,7 @@
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
-      if (SM.Lightning && weatherNow.length && !debugView) {
+      if (SM.Lightning && weatherNow.length && !debugView && effectsOn) {
         SM.Lightning.strikeAt(weatherBuilt, skySeed, elapsedTime, strike);
       } else {
         strike.active = false;
@@ -2923,7 +3014,7 @@
       gl.bindVertexArray(null);
       // Wind lines: after the terrain (depth-tested against it, so a ridge
       // hides them), before the sky (clouds pass over them).
-      if (wind && showWind && !debugView) {
+      if (wind && showWind && !debugView && effectsOn) {
         windDraw.combined = combined;
         windDraw.vScale = vScale;
         windDraw.time = elapsedTime;
@@ -2931,7 +3022,7 @@
         windDraw.setGrade = setGradeUniforms;
         wind.draw(windDraw);
       }
-      if (weather && showWeather && !debugView && weatherNow.length) {
+      if (weather && showWeather && !debugView && weatherNow.length && effectsOn) {
         weatherDraw.combined = combined;
         weatherDraw.view = view;
         weatherDraw.vScale = vScale;
@@ -2950,7 +3041,7 @@
         boltDraw.height = gridSize[1];
         lightning.draw(boltDraw);
       }
-      if (smoke && !debugView) {
+      if (smoke && !debugView && effectsOn) {
         smokeDraw.combined = combined;
         smokeDraw.vScale = vScale;
         smokeDraw.time = elapsedTime;
@@ -3309,6 +3400,9 @@
       setIntroFloor: setIntroFloor,
       setIntroSlab: setIntroSlab,
       setSky: setSky,
+      setSkyGrow: setSkyGrow,
+      setEffects: setEffects,
+      clearMesh: clearMesh,
       setDebugView: setDebugView,
       capture: capture,
       fitCamera: fitCamera,
