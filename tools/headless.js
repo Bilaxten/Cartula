@@ -4062,21 +4062,41 @@ function runIntroChecks() {
       /prefers-reduced-motion: reduce\)'\)\.matches\);/.test(main) && /stages: reduced \? \[\]/.test(main));
     push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
     const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
+    push('previewHeights: deterministic, same sea threshold as the pipeline, land/sea agrees with the shape pass on >=94% of blocks, touches no pipeline state',
+      (() => {
+        const cfg = { width: 320, height: 320, seed: 1337 };
+        const a = SM.previewHeights(cfg, 72, 72), b = SM.previewHeights(cfg, 72, 72);
+        let shape = null;
+        const g1 = SM.generate(cfg, (id, sn) => { if (id === 'shape') shape = sn; });
+        const g2 = SM.generate(cfg);
+        if (!shape || a.seaThresh !== shape.seaThresh || a.landSpan !== shape.landSpan) return false;
+        if (a.elevation.some((v, i) => v !== b.elevation[i])) return false;
+        if (g1.level.some((v, i) => v !== g2.level[i])) return false;
+        let agree = 0;
+        for (let by = 0; by < 72; by++) for (let bx = 0; bx < 72; bx++) {
+          const x = Math.min(319, Math.floor((bx + 0.5) * 320 / 72)), y = Math.min(319, Math.floor((by + 0.5) * 320 / 72));
+          if ((a.elevation[by * 72 + bx] < a.seaThresh) === (shape.elevation[y * 320 + x] < shape.seaThresh)) agree++;
+        }
+        return agree / 5184 >= 0.94;
+      })());
     push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
     const vox = main.slice(main.indexOf('var VI = {'), main.indexOf('function introGuard'));
     const vs = SM.voxelTerrainShaderSources('').vertex;
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: rise, paint, sea fill, lakes in that order and overlapping, total 2.5-3.5 s, every move eased',
+    push('intro timeline: rise, paint, sea fill, lakes in that order and overlapping, 3-4 s from the first rise, every move eased; paint waits at GATE for the mesh',
       (() => {
         const m = /RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], LAKE: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
         const [r0, r1, p0, p1, s0, s1, l0, l1, end] = m.slice(1).map(Number);
-        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && l0 > s0 && l0 < s1 && l1 >= s1 && end >= l1 && end >= 2500 && end <= 3600 &&
+        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && l0 > s0 && l0 < s1 && l1 >= s1 && end >= l1 && end >= 3000 && end <= 4000 && /GATE: (\d+)/.test(vox) &&
           /easeInOutCubic\(span\(t, VI\.RISE\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
           /easeInOutCubic\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.LAKE\)\)/.test(vox);
       })());
+    push('intro: the slab is blank for ~0.5 s only; the rise starts at once on a coarse stepped relief (SM.previewHeights), the elevation pass paces it, the mesh replaces it mid-rise',
+      /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['shape'\]/.test(vox) && /SM\.previewHeights\(vi\.cfg/.test(vox) &&
+      /function introRelief/.test(vox) && /setIntroSlab\(\{ w: W, h: H, bottom: -4, block: B/.test(vox) && /vi\.corr/.test(vox));
     push('intro: columns rise together (one vertical scale, no per-column delay), the sky and effects join with the water, geometry is never rebuilt per frame',
       /setVerticalScale\(VI\.V0 \+ \(finalScale - VI\.V0\) \* rise\)/.test(vox) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
       && /t >= VI\.SEA\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));

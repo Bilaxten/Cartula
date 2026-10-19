@@ -4,6 +4,28 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 3 (aynı gün): bekleyiş adımlara yayıldı.** Uğur v2 videosunu görünce:
+*"baştaki grimsi kahverengimsi tek renk yer çok uzun süre duruyor ekranda adım adım
+gösterirken diğer adımları biraz uzak ya da yumuşak ki bu kadar uzun kalmasın"*.
+Sorun: boş plaka mesh gelene kadar duruyordu (yavaş cihazda ~4 sn), sonraki adımlar
+toplam ~2,85 sn'ydi. Çözüm: plaka yalnız ilk ~450 ms boş; sonra aynı yükseklik
+fonksiyonunun kaba örneği (`SM.previewHeights`, 72×72, birkaç ms, `generate.js`'te
+deniz eşiği hesabı ortak `seaReference`'a çıkarıldı, boru hattı davranışı aynı)
+basamaklı kabartma olarak yükselmeye başlar; mesh gelince ortada yerini alır. Yükselişin
+zaman saati üretim süresine göre yavaşlar (preview maliyeti + worker'ın `shape`
+pass'inin geliş zamanı), mesh gelmeden kapıda durur; yükseliş 950 → 1400 ms,
+boya ~1 → 1,15 sn, deniz ~0,95 sn (çizelge README'de). Neden `shape` pass'i tek
+başına yetmedi: worker'ın işinin ~%12'sinde gelir, yavaş telefonda yine ~1 sn boş
+plaka kalırdı; ham örnek ise hemen elde. Bedel: kabartma son haritanın kaba hali
+(ortalama 0,6 kademe fark), mesh yer değiştirirken küçük bir şekil sıçraması olur
+(ikisi de aynı nötr ton).
+Ölçüm (headless Chrome, gerçek GPU, 390×844 @2x, CPU x4/x6; worker CDP ile
+kısılamıyor, bu yüzden worker'a pass zamanlarını gerçek orana göre bekleten bir
+kopya, 4 / 6 sn toplam): sadece-plaka evresi 4,06 / 6,08 sn → 0,46 sn; son haritaya
+kadar 6,9 → 6,0 sn (x4), 8,9 → 8,1 sn (x6); hızlı makinede (bekletmesiz) 3,3 → 3,45 sn;
+fps 59-60 (en kötü kare aralığı 33-50 ms), v2 ile aynı. Atla (tuş, dokunma),
+worker'sız yol ve `prefers-reduced-motion` kontrol edildi.
+
 **Revizyon (aynı gün, Uğur videoları izledikten sonra): izometrikte animasyon 3B
 voxel dünyada.** Uğur: *"izometrikte bekletiyoruz... orada çizimi voxel şekilde
 yapıp sonra yükselti değişikliği yapıp renklendirelim. animasyon 3d voxel üzerinde

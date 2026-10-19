@@ -2570,9 +2570,13 @@
       gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
-    /* The blank slab shown before any map exists (the first load): one box
-     * at the map's footprint, neutral tone, a faint voxel grid on top. It is
-     * only drawn while there is no mesh. info {w, h, top, bottom} or null. */
+    /* The slab shown before any map exists (the first load): a box at the
+     * map's footprint, neutral tone, a faint voxel grid on top. It is only
+     * drawn while there is no mesh. info {w, h, top, bottom} is the flat blank
+     * slab; with info.heights (an integer level per block, bw x bh blocks of
+     * info.block cells, row-major) the top is a stepped relief instead -- a
+     * coarse stand-in for the terrain, built from the elevation pass while the
+     * rest of the map is still being generated. Or null. */
     function setIntroSlab(info) {
       if (disposed) return;
       if (slab) {
@@ -2582,20 +2586,50 @@
       if (!info) return;
       if (!slabProgram) slabProgram = makeSlabProgram(gl);
       if (!slabProgram) return;
-      var x0 = -info.w / 2 - 1, x1 = info.w / 2 + 1, z0 = -info.h / 2 - 1, z1 = info.h / 2 + 1;
-      var yt = info.top, yb = info.bottom;
-      var faces = [
-        [0, 1, 0, x0, yt, z0, x0, yt, z1, x1, yt, z1, x1, yt, z0],
-        [0, 0, 1, x0, yb, z1, x1, yb, z1, x1, yt, z1, x0, yt, z1],
-        [0, 0, -1, x1, yb, z0, x0, yb, z0, x0, yt, z0, x1, yt, z0],
-        [1, 0, 0, x1, yb, z1, x1, yb, z0, x1, yt, z0, x1, yt, z1],
-        [-1, 0, 0, x0, yb, z0, x0, yb, z1, x0, yt, z1, x0, yt, z0]
-      ];
       var vert = [], idx = [];
-      faces.forEach(function (f, k) {
-        for (var v = 0; v < 4; v++) vert.push(f[3 + v * 3], f[4 + v * 3], f[5 + v * 3], f[0], f[1], f[2]);
-        idx.push(k * 4, k * 4 + 1, k * 4 + 2, k * 4, k * 4 + 2, k * 4 + 3);
-      });
+      // One quad: normal (nx, ny, nz) and its four corners, wound like the
+      // terrain mesh (counter-clockwise seen from outside).
+      function quad(n, c) {
+        var base = vert.length / 6;
+        for (var v = 0; v < 4; v++) vert.push(c[v * 3], c[v * 3 + 1], c[v * 3 + 2], n[0], n[1], n[2]);
+        idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      function top(x0, x1, z0, z1, y) { quad([0, 1, 0], [x0, y, z0, x0, y, z1, x1, y, z1, x1, y, z0]); }
+      function wallPZ(x0, x1, z, yb, yt) { quad([0, 0, 1], [x0, yb, z, x1, yb, z, x1, yt, z, x0, yt, z]); }
+      function wallNZ(x0, x1, z, yb, yt) { quad([0, 0, -1], [x1, yb, z, x0, yb, z, x0, yt, z, x1, yt, z]); }
+      function wallPX(x, z0, z1, yb, yt) { quad([1, 0, 0], [x, yb, z1, x, yb, z0, x, yt, z0, x, yt, z1]); }
+      function wallNX(x, z0, z1, yb, yt) { quad([-1, 0, 0], [x, yb, z0, x, yb, z1, x, yt, z1, x, yt, z0]); }
+      var yb = info.bottom;
+      if (info.heights) {
+        var B = info.block, bw = info.bw, bh = info.bh, hs = info.heights;
+        var ox = -info.w / 2, oz = -info.h / 2;
+        var bx0 = function (i) { return ox + i * B; };
+        var bz0 = function (j) { return oz + j * B; };
+        var bx1 = function (i) { return Math.min(ox + (i + 1) * B, info.w / 2); };
+        var bz1 = function (j) { return Math.min(oz + (j + 1) * B, info.h / 2); };
+        for (var j = 0; j < bh; j++) {
+          for (var i = 0; i < bw; i++) {
+            var hc = hs[j * bw + i];
+            top(bx0(i), bx1(i), bz0(j), bz1(j), hc);
+            var hE = i + 1 < bw ? hs[j * bw + i + 1] : yb;
+            if (hc > hE) wallPX(bx1(i), bz0(j), bz1(j), hE, hc);
+            else if (hE > hc) wallNX(bx1(i), bz0(j), bz1(j), hc, hE);
+            var hS = j + 1 < bh ? hs[(j + 1) * bw + i] : yb;
+            if (hc > hS) wallPZ(bx0(i), bx1(i), bz1(j), hS, hc);
+            else if (hS > hc) wallNZ(bx0(i), bx1(i), bz1(j), hc, hS);
+            if (i === 0) wallNX(bx0(i), bz0(j), bz1(j), yb, hc);
+            if (j === 0) wallNZ(bx0(i), bx1(i), bz0(j), yb, hc);
+          }
+        }
+      } else {
+        var x0 = -info.w / 2 - 1, x1 = info.w / 2 + 1, z0 = -info.h / 2 - 1, z1 = info.h / 2 + 1;
+        var yt = info.top;
+        top(x0, x1, z0, z1, yt);
+        wallPZ(x0, x1, z1, yb, yt);
+        wallNZ(x0, x1, z0, yb, yt);
+        wallPX(x1, z0, z1, yb, yt);
+        wallNX(x0, z0, z1, yb, yt);
+      }
       var vao2 = gl.createVertexArray();
       var vb = gl.createBuffer(), ib = gl.createBuffer();
       gl.bindVertexArray(vao2);
@@ -2606,7 +2640,7 @@
       gl.enableVertexAttribArray(1);
       gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
-      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, new Uint16Array(idx), gl.STATIC_DRAW);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, new Uint32Array(idx), gl.STATIC_DRAW);
       gl.bindVertexArray(null);
       slab = { vao: vao2, vb: vb, ib: ib, count: idx.length };
     }
@@ -2620,7 +2654,7 @@
       gl.uniform3fv(P.color, introNeutral);
       gl.enable(gl.CULL_FACE);
       gl.bindVertexArray(slab.vao);
-      acct.drawElements(gl.TRIANGLES, slab.count, gl.UNSIGNED_SHORT, 0);
+      acct.drawElements(gl.TRIANGLES, slab.count, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
     }
 

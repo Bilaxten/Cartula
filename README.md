@@ -89,24 +89,36 @@ değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-mot
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
-`setIntroSlab` / `buildIntroFloor`). (0) Sayfa açılır açılmaz haritanın ayak izinde
-**boş bir voxel plaka** (tek nötr ton = palet *Bare*, hafif hücre ızgarası) durur ve
-üretim sürerken yavaş, alçak bir **nefes** alır (kamera ± %0,6 sinüs; dalga değil);
-üretim süresini bu gizler (en az 380 ms). (1) **Yüksel**: bitmiş mesh plakanın yerini
-alır (sabit nötr kil tonu) ve bütün kolonlar *aynı anda* kendi yüksekliğine çıkar,
-tek yumuşak ease (950 ms; `uVScale`, geometri yeniden kurulmaz). (2) **Boya**: renk
-*yükselti sırasıyla*, alttan üste (kumsal/ova → çim → orman → kaya → kar), her bant
-üst banda biraz binerek çapraz solar (vertex shader'da `uIntro.x`, ~1 sn). (3) **Su**:
-deniz *en derin voksel katmanından* başlayarak katman katman sea level'a kadar dolar
-(düzlem, tam voksel katmanlarında yumuşak basamaklı: her deniz karosunun yatağı
-`buildIntroFloor`'dan, derinlik bandı = 1-3 katman), göl ve nehirler en son kalkar
-(`uIntro.y/z`; kıyı köpüğü su gelmeden görünmez). Toplam üretimden sonra ~2,85 sn,
-hepsi easeli. Bitişte uniform'lar kapanır ve değerler tam normal render'a iner (açma
-ve kapama arasında matematiksel fark yok; Edge'de intro sonu ve normal yükleme
-ekranlarının farkı 1,3 M pikselin 132'sinde, o da dalga fazı). **Mesh, gölge
-görüntüsü, rüzgâr alanı, hava ve duman worker'da kurulur** (`SM.buildIsoExtra`;
-eskiden ana thread'de ~170 ms rüzgâr + mesh) ve transfer edilir; sayfa hiç
-bloklanmaz. Gökyüzü, rüzgâr çizgileri, yağmur bulutları ve duman su fazında gelir.
+`setIntroSlab` / `buildIntroFloor`, `generate.js` `SM.previewHeights`). Üretim
+bekleyişi tek bir boş plakada tutulmaz, adımlara yayılır. (0) Sayfa açılır açılmaz
+haritanın ayak izinde **boş bir voxel plaka** (tek nötr ton = palet *Bare*, hafif
+hücre ızgarası) durur ve alçak bir **nefes** alır (kamera ± %0,6 sinüs; dalga
+değil); yalnız ilk ~450 ms. (1) **Yüksel**: plaka hemen haritanın kaba bir
+**basamaklı kabartmasına** dönüşür (`SM.previewHeights`: aynı yükseklik fonksiyonu
+72×72 blokta örneklenir, birkaç ms; repair/plato pass'lerinden önceki ham hali,
+kara/deniz ayrımı shape pass'iyle %94+ uyuşur, `--intro` denetler) ve bütün kolonlar
+*aynı anda* yükselir, tek yumuşak ease (`uVScale`, geometri yeniden kurulmaz).
+Bitmiş mesh (worker'da kurulur) gelince yükselişin ortasında kabartmanın yerini alır
+(sabit nötr kil tonu; kamera farkı 700 ms'de erir). Yükselişin hızı üretim süresine
+uyar: zaman saati kapıya (`GATE`) kadar, preview'ın maliyetinden ve worker'ın
+yükselti pass'inin (`shape`) geliş zamanından tahmin edilen mesh varışına göre
+yavaşlar (en çok x0,4), yani yavaş cihazda yükseliş bekleyişi doldurur; mesh gelene
+kadar saat kapıda durur (nefes devam eder), hızlı cihazda temel zaman çizelgesi
+oynar. (2) **Boya**: renk *yükselti sırasıyla*, alttan üste (kumsal/ova → çim →
+orman → kaya → kar), her bant üst banda biraz binerek çapraz solar (vertex
+shader'da `uIntro.x`, ~1,2 sn). (3) **Su**: deniz *en derin voksel katmanından*
+başlayarak katman katman sea level'a kadar dolar (düzlem, tam voksel
+katmanlarında yumuşak basamaklı: her deniz karosunun yatağı `buildIntroFloor`'dan,
+derinlik bandı = 1-3 katman), göl ve nehirler en son kalkar (`uIntro.y/z`; kıyı
+köpüğü su gelmeden görünmez). Çizelge (yükselişin başından, ms): yüksel 0-1400,
+boya 1050-2200, deniz 1900-2850, göl 2550-3000; hepsi easeli. Bitişte uniform'lar
+kapanır ve değerler tam normal render'a iner (açma ve kapama arasında matematiksel
+fark yok; Edge'de intro sonu ve normal yükleme ekranlarının farkı 1,3 M pikselin
+132'sinde, o da dalga fazı). **Mesh, gölge görüntüsü, rüzgâr alanı, hava ve duman
+worker'da kurulur** (`SM.buildIsoExtra`; eskiden ana thread'de ~170 ms rüzgâr +
+mesh) ve transfer edilir; sayfa hiç bloklanmaz. Gökyüzü, rüzgâr çizgileri, yağmur
+bulutları ve duman su fazında gelir. Seed bayt bayt aynı: `previewHeights` boru
+hattının durumuna dokunmaz, `SM.generate` aynı sıra ve aynı sayılarla koşar.
 Atla: dokun / tuş / yeni seed / *Regenerate* / `prefers-reduced-motion`; kameralı
 paylaşım bağlantısı ve üstten görünüm eski yolda kalır.
 
