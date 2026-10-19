@@ -7,7 +7,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 ---
 
 **Güncellendi:** 2026-10-19
-**Dal:** `intro-topdown` (PR açık, Uğur onayı bekliyor; `master` canlıda v10) (PR #2 `layered-intro` 2026-10-19'da birleşti, `49daa4d`; canlı = `d2a4bd0` uygulama dosyaları)
+**Dal:** `master` (`intro-topdown` PR #3 birleştirildi: v11-v13, canlı = bu birleşme)
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/.
@@ -51,11 +51,11 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
    izometrikte 3B voxel animasyon (güncel sıra aşağıda); üstten görünümde
    2D katman süpürmesi; `README.md` → *İlk yükleme*, DEVLOG 2026-10-19); Uğur onaylayınca
    `master`'a, sonra yayın. Kalan: ilk yükleme dışı `regenerate()` hâlâ senkron, voxel
-   mesh/shader derlemesi ana thread'de. İzometrik intro 2026-10-19'da on revizyon geçirdi (DEVLOG *Revizyon 3-12*). Son hali (v10, ~4,5 sn; `intro-topdown` dalında v11-v12: kamera üstten başlayıp izometriğe kayar, renk izometriğe varınca gelir): düz
+   mesh/shader derlemesi ana thread'de. İzometrik intro 2026-10-19'da on revizyon geçirdi (DEVLOG *Revizyon 3-13*). Son hali (v10, ~4,5 sn; v11-v13: ilk açılışta kamera üstten başlayıp izometriğe kayar, renk izometriğe varınca gelir; Random/seed/dünya tipi izometrik devam eder): düz
    plaka + siyah ızgara (~0,45 sn) → düz haritada köşelerden ortaya sert/kaba kenarlı boya (siyah #131313 plaka) (bekleyiş worker pass'lerinin
    renkli görüntüsüyle) → boya bitmeden hemen önce yükselti (boyanın tersi sırayla, ortadan) → ızgara onunla söner → bulutlar; Random/seed/dünya
    tipi de aynı animasyonla; ayrıntı `README.md` → *İzometrik yükleme animasyonu*. Videolar Drive
-   `aktarim/cartula/2026-10-19-intro/v12-*`. Uğur 2026-10-19 onayladı ("kalsın böyle"), canlıda. A32'de bakılmadı.
+   `aktarim/cartula/2026-10-19-intro/v13-*`. Uğur 2026-10-19 onayladı ("kalsın böyle"), canlıda. A32'de bakılmadı.
 3. Küçük, bağımsız: fırça sonrası komşu hücreler (`TODO.md` NEXT).
 
 ## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)

@@ -89,7 +89,7 @@ değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-mot
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
-`setIntroSlab` / `setIntroImage`). Kamera düz yukarıdan başlar (2B haritanın görünümü), izometrik kameraya kayar ve renk ancak oraya varınca gelir (aşağıda). Sıra
+`setIntroSlab` / `setIntroImage`). İlk açılışta kamera düz yukarıdan başlar (2B haritanın görünümü), izometrik kameraya kayar ve renk ancak oraya varınca gelir (aşağıda); sonraki haritalar izometrik başlar. Sıra
 (Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**: haritanın ayak izinde **neredeyse siyah (#131313)** düz bir voksel
 plaka, üstünde **soluk açık gri hücre ızgarası** (koyu zeminde okunsun diye çizgiler
 artık siyah değil: albedo'yu %30 açık griye (0,62) doğru karıştırır), alçak bir
@@ -117,8 +117,10 @@ parlaklık sıçraması olmaz. **Kamera**: önce siyah plaka düz aşağıdan (p
 bittikten sonra** başlar (boya saati eğilmenin bitişinden sonra, önizleme görüntüleri de boya
 başlayınca) ve boya eğilmeyle çakışmaz. Yaw hiç değişmez (dönme yok), pitch tam normal
 kameranın pitch'inde biter. Atla ya da iptal anında kamera hemen normal izometriğe döner.
-Random/seed/dünya tipi aynı hareketi oynatır; kullanıcı kamerayı döndürmüşse eski `regenerate`
-gibi onun yaw/pitch'i korunur, eğilme o açıya biter.
+**Eğilme yalnız sayfa ilk açıldığında oynar.** Sonraki her yeni harita (Random, seed, dünya
+tipi) üstten başlamaz ve eğilmez: kamera olduğu gibi izometrik kalır (eski `regenerate` gibi
+yaw/pitch korunur, yakınlaşma ve hedef sıfırlanır), siyah plaka kısa bir an (`REPLAY_SLAB`
+250 ms) görünür ve boya hemen başlar, eğilmenin yerine bekleme konmaz.
 (2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
 boya bitmeden ~300 ms önce başlar** (kapanan lekenin üstünde, ölü boşluk yok),
 **boyanın tersi sırayla**: en son boyanan yer (ortada kapanan leke) ilk yükselir,

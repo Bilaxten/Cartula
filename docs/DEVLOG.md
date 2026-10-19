@@ -4,6 +4,15 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 13: eğilme yalnız ilk açılışta.** Uğur: *"bir kere yüklendikten sonra tekrar 2d
+görünümden gelme olmasın. sayfa ilk açıldığında olsun sadece. random'a basınca 2d animasyonu
+olmadan izometrik olarak devam edebilir."* İlk yükleme v12 ile aynı. Sonraki her yeni harita
+(Random, seed alanı, dünya tipi: `startVoxelIntro(cfg, true)`) üstten başlamaz ve eğilmez:
+kamera izometrik kalır, siyah plaka `REPLAY_SLAB` (250 ms) görünür ve boya hemen başlar,
+eğilmenin yerine bekleme yok. Ölçüm (Random, bekletmesiz): boya 0,25 sn'de başlıyor, son
+harita 4,76 sn (v12 ilk yükleme 5,97 sn); yavaş worker x4'te ilk renk 0,36 sn, x6'da 0,53 sn
+(ilk `sample` görüntüsünün gelişi). Bitiş kare farkı ikinci haritada da taban düzeyinde.
+
 **Revizyon 12 (`intro-topdown`): renk izometriğe döndükten sonra gelsin.** Uğur: *"renk
 izometriğe döndükten sonra gelsin önce değil"*. Yeni sıra: üstten siyah plaka + ızgara
 (250 ms) → kamera izometriğe eğilir (~1,2 sn, aynı smootherstep, sabit yaw) → eğilme bittikten

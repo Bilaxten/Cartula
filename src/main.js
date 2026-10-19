@@ -1036,10 +1036,13 @@
   // the mesh) says how long the rest will take; on a slow device the clock
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
-  var VI = { V0: 0.05, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+  var VI = { V0: 0.05, GATE: 2100, REPLAY_SLAB: 250, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
     PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], TILT: [250, 1450], TOP_PITCH: 89, END: 4500 };
   // PAINT .. END run on the timeline clock, which starts when the camera has
-  // finished tilting (and a colour image or the mesh exists). TILT is in plain
+  // finished tilting (and a colour image or the mesh exists). The tilt is the
+  // FIRST LOAD's only: a new map (Random, a seed, a world type) keeps the
+  // camera where it is, isometric, shows the black slab for REPLAY_SLAB ms and
+  // paints at once, with no top-down phase and no wait in the tilt's place. TILT is in plain
   // milliseconds from the start: the black slab shows for TILT[0], the camera
   // then tilts into the isometric view, and nothing coloured shows before it.
 
@@ -1116,13 +1119,13 @@
     // The scale stays final all through: the rise is per column, in the shaders.
     var sweep = introFront(cfg);
     voxelRenderer.setSun(sunDir);
-    voxelRenderer.setCamera({ yaw: camA.yaw, pitch: VI.TOP_PITCH, zoom: camA.zoom, tx: camA.tx, ty: camA.ty, tz: camA.tz });
+    voxelRenderer.setCamera({ yaw: camA.yaw, pitch: replay ? camA.pitch : VI.TOP_PITCH, zoom: camA.zoom, tx: camA.tx, ty: camA.ty, tz: camA.tz });
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
     voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep, map: [W, H],
       rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 1 });
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
-    var vi = { cfg: cfg, camA: camA, camB: camA, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
+    var vi = { slabMs: replay ? VI.REPLAY_SLAB : VI.TILT[1], cfg: cfg, camA: camA, camB: camA, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
       amp: 1, tMesh: 0, sweep: sweep, img: null, staged: false, extra: null, g: null, ms: 0, raf: 0, skip: false,
       started: false, done: false, skyOn: false };
     var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
@@ -1140,7 +1143,7 @@
       vi.last = now;
       // The paint starts once the minimum wait is over and either a colour
       // image or the mesh is there; until then the clock sits at 0.
-      if (!vi.tR0 && now - vi.t0 >= VI.TILT[1] && (vi.img || vi.extra)) {
+      if (!vi.tR0 && now - vi.t0 >= vi.slabMs && (vi.img || vi.extra)) {
         vi.tR0 = now;
         if (performance.mark) performance.mark('sm-rise-start');
       }
@@ -1166,7 +1169,7 @@
       // the paint, then tilts into the normal isometric one across the end of
       // the paint and the start of the rise. The yaw never changes, so the
       // tilt does not spin; the pitch ends exactly on the normal camera's.
-      cam.pitch = VI.TOP_PITCH + (camA.pitch - VI.TOP_PITCH) * smootherstep(span(now - vi.t0, VI.TILT));
+      if (!replay) cam.pitch = VI.TOP_PITCH + (camA.pitch - VI.TOP_PITCH) * smootherstep(span(now - vi.t0, VI.TILT));
       // Waiting: a slow, low breath of the whole map (camera lift and a hair
       // of zoom, a sine, never a wave across it).
       var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4)) * vi.amp;
@@ -1202,7 +1205,7 @@
         // about (now / share) from the start.
         vi.staged = true;
         var now = performance.now(), due = vi.t0 + (now - vi.t0) / stageShare[id];
-        var start = Math.max(vi.tR0 || now, vi.t0 + VI.TILT[1]);
+        var start = Math.max(vi.tR0 || now, vi.t0 + vi.slabMs);
         vi.rate = Math.max(VI.MIN_RATE, Math.min(1, (VI.GATE - vi.clock) / Math.max(1, due - Math.max(now, start))));
       },
       onDone: function (g, ms, extra) {
