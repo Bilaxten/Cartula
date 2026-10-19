@@ -7,7 +7,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 ---
 
 **Güncellendi:** 2026-10-19
-**Dal:** `master` (`intro-topdown` PR #3 birleştirildi: v11-v13, canlı = bu birleşme)
+**Dal:** `master` (`intro-topdown` PR #3 birleştirildi: v11-v13, birleşme `b3c13f7`, canlı = `f2cf34a` uygulama dosyaları)
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/.
@@ -15,7 +15,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 ## Şu an
 
 - **Durum:** M1-M4 bitti (README'deki beş milestone'un hepsi `[x]`). Canlı demo
-  bilaxten.art/cartula (Vercel, `scripts/publish-site.sh`); canlı = `d2a4bd0` (2026-10-19, voxel yükleme animasyonu v10).
+  bilaxten.art/cartula (Vercel, `scripts/publish-site.sh`); canlı = `f2cf34a` (2026-10-19, voxel yükleme animasyonu v13: ilk açılışta üstten izometriğe eğilme).
   Vaka çalışması `bilaxten.art`'ta **canlı (2026-10-09)**; yalnız SES-TASLAK onayı Uğur'da.
 - **Son commit'ler:** `ab1fa66` (izometrik dokunmatik ipucu: iki parmak yalnız zoom; A32
   bulgusu 1 kapandı) · `37c3cea` (skill'ler bu repoya göre kırpıldı) · `8fd55f7` (A32 cihaz
@@ -85,7 +85,7 @@ Kod değişmedi (bu bloğun yazıldığı oturumda). Telefon (Galaxy A32, Androi
   kilit/ölü bölge yok; parmak kalkınca kalanlar yine `dead`). `hint.*.touch` metinleri buna göre.
 - Kar/yağmur parçacık asgari boyutu cihaz pikseli yerine CSS pikseli (DPR 2.6'da taneler
   0,6 CSS px'ti, görünmüyordu). Yosunlu göl karışımı `[0, .55, .9]` (eskiden `.35/.65`, mavi okunuyordu).
-- Yayınlandı (2026-10-19, `publish-site.sh`, canlı = `d2a4bd0`). Yükleme ~4,9 sn: açılışta
+- Yayınlandı (2026-10-19, `publish-site.sh`, canlı = `f2cf34a`). Yükleme ~4,9 sn: açılışta
   senkron 320² üretim (masaüstü node'da ~0,9 sn; A32 ~5x yavaş); düzeltilmedi.
 
 ## Görünüm mimarisi — TEK CÜMLE
