@@ -4,6 +4,18 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 10 (aynı gün): hızlandırma.** Uğur: *"renklendirme ve yükseltme arasındaki
+geçiş çok yavaş. renklendirme ve yükseltmenin kendi animasyonları da aşırı yavaş çok
+bekliyoruz. hızlandıralım"*. Şekil, sıra, renkler v9 ile aynı; yalnız süre: boya
+3800 → 2400 ms, yükseliş 2800 → 1700 ms ve **boya bitmeden 300 ms önce** (2100'de)
+başlıyor, ızgara 2000-2900, bulutlar yükselişin sonuna binerek 3300-4500, toplam
+~7,2 → ~4,5 sn. Geçişteki ölü aralık için yalnız sayıları değil algıyı düzelttim:
+ters cephe küçük bir lekeyle başlıyor ve kolon smootherstep'i düz başlıyor, bu yüzden
+sıra `order^1,5` ile eğildi (orta bölgenin geniş bir alanı hemen kalkar) ve kolon
+süresi 0,45 → 0,38'e, yayılma 0,55 → 0,62'ye çekildi. Ölçüm (kare farkı, hızlı yol):
+yükseliş başlayınca hareket enerjisi taban 0,004'ten ~150-200 ms'de 0,05'e, 400 ms'de
+0,13'e çıkıyor. Yavaş-worker yolunda mesh bekleme kapısı aynı (yükselişin başı).
+
 **Revizyon 9 (aynı gün): yükselti boya biter bitmez, boyanın tersi sırayla.** Uğur v8
 boyasını beğendi: *"ilk renklendirme animasyonu güzel ama yükselti çok geç giriyor.
 renkleme bitince girsin hemen, o da tam ortadan başlayarak yükseltileri getirmeye

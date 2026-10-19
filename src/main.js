@@ -1017,7 +1017,8 @@
   //          eased into one another; the mesh then starts from them and eases
   //          into its own colours
   //   grid   the grid lines fade out as the paint closes, overlapping the start of the rise
-  //   rise   the relief rises right as the paint ends, every column on its own
+  //   rise   the relief starts to rise ~300 ms before the paint ends (over the
+  //          closing blob), every column on its own
   //          clock (smootherstep each), in the paint's order reversed: where the
   //          paint closed last (the middle blob) rises first, the corners and
   //          edges it began with rise last. Water keeps
@@ -1031,8 +1032,8 @@
   // the mesh) says how long the rest will take; on a slow device the clock
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 3800, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
-    PAINT: [0, 3800], GRID: [3400, 4400], RISE: [3800, 6600], CLOUD: [5300, 6700], END: 6700 };
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], END: 4500 };
 
   // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
   // the map's seed (same map, same front) and 1 / the map's half diagonal, so

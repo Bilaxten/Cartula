@@ -1279,7 +1279,7 @@
       '  float yScale = uVScale;',
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
-      '    yScale = introRiseScale(uIntroRise, (1.5 - introFront(aPosition.xz, uIntroSweep)) / 1.48, uVScale);',
+      '    yScale = introRiseScale(uIntroRise, pow((1.5 - introFront(aPosition.xz, uIntroSweep)) / 1.48, 1.5), uVScale);',   // ^1.5: a visible area lifts at once
       '    // The paint, on the FLAT map: a hard, rough front (INTRO_FRONT_GLSL) that',
       '    // closes in from the corners, decided per CELL (the cell centre), so the',
       '    // edge follows the voxel grid. Every colour at once; water is just',
@@ -1653,7 +1653,7 @@
    * r = (progress 0..1, -, flat scale, fade); the fade scales the move. */
   var INTRO_RISE_GLSL = [
     'float introRiseScale(vec4 r, float order, float vs) {',
-    '  float l = clamp((r.x - order * 0.55) / 0.45, 0.0, 1.0);',
+    '  float l = clamp((r.x - order * 0.62) / 0.38, 0.0, 1.0);',
     '  float k = l * l * l * (l * (l * 6.0 - 15.0) + 10.0);',
     '  return mix(r.z, vs, k * r.w);',
     '}'

@@ -4044,14 +4044,14 @@ function runIntroChecks() {
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: paint first on the flat map, the relief rises right as it ends (grid fade overlapping), then clouds; 5.8-7.2 s from the first paint, every move eased; the rise waits at GATE for the mesh',
+    push('intro timeline: paint first on the flat map, the relief starts rising before it ends (grid fade overlapping), then clouds; 4-5.2 s from the first paint, every move eased; the rise waits at GATE for the mesh',
       (() => {
         const m = /PAINT: \[(\d+), (\d+)\], GRID: \[(\d+), (\d+)\], RISE: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
         const [p0, p1, g0, g1, r0, r1, c0, c1, end] = m.slice(1).map(Number);
         const gate = /GATE: (\d+)/.exec(vox);
         // the rise starts as the paint ends (no gap), the grid fade overlaps both
-        return p0 === 0 && g0 > p0 && g0 < p1 && g1 > r0 && g1 <= r0 + 900 && r0 >= p1 - 50 && r0 <= p1 + 50 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && end >= 5800 && end <= 7200 &&
+        return p0 === 0 && g0 > p0 && g0 < p1 && g1 > r0 && g1 <= r0 + 1200 && r0 >= p1 - 450 && r0 < p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && p1 >= 2200 && end >= 4000 && end <= 5200 &&
           gate && +gate[1] >= r0 - 100 && +gate[1] <= r0 + 100 &&
           /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
           /easeInOutSine\(span\(t, VI\.GRID\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
@@ -4092,7 +4092,7 @@ function runIntroChecks() {
           /float introFront\(highp vec2 cell, highp vec3 s\)/.test(v3d) && /q \+ w \* 1\.25/.test(v3d) && /introFbm5\(q \* 13\.0/.test(v3d) && /clamp\(1\.0 - d, 0\.02, 1\.5\)/.test(v3d);
       })());
     push('intro rise order: the paint front reversed (the cell painted last rises first), evaluated per vertex, each column eased; the rise starts as the paint ends',
-      /\(1\.5 - introFront\(aPosition\.xz, uIntroSweep\)\) \/ 1\.48/.test(vs) && /float l = clamp\(\(r\.x - order \* 0\.55\) \/ 0\.45, 0\.0, 1\.0\)/.test(v3d) &&
+      /pow\(\(1\.5 - introFront\(aPosition\.xz, uIntroSweep\)\) \/ 1\.48, 1\.5\)/.test(vs) && /float l = clamp\(\(r\.x - order \* 0\.62\) \/ 0\.38, 0\.0, 1\.0\)/.test(v3d) &&
       /l \* l \* l \* \(l \* \(l \* 6\.0 - 15\.0\) \+ 10\.0\)/.test(v3d));
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
