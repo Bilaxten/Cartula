@@ -90,18 +90,22 @@ Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` an
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
 `setIntroSlab` / `setIntroImage`). Kamera tüm süre boyunca izometrik kalır. Sıra
-(Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**:
-haritanın ayak izinde nötr (palet *Bare*) düz bir voksel plaka, üstünde **siyah
-hücre ızgarası**, alçak bir **nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms
-(ızgara çizgileri `INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin
-altına inince ince ızgara solar, her 4. ve 16. çizgi kalır). (1) **Düz haritayı boya**: harita *düz* haldeyken renkler **köşelerden ortaya doğru**
-birleşerek gelir: ortadan büyüyen bir dairenin tersi, boyanmamış bölge küçülüp
-merkezde kapanır (harita uzayında mesafe, köşeler önce; izometrik görünümde simetrik).
-Cephe düz geometrik bir kenar değil: seed'den türetilen sabit bir kayma ile düşük
-frekanslı + biraz ince değer gürültüsü (`introFront`: `0.65·n(2,6·q) + 0.35·n(8·q)`,
-±0,15 kayma) kenarı hafif dağınık ve düzensiz yapar, yine yumuşak (bant 0,55,
-sine ease), benek ya da blok yok. Bütün renkler birlikte (su da yalnız mavi hücreler),
-ızgara çizgileri bu sırada görünür kalır. Bitmiş harita
+(Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**: haritanın ayak izinde **neredeyse siyah (#131313)** düz bir voksel
+plaka, üstünde **soluk açık gri hücre ızgarası** (koyu zeminde okunsun diye çizgiler
+artık siyah değil: albedo'yu %30 açık griye (0,62) doğru karıştırır), alçak bir
+**nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms. Izgara çizgileri
+`INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin altına inince ince ızgara
+solar, her 4. ve 16. çizgi kalır. (1) **Düz haritayı boya**: harita *düz* haldeyken
+renkler köşelerden ve kenarlardan gelir, boyanmamış bölge orta civarında kapanır ama
+**daire gibi değil**: merkeze uzaklık önce büyük bir alçak frekanslı gürültüyle
+**domain warp** edilir (±0,6), sonra geniş bir gürültüyle (±0,33) bükülür, en sonda
+5 oktavlı fraktal (±0,2) kenarı pürüzlendirir (`introFront`). Kenar **sert ve kaba**:
+bant ya da yumuşatma yok, **hücre merkezinde** değerlendirilip ilerlemeyle sert
+eşikle (`step`) kıyaslanır, yani kenar voksel ızgarasını izler (mesh'te köşe başına
+değil karo başına, plakada hücre başına, aynı fonksiyon ve aynı hücre; el
+değiştirmede kenar kaymaz). Gürültü kayması harita seed'inden (aynı harita hep aynı
+boyanır). Bütün renkler birlikte (su da yalnız mavi hücreler), ızgara bu sırada
+görünür kalır; ön izleme görüntüleri yalnız boyanmış yerde görünür. Bitmiş harita
 worker'dan gelene kadar renkler **worker'ın kendi pass'lerinden**: ham yükselti
 (`sample`), kara/deniz (`sea`), biyomlar (`climate`) `SM.Intro.pixels` ile düz bir
 RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gösterilir ve
@@ -115,7 +119,7 @@ kendi seviyesinde kalır: kara denizin etrafında yükselir (deniz yüzeyi 0'da 
 göl ve nehirler kendi zeminleriyle yükselir; ayrı bir su animasyonu yoktur. AO, gölge ve
 dalga gölgesi yükselişle birlikte devreye girer; lav yükselirken parlar. (4)
 **Bulutlar** merkezden kenara büyür (`uCloudGrow`). Çizelge (ilk boyadan, ms): boya
-0-2000, ızgara 1800-2600, yükseliş 2600-4900, bulut 4300-5500. Yükseliş mesh ister:
+0-3800, ızgara 3500-4300, yükseliş 4300-6600, bulut 6000-7200. Yükseliş mesh ister:
 zaman saati kapıda (`GATE` = yükselişin başı) düz ve renkli haritada nefes alarak
 bekler. Yavaş cihazda saat kapıya kadar yavaşlar (en çok x0,4; her pass'in geldiği
 an mesh varışını tahmin ettirir), yani bekleyiş renkli düz haritada geçer, renksiz

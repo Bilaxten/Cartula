@@ -4,6 +4,20 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 8 (aynı gün): siyah plaka, sert ve kaba kenar, daha yavaş boya.** Uğur:
+*"siyah olsun boş map 131313 olabilir. ortadaki circle hala circle'a benziyor. onu
+öyle yapmayalım. kenarları baya rough olmalı. kenarları keskin ve rough olsun.
+yumuşatma yapma kenarlara ve daha yavaş boyansın."* (1) Boş harita #131313 (Bare tonu
+yerine); ızgara çizgileri artık siyah değil, koyu zeminde okunacak soluk açık gri
+(albedo %30 → 0,62). Worker pass görüntüleri yalnız boyanmış yerde görünür (boş
+alan hep siyah). (2) Daire kırıldı: mesafe önce domain warp (±0,6), sonra geniş
+gürültü (±0,33); kapanan delik düzensiz bir leke. (3) Kenar sert: yumuşak bant yok,
+hücre merkezinde değerlendirilip `step` ile ilerlemeye kıyaslanır (kenar voksel
+ızgarasını izler, per-pixel yerine seçtim: izometrikte hücre ~1 px olduğundan
+fark görünmez, ama plaka/mesh aynı hücreyi aynı sonuçla boyar ve zoom'dan bağımsız);
+5 oktavlı fraktal kenarı yanık/aşınan bir sınıra çevirir. (4) Boya 2000 → 3800 ms,
+ızgara 3500-4300, yükseliş 4300-6600, bulut 6000-7200 (toplam ~7,2 sn).
+
 **Revizyon 7 (aynı gün): boya köşelerden ortaya.** Uğur: *"köşeden birleşerek gelsin
 renkler. ortadan büyüyen bir circle'ın tam tersi... ortaya doğru boyanıyor. ancak
 boyanırken biraz noise atarsın tam dümdüz kenarlı boyama olmaz da azıcık dağılımlı

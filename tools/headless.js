@@ -4044,13 +4044,13 @@ function runIntroChecks() {
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: paint first on the flat map, then the grid fades, then the relief rises, then clouds; 5-6 s from the first paint, every move eased; the rise waits at GATE for the mesh',
+    push('intro timeline: paint first on the flat map, then the grid fades, then the relief rises, then clouds; 6.5-7.8 s from the first paint, every move eased; the rise waits at GATE for the mesh',
       (() => {
         const m = /PAINT: \[(\d+), (\d+)\], GRID: \[(\d+), (\d+)\], RISE: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
         const [p0, p1, g0, g1, r0, r1, c0, c1, end] = m.slice(1).map(Number);
         const gate = /GATE: (\d+)/.exec(vox);
-        return p0 === 0 && g0 > p0 && g0 < p1 && g1 <= r0 + 50 && r0 >= p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && end >= 5000 && end <= 6000 &&
+        return p0 === 0 && g0 > p0 && g0 < p1 && g1 <= r0 + 50 && r0 >= p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && end >= 6500 && end <= 7800 &&
           gate && +gate[1] >= r0 - 100 && +gate[1] <= r0 + 100 &&
           /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
           /easeInOutSine\(span\(t, VI\.GRID\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
@@ -4069,26 +4069,26 @@ function runIntroChecks() {
       /if \(intro\.vox\) voxIntroTeardown\(\);/.test(main));
     push('terrain vertex shader: intro block is behind one uniform (uIntro.w), uses the neutral Bare tone and the existing palette only, no new colour literal',
       /uniform vec4 uIntro;/.test(vs) && /if \(uIntro\.w > 0\.5\)/.test(vs) && vsb.length > 200 && !/#[0-9a-fA-F]{3,8}\b|vec3\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*\)/.test(vsb) &&
-      /b\.id === 'bare'/.test(fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8')));
+      /0x13 \/ 255/.test(fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8')));
     push('intro: Random, a seed and a world type play the animation on the voxel world; sliders stay instant; skip and reduced motion intact',
       /function regenerate\(animate\)/.test(main) && /animate === true && !reduced && isVoxelMode\(\)[^\n]*startVoxelIntro\(cfg, true\)/.test(main) &&
       /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
       /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
       /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
-    push('terrain shader intro: the paint is one inward front (corners to centre, noisy edge) on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
-      /float u = introFront\(aPosition\.xz, uIntroSweep\)/.test(vs) &&
-      /float keep = clamp\(\(uIntro\.x \* \(1\.0 \+ band\) - u\) \/ band, 0\.0, 1\.0\)/.test(vs) && !/yN/.test(vs) &&
-      /vIntroGrid\.w = uIntro\.z/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
+    push('terrain shader intro: the paint is one hard, rough, per-cell front that closes in from the corners (warped, not a circle) on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
+      /introFront\(vec2\(ic\)/.test(vs) &&
+      /float keep = step\(introFront\(vec2\(ic\) \+ 0\.5 - 0\.5 \* uIntroMap, uIntroSweep\), uIntro\.x \* 1\.5\)/.test(vs) && !/band|smoothstep\(0\.0, 1\.0, keep/.test(vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'))) &&
+      /vIntroGrid\.w = uIntro\.z/.test(vs) && /baseColor = mix\(baseColor, vec3\(0\.62\), 0\.30 \* vIntroGrid\.w/.test(fsrc) &&
       /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.45, 1\.0, uIntroRise\.x\)/.test(vs) &&
       /vColor = mix\(texelFetch\(uIntroImage, ic, 0\)\.rgb, vColor, uIntroBlend\.y\)/.test(vs) && !/uIntroFloor|yw = mix/.test(vs) &&
       /aoFactor = mix\(1\.0, aoFactor, uIntroLight\)/.test(fsrc) && /shadow \* uIntroLight/.test(fsrc));
-    push('intro paint front: a circle about the map centre (corners first, centre last) shifted by seeded noise (offset from the map seed, no Math.random), deterministic',
+    push('intro paint front: warped fractal front from the corners (not a circle), seeded noise (offset from the map seed, no Math.random), deterministic',
       (() => {
         const f = new Function(vox.slice(vox.indexOf('function introFront'), vox.indexOf('function smootherstep')) + '; return introFront;');
         const fr = f(), a = fr({ width: 320, height: 200, seed: 1337 }), b = fr({ width: 320, height: 200, seed: 1337 }), c = fr({ width: 320, height: 200, seed: 99 });
         return JSON.stringify(a) === JSON.stringify(b) && JSON.stringify(a) !== JSON.stringify(c) &&
           Math.abs(a[2] - 2 / Math.sqrt(320 * 320 + 200 * 200)) < 1e-12 && !/Math\.random/.test(vox) &&
-          /float introFront\(highp vec2 xz, highp vec3 s\)/.test(v3d) && /1\.0 - length\(q\) \+ \(n - 0\.5\) \* 0\.30/.test(v3d);
+          /float introFront\(highp vec2 cell, highp vec3 s\)/.test(v3d) && /q \+ w \* 1\.25/.test(v3d) && /introFbm5\(q \* 13\.0/.test(v3d) && /clamp\(1\.0 - d, 0\.02, 1\.5\)/.test(v3d);
       })());
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));

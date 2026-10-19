@@ -51,11 +51,11 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
    izometrikte 3B voxel animasyon (güncel sıra aşağıda); üstten görünümde
    2D katman süpürmesi; `README.md` → *İlk yükleme*, DEVLOG 2026-10-19); Uğur onaylayınca
    `master`'a, sonra yayın. Kalan: ilk yükleme dışı `regenerate()` hâlâ senkron, voxel
-   mesh/shader derlemesi ana thread'de. İzometrik intro 2026-10-19'da yedi revizyon geçirdi (DEVLOG *Revizyon 3-7*). Son hali (v7): düz
-   plaka + siyah ızgara (~0,45 sn) → düz haritada köşelerden ortaya noise kenarlı boya (bekleyiş worker pass'lerinin
+   mesh/shader derlemesi ana thread'de. İzometrik intro 2026-10-19'da sekiz revizyon geçirdi (DEVLOG *Revizyon 3-8*). Son hali (v8): düz
+   plaka + siyah ızgara (~0,45 sn) → düz haritada köşelerden ortaya sert/kaba kenarlı boya (siyah #131313 plaka) (bekleyiş worker pass'lerinin
    renkli görüntüsüyle) → ızgara söner → yükselti kolon kolon yükselir → bulutlar; Random/seed/dünya
    tipi de aynı animasyonla; ayrıntı `README.md` → *İzometrik yükleme animasyonu*. Videolar Drive
-   `aktarim/cartula/2026-10-19-intro/v7-*`, Uğur izleyip onaylayacak.
+   `aktarim/cartula/2026-10-19-intro/v8-*`, Uğur izleyip onaylayacak.
 3. Küçük, bağımsız: fırça sonrası komşu hücreler (`TODO.md` NEXT).
 
 ## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)

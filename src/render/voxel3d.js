@@ -1176,6 +1176,8 @@
       // eases into its own colours. x = image there, y = mesh colours' share.
       'uniform highp sampler2D uIntroImage;',
       'uniform vec2 uIntroBlend;',
+      // The map's size in cells (the front and the image are decided per cell).
+      'uniform vec2 uIntroMap;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -1278,19 +1280,16 @@
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
       '    yScale = introRiseScale(uIntroRise, aPosition.xz, uVScale);',
-      '    // The paint is one wipe across the screen, left to right, on the FLAT',
-      '    // map: every colour at once, each column fading from the neutral clay',
-      '    // tone to its colour as a wide soft front passes it. Water is just',
-      '    // coloured cells here; every surface keeps its own level and the land',
-      '    // rises around the sea afterwards.',
-      '    float u = introFront(aPosition.xz, uIntroSweep);',
-      '    float band = 0.55;',
-      '    float keep = clamp((uIntro.x * (1.0 + band) - u) / band, 0.0, 1.0);',
-      '    keep = keep * keep * (3.0 - 2.0 * keep);',
+      '    // The paint, on the FLAT map: a hard, rough front (INTRO_FRONT_GLSL) that',
+      '    // closes in from the corners, decided per CELL (the cell centre), so the',
+      '    // edge follows the voxel grid. Every colour at once; water is just',
+      '    // coloured cells; every surface keeps its own level and the land rises',
+      '    // around the sea afterwards. Everything not painted is the blank tone.',
+      '    ivec2 isz = ivec2(uIntroMap);',
+      '    ivec2 ic = clamp(ivec2(aCellUV * uIntroMap), ivec2(0), isz - 1);',
+      '    float keep = step(introFront(vec2(ic) + 0.5 - 0.5 * uIntroMap, uIntroSweep), uIntro.x * 1.5);',
       '    // Colours: the stand-in image the slab showed, easing into the mesh\'s own.',
       '    if (uIntroBlend.x > 0.5) {',
-      '      ivec2 isz = textureSize(uIntroImage, 0);',
-      '      ivec2 ic = clamp(ivec2(aCellUV * vec2(isz)), ivec2(0), isz - 1);',
       '      vColor = mix(texelFetch(uIntroImage, ic, 0).rgb, vColor, uIntroBlend.y);',
       '    }',
       '    // Lava glows only as the relief rises, once it has its colour.',
@@ -1299,7 +1298,7 @@
       '      vShore *= keep;',
       '      if (aFall < 0.5) vFallCoord *= keep;',
       '    }',
-      '    vColor = mix(uIntroNeutral, vColor, keep);',
+      '    vColor = keep > 0.5 ? vColor : uIntroNeutral;',
       '    vIntroGrid.w = uIntro.z;',   // the grid stays through the paint and fades before the rise
       '  }',
       '  gl_Position = uViewProjection * vec4(',
@@ -1467,12 +1466,12 @@
       '  baseColor = riverFlow(baseColor);',
       '#endif',
       '#endif',
-      '  // Loading animation: black cell lines on the neutral map, gone where',
-      '  // the paint has arrived (vIntroGrid.w -> 0). The derivative is taken',
-      '  // outside the branch.',
+      '  // Loading animation: dim light cell lines on the near-black map and on',
+      '  // the colours as they arrive, faded out before the rise (vIntroGrid.w).',
+      '  // The derivative is taken outside the branch.',
       '  highp vec3 gridW = fwidth(vIntroGrid.xyz);',
       '  if (vIntroGrid.w > 0.002) {',
-      '    baseColor *= 1.0 - 0.88 * vIntroGrid.w * introGridLine(vIntroGrid.xyz, vNormal, gridW, step(0.5, vWater));',
+      '    baseColor = mix(baseColor, vec3(0.62), 0.30 * vIntroGrid.w * introGridLine(vIntroGrid.xyz, vNormal, gridW, step(0.5, vWater)));',
       '  }',
       '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
       '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
@@ -1605,13 +1604,17 @@
     '}'
   ].join('\n');
 
-  /* Loading animation: the paint front. Colour starts at the corners of the map
-   * and closes in on the centre (a circle growing from the middle, run
-   * backwards), not on a clean geometric edge: a low-frequency and a finer value
-   * noise shift the front a little, so the boundary is irregular and soft but
-   * never speckled. s = (noise offset x, noise offset z, 1 / half diagonal);
-   * the result is 0 at the corners and 1 at the centre (plus the noise). The
-   * offset comes from the map's seed: the same map always paints the same way. */
+  /* Loading animation: the paint front. Colour starts at the corners and edges
+   * of the map and the unpainted region shrinks to somewhere near the middle,
+   * but never as a circle: the distance from the centre is domain-warped by a
+   * large low-frequency noise (the hole becomes an irregular, organic blob), then
+   * bent again by a broad noise and finally roughened by a five-octave fractal,
+   * so the boundary is jagged like an eroding edge. It is evaluated at the
+   * CENTRE OF A CELL and compared with the progress as a hard step, so the edge
+   * follows the voxel grid, crisp, with no band and no smoothing. s = (noise
+   * offset x, noise offset z, 1 / half diagonal), from the map's seed: the same
+   * map always paints the same way. Returns the cell's turn in 0.02..1.5; the
+   * cell is painted once the progress (times 1.5) reaches it. */
   var INTRO_FRONT_GLSL = [
     'float introHash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
     'float introNoise(highp vec2 p) {',
@@ -1621,10 +1624,21 @@
     '  return mix(mix(introHash(i), introHash(i + vec2(1.0, 0.0)), f.x),',
     '    mix(introHash(i + vec2(0.0, 1.0)), introHash(i + vec2(1.0, 1.0)), f.x), f.y);',
     '}',
-    'float introFront(highp vec2 xz, highp vec3 s) {',
-    '  highp vec2 q = xz * s.z;',
-    '  float n = introNoise(q * 2.6 + s.xy) * 0.65 + introNoise(q * 8.0 + s.yx * 1.7) * 0.35;',
-    '  return clamp(1.0 - length(q) + (n - 0.5) * 0.30, 0.0, 1.0);',
+    'float introFbm3(highp vec2 p) {',
+    '  return introNoise(p) * 0.57 + introNoise(p * 2.03 + 3.1) * 0.29 + introNoise(p * 4.1 + 7.7) * 0.14;',
+    '}',
+    'float introFbm5(highp vec2 p) {',
+    '  return introNoise(p) * 0.4 + introNoise(p * 2.03 + 3.1) * 0.25 + introNoise(p * 4.1 + 7.7) * 0.17 +',
+    '    introNoise(p * 8.3 + 1.9) * 0.11 + introNoise(p * 16.7 + 5.3) * 0.07;',
+    '}',
+    'float introFront(highp vec2 cell, highp vec3 s) {',
+    '  highp vec2 q = cell * s.z;',
+    '  highp vec2 w = vec2(introFbm3(q * 1.15 + s.xy), introFbm3(q * 1.15 + s.yx + vec2(4.7, 9.1))) - 0.5;',
+    '  highp vec2 p = q + w * 1.25;',
+    '  float d = length(p);',
+    '  d += (introFbm3(q * 2.2 + s.xy * 1.3 + 11.0) - 0.5) * 0.65;',
+    '  d += (introFbm5(q * 13.0 + s.yx) - 0.5) * 0.4;',
+    '  return clamp(1.0 - d, 0.02, 1.5);',
     '}'
   ].join('\n');
 
@@ -1673,6 +1687,7 @@
       // x = paint 0..1, y = image there, z = grid amount, w = sun strength.
       'uniform vec4 uSlab;',
       'uniform vec3 uIntroSweep;',
+      'uniform vec2 uIntroMap;',
       INTRO_FRONT_GLSL,
       INTRO_GRID_GLSL,
       'out vec4 outColor;',
@@ -1686,9 +1701,9 @@
       '  if (uSlab.y > 0.5) {',
       '    // The flat map: the worker\'s colours, washed in by the same left to',
       '    // right front as the mesh uses; the plinth takes its own colour with it.',
-      '    float u = introFront(vPos.xz, uIntroSweep);',
-      '    float keep = clamp((uSlab.x * 1.55 - u) / 0.55, 0.0, 1.0);',
-      '    keep = keep * keep * (3.0 - 2.0 * keep);',
+      '    // Hard, rough front, per cell (the same function and cell as the mesh).',
+      '    vec2 cell = floor(vPos.xz + 0.5 * uIntroMap) + 0.5 - 0.5 * uIntroMap;',
+      '    float keep = step(introFront(cell, uIntroSweep), uSlab.x * 1.5);',
       '    if (n.y > 0.5) {',
       '      ivec2 sz = textureSize(uIntroImage, 0);',
       '      ivec2 ic = clamp(ivec2(floor(vPos.xz + 0.5 * vec2(sz))), ivec2(0), sz - 1);',
@@ -1698,7 +1713,8 @@
       '    }',
       '  }',
       '  float line = introGridLine(vPos, vNormal, fwidth(vPos), 0.0);',
-      '  outColor = vec4(albedo * lambert * (1.0 - 0.88 * line * uSlab.z), 1.0);',
+      '  albedo = mix(albedo, vec3(0.62), 0.30 * line * uSlab.z);',
+      '  outColor = vec4(albedo * lambert, 1.0);',
       '}'
     ].join('\n');
     var v = compileShader(gl, gl.VERTEX_SHADER, vs);
@@ -1719,6 +1735,7 @@
       slab: gl.getUniformLocation(program, 'uSlab'),
       sweep: gl.getUniformLocation(program, 'uIntroSweep'),
       image: gl.getUniformLocation(program, 'uIntroImage'),
+      map: gl.getUniformLocation(program, 'uIntroMap'),
       sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
       color: gl.getUniformLocation(program, 'uColor')
     };
@@ -1986,6 +2003,7 @@
         introNeutral: 'uIntroNeutral',
         introImage: 'uIntroImage',
         introBlend: 'uIntroBlend',
+        introMap: 'uIntroMap',
         introLight: 'uIntroLight'
       };
       var out = { program: prog };
@@ -2008,9 +2026,9 @@
 
     // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
     // neutral tone is the palette's Bare, so no new colour exists.
-    var introState = { on: 0, paint: 0, grid: 0, light: 1, imageOn: 0, blend: 1, sweep: [1, 0, 0.01], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
-    var introNeutral = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'bare'; }).color)
-      .map(function (v) { return v / 255; });
+    var introState = { on: 0, paint: 0, grid: 0, light: 1, imageOn: 0, blend: 1, sweep: [1, 0, 0.01], map: [1, 1], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
+    // Everything not painted yet: near-black (Uğur 2026-10-19, #131313).
+    var introNeutral = [0x13 / 255, 0x13 / 255, 0x13 / 255];
     var introImageTexture = gl.createTexture();
     var slab = null;
     var slabProgram = null;
@@ -2702,6 +2720,7 @@
       if (s.blend != null) introState.blend = s.blend;
       if (s.imageOn != null) introState.imageOn = s.imageOn;
       if (s.sweep) introState.sweep = s.sweep;
+      if (s.map) introState.map = s.map;
       if (s.rise != null) introState.rise = s.rise;
       if (s.invR != null) introState.invR = s.invR;
       if (s.v0 != null) introState.v0 = s.v0;
@@ -2806,6 +2825,7 @@
       gl.uniform3fv(P.color, introNeutral);
       gl.uniform4f(P.slab, introState.paint, introState.imageOn, introState.grid, strength);
       gl.uniform3f(P.sweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
+      gl.uniform2f(P.map, introState.map[0], introState.map[1]);
       gl.activeTexture(gl.TEXTURE5);
       gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
       gl.uniform1i(P.image, 5);
@@ -3172,6 +3192,7 @@
       gl.uniform4f(U.intro, introState.paint, 0, introState.grid, introState.on);
       if (U.introLight) gl.uniform1f(U.introLight, introState.on ? introState.light : 1);
       if (U.introBlend) gl.uniform2f(U.introBlend, introState.imageOn, introState.blend);
+      if (U.introMap) gl.uniform2f(U.introMap, introState.map[0], introState.map[1]);
       gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
       if (U.introSweep) gl.uniform3f(U.introSweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
       if (U.introRise) gl.uniform4f(U.introRise, introState.rise, introState.invR, introState.v0, introState.meshBlend);

@@ -1004,17 +1004,18 @@
   // --- isometric intro: the loading screen IS the voxel world --------------
   // (Uğur 2026-10-19.) The camera stays isometric throughout. Colour comes
   // first, on the FLAT map; the relief rises afterwards:
-  //   slab   a blank neutral slab at the map's footprint, a black cell grid on
-  //          it, breathing, for the first ~0.45 s only
-  //   paint  the flat map takes its colours in one slow front that starts at
-  //          the corners and closes in on the centre (a circle growing from
-  //          the middle, backwards), its edge shifted by a little noise so it
-  //          is irregular but soft: all colours at once (water is just coloured
-  //          cells), each column fading from the neutral tone to its colour
-  //          behind the front, the grid still visible. Until the finished map exists the colours are the
-  //          worker's own passes (raw relief, land and sea, then biomes: SM.Intro.pixels),
-  //          shown flat on the slab and eased into one another; the mesh then
-  //          starts from them and eases into its own colours
+  //   slab   a near-black (#131313) slab at the map's footprint with a dim
+  //          light cell grid on it, breathing, for the first ~0.45 s only
+  //   paint  the flat map takes its colours behind a hard, rough front that
+  //          starts at the corners and edges and closes in somewhere near the
+  //          middle, as an irregular blob rather than a circle (domain warp +
+  //          fractal noise, decided per cell, so the edge follows the voxel
+  //          grid): all colours at once (water is just coloured cells), the
+  //          grid still visible. Until the finished map exists the colours are
+  //          the worker's own passes (raw relief, land and sea, then biomes:
+  //          SM.Intro.pixels), shown flat on the slab where it is painted and
+  //          eased into one another; the mesh then starts from them and eases
+  //          into its own colours
   //   grid   the grid lines fade out
   //   rise   the relief rises, every column on its own clock (the centre
   //          first, a swell rolling outward, smootherstep each). Water keeps
@@ -1028,8 +1029,8 @@
   // the mesh) says how long the rest will take; on a slow device the clock
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2600, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
-    PAINT: [0, 2000], GRID: [1800, 2600], RISE: [2600, 4900], CLOUD: [4300, 5500], END: 5500 };
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 4300, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 3800], GRID: [3500, 4300], RISE: [4300, 6600], CLOUD: [6000, 7200], END: 7200 };
 
   // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
   // the map's seed (same map, same front) and 1 / the map's half diagonal, so
@@ -1105,7 +1106,7 @@
     var sweep = introFront(cfg);
     voxelRenderer.setSun(sunDir);
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
-    voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep,
+    voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep, map: [W, H],
       rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 1 });
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
