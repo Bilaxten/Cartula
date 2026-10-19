@@ -94,10 +94,14 @@ thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 haritanın ayak izinde nötr (palet *Bare*) düz bir voksel plaka, üstünde **siyah
 hücre ızgarası**, alçak bir **nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms
 (ızgara çizgileri `INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin
-altına inince ince ızgara solar, her 4. ve 16. çizgi kalır). (1) **Düz haritayı
-boya**: harita *düz* haldeyken, ekranda soldan sağa tek geniş yumuşak cephe (kamera
-göreli yön `introSweep`, bant 0,55, sine ease) renklerini alır; bütün renkler birlikte
-(su da yalnız mavi hücreler), ızgara çizgileri bu sırada görünür kalır. Bitmiş harita
+altına inince ince ızgara solar, her 4. ve 16. çizgi kalır). (1) **Düz haritayı boya**: harita *düz* haldeyken renkler **köşelerden ortaya doğru**
+birleşerek gelir: ortadan büyüyen bir dairenin tersi, boyanmamış bölge küçülüp
+merkezde kapanır (harita uzayında mesafe, köşeler önce; izometrik görünümde simetrik).
+Cephe düz geometrik bir kenar değil: seed'den türetilen sabit bir kayma ile düşük
+frekanslı + biraz ince değer gürültüsü (`introFront`: `0.65·n(2,6·q) + 0.35·n(8·q)`,
+±0,15 kayma) kenarı hafif dağınık ve düzensiz yapar, yine yumuşak (bant 0,55,
+sine ease), benek ya da blok yok. Bütün renkler birlikte (su da yalnız mavi hücreler),
+ızgara çizgileri bu sırada görünür kalır. Bitmiş harita
 worker'dan gelene kadar renkler **worker'ın kendi pass'lerinden**: ham yükselti
 (`sample`), kara/deniz (`sea`), biyomlar (`climate`) `SM.Intro.pixels` ile düz bir
 RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gösterilir ve

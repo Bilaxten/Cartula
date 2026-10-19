@@ -4075,13 +4075,21 @@ function runIntroChecks() {
       /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
       /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
       /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
-    push('terrain shader intro: the paint is one left-to-right wipe on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
-      /float u = clamp\(0\.5 \+ dot\(aPosition\.xz, uIntroSweep\.xy\) \* uIntroSweep\.z, 0\.0, 1\.0\)/.test(vs) &&
+    push('terrain shader intro: the paint is one inward front (corners to centre, noisy edge) on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
+      /float u = introFront\(aPosition\.xz, uIntroSweep\)/.test(vs) &&
       /float keep = clamp\(\(uIntro\.x \* \(1\.0 \+ band\) - u\) \/ band, 0\.0, 1\.0\)/.test(vs) && !/yN/.test(vs) &&
       /vIntroGrid\.w = uIntro\.z/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
       /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.45, 1\.0, uIntroRise\.x\)/.test(vs) &&
       /vColor = mix\(texelFetch\(uIntroImage, ic, 0\)\.rgb, vColor, uIntroBlend\.y\)/.test(vs) && !/uIntroFloor|yw = mix/.test(vs) &&
       /aoFactor = mix\(1\.0, aoFactor, uIntroLight\)/.test(fsrc) && /shadow \* uIntroLight/.test(fsrc));
+    push('intro paint front: a circle about the map centre (corners first, centre last) shifted by seeded noise (offset from the map seed, no Math.random), deterministic',
+      (() => {
+        const f = new Function(vox.slice(vox.indexOf('function introFront'), vox.indexOf('function smootherstep')) + '; return introFront;');
+        const fr = f(), a = fr({ width: 320, height: 200, seed: 1337 }), b = fr({ width: 320, height: 200, seed: 1337 }), c = fr({ width: 320, height: 200, seed: 99 });
+        return JSON.stringify(a) === JSON.stringify(b) && JSON.stringify(a) !== JSON.stringify(c) &&
+          Math.abs(a[2] - 2 / Math.sqrt(320 * 320 + 200 * 200)) < 1e-12 && !/Math\.random/.test(vox) &&
+          /float introFront\(highp vec2 xz, highp vec3 s\)/.test(v3d) && /1\.0 - length\(q\) \+ \(n - 0\.5\) \* 0\.30/.test(v3d);
+      })());
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',

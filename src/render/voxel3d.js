@@ -1164,10 +1164,9 @@
       // (level, offset 8, over 32), G = 1 for sea. All off (w = 0) in normal use.
       'uniform vec4 uIntro;',
       'uniform vec4 uIntroRange;',
-      // Paint wipe: xy = the screen's rightward direction on the ground, z = 1 / the
-      // map's extent along it (so 0.5 + dot * z runs 0..1 from the left edge of the
-      // map as seen on screen to its right edge).
+      // Paint front (INTRO_FRONT_GLSL): xy = noise offset, z = 1 / the map's half diagonal.
       'uniform vec3 uIntroSweep;',
+      INTRO_FRONT_GLSL,
       // The rise (see INTRO_RISE_GLSL): progress, 1 / map radius, flat scale, mesh fade.
       'uniform vec4 uIntroRise;',
       INTRO_RISE_GLSL,
@@ -1284,7 +1283,7 @@
       '    // tone to its colour as a wide soft front passes it. Water is just',
       '    // coloured cells here; every surface keeps its own level and the land',
       '    // rises around the sea afterwards.',
-      '    float u = clamp(0.5 + dot(aPosition.xz, uIntroSweep.xy) * uIntroSweep.z, 0.0, 1.0);',
+      '    float u = introFront(aPosition.xz, uIntroSweep);',
       '    float band = 0.55;',
       '    float keep = clamp((uIntro.x * (1.0 + band) - u) / band, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
@@ -1606,6 +1605,29 @@
     '}'
   ].join('\n');
 
+  /* Loading animation: the paint front. Colour starts at the corners of the map
+   * and closes in on the centre (a circle growing from the middle, run
+   * backwards), not on a clean geometric edge: a low-frequency and a finer value
+   * noise shift the front a little, so the boundary is irregular and soft but
+   * never speckled. s = (noise offset x, noise offset z, 1 / half diagonal);
+   * the result is 0 at the corners and 1 at the centre (plus the noise). The
+   * offset comes from the map's seed: the same map always paints the same way. */
+  var INTRO_FRONT_GLSL = [
+    'float introHash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float introNoise(highp vec2 p) {',
+    '  highp vec2 i = floor(p);',
+    '  highp vec2 f = fract(p);',
+    '  f = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(introHash(i), introHash(i + vec2(1.0, 0.0)), f.x),',
+    '    mix(introHash(i + vec2(0.0, 1.0)), introHash(i + vec2(1.0, 1.0)), f.x), f.y);',
+    '}',
+    'float introFront(highp vec2 xz, highp vec3 s) {',
+    '  highp vec2 q = xz * s.z;',
+    '  float n = introNoise(q * 2.6 + s.xy) * 0.65 + introNoise(q * 8.0 + s.yx * 1.7) * 0.35;',
+    '  return clamp(1.0 - length(q) + (n - 0.5) * 0.30, 0.0, 1.0);',
+    '}'
+  ].join('\n');
+
   /* Loading animation: the rise. Every column lifts from the flat tone to its
    * height on its own clock: the map centre first, the edges a little later
    * (a swell rolling outward, not everything at once), each with a smootherstep
@@ -1651,6 +1673,7 @@
       // x = paint 0..1, y = image there, z = grid amount, w = sun strength.
       'uniform vec4 uSlab;',
       'uniform vec3 uIntroSweep;',
+      INTRO_FRONT_GLSL,
       INTRO_GRID_GLSL,
       'out vec4 outColor;',
       'void main() {',
@@ -1663,7 +1686,7 @@
       '  if (uSlab.y > 0.5) {',
       '    // The flat map: the worker\'s colours, washed in by the same left to',
       '    // right front as the mesh uses; the plinth takes its own colour with it.',
-      '    float u = clamp(0.5 + dot(vPos.xz, uIntroSweep.xy) * uIntroSweep.z, 0.0, 1.0);',
+      '    float u = introFront(vPos.xz, uIntroSweep);',
       '    float keep = clamp((uSlab.x * 1.55 - u) / 0.55, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
       '    if (n.y > 0.5) {',

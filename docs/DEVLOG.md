@@ -4,6 +4,16 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 7 (aynı gün): boya köşelerden ortaya.** Uğur: *"köşeden birleşerek gelsin
+renkler. ortadan büyüyen bir circle'ın tam tersi... ortaya doğru boyanıyor. ancak
+boyanırken biraz noise atarsın tam dümdüz kenarlı boyama olmaz da azıcık dağılımlı
+olmuş olur"*. Soldan sağa süpürme yerine içe doğru daralan dairesel cephe: mesafe harita
+merkezine göre yarı köşegene bölünür (köşe 0, merkez 1), cepheye iki katmanlı değer
+gürültüsü (düşük frekans 0,65 + ince 0,35, toplam ±0,15) eklenir; kayma noktası seed'den
+(sabit, `Math.random` yok). Aynı fonksiyon plaka (fragment) ve mesh (vertex) için
+(`INTRO_FRONT_GLSL`), böylece el değiştirmede kenar kaymaz. Zaman çizelgesi, ızgara,
+worker pass önizlemeleri aynı.
+
 **Revizyon 6 (aynı gün): önce renk, sonra yükselti.** Uğur: *"sonradan boyama
 olmasın. boyamayı da öne alalım zaten 2d çıkarken renkli çıkıyor direkt 2d olarak
 gelsin. ama yine izometrik görelim biz. sonra yükselti oluşacakken grid'i söndür

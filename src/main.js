@@ -1006,11 +1006,12 @@
   // first, on the FLAT map; the relief rises afterwards:
   //   slab   a blank neutral slab at the map's footprint, a black cell grid on
   //          it, breathing, for the first ~0.45 s only
-  //   paint  the flat map takes its colours in one slow wipe across the screen
-  //          from the left edge of the map to the right: all colours at once
-  //          (water is just coloured cells), each column fading from the
-  //          neutral tone to its colour behind a wide soft front, the grid
-  //          still visible. Until the finished map exists the colours are the
+  //   paint  the flat map takes its colours in one slow front that starts at
+  //          the corners and closes in on the centre (a circle growing from
+  //          the middle, backwards), its edge shifted by a little noise so it
+  //          is irregular but soft: all colours at once (water is just coloured
+  //          cells), each column fading from the neutral tone to its colour
+  //          behind the front, the grid still visible. Until the finished map exists the colours are the
   //          worker's own passes (raw relief, land and sea, then biomes: SM.Intro.pixels),
   //          shown flat on the slab and eased into one another; the mesh then
   //          starts from them and eases into its own colours
@@ -1030,13 +1031,12 @@
   var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2600, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
     PAINT: [0, 2000], GRID: [1800, 2600], RISE: [2600, 4900], CLOUD: [4300, 5500], END: 5500 };
 
-  // The screen's rightward direction on the ground for a camera yaw, and the
-  // reciprocal of the map's extent along it: the paint wipe runs from the
-  // left edge of the map as it appears on screen to the right edge.
-  function introSweep(cfg, yaw) {
-    var a = yaw * Math.PI / 180, rx = Math.sin(a), rz = -Math.cos(a);
-    var extent = Math.abs(rx) * cfg.width + Math.abs(rz) * cfg.height;
-    return [rx, rz, 1 / Math.max(extent, 1)];
+  // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
+  // the map's seed (same map, same front) and 1 / the map's half diagonal, so
+  // the front is a circle about the map centre: corners first, centre last.
+  function introFront(cfg) {
+    var seed = (cfg.seed >>> 0) % 4099;
+    return [3 + (seed % 61) * 0.83, 5 + ((seed * 7) % 59) * 0.79, 2 / Math.max(Math.sqrt(cfg.width * cfg.width + cfg.height * cfg.height), 1)];
   }
 
   function smootherstep(x) { return x * x * x * (x * (x * 6 - 15) + 10); }
@@ -1102,7 +1102,7 @@
     var camA = { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
       tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
     // The scale stays final all through: the rise is per column, in the shaders.
-    var sweep = introSweep(cfg, camA.yaw);
+    var sweep = introFront(cfg);
     voxelRenderer.setSun(sunDir);
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
     voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep,
