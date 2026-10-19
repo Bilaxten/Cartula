@@ -95,35 +95,38 @@ haritanın ayak izinde **boş bir voxel plaka** (tek nötr ton = palet *Bare*) d
 alçak bir **nefes** alır (kamera ± %0,6 sinüs; dalga değil); yalnız ilk ~450 ms.
 Tek renk evresinde haritanın **hücre ızgarası siyah çizgilerle** görünür
 (`INTRO_GRID_GLSL`: tam birimlerde çizgi; hücre birkaç pikselin altına inince ince
-ızgara solar, her 4. ve 16. çizgi kalır, 320² haritada çamur olmaz). (1) **Yüksel**:
-plaka hemen haritanın kaba bir **basamaklı kabartmasına** dönüşür
-(`SM.previewHeights`: aynı yükseklik fonksiyonu 72×72 blokta örneklenir, birkaç ms;
-repair/plato pass'lerinden önceki ham hali, kara/deniz ayrımı shape pass'iyle %94+
-uyuşur, `--intro` denetler) ve bütün kolonlar *aynı anda* yükselir, tek yumuşak ease
-(`uVScale`, geometri yeniden kurulmaz). Bitmiş mesh (worker'da kurulur) gelince
-yükselişin ortasında kabartmanın yerini alır (kamera farkı 700 ms'de erir).
-Yükselişin hızı üretim süresine uyar: zaman saati kapıya (`GATE`) kadar,
-preview'ın maliyetinden ve worker'ın yükselti pass'inin (`shape`) geliş zamanından
-tahmin edilen mesh varışına göre yavaşlar (en çok x0,4); mesh gelene kadar saat
-kapıda durur (nefes devam eder). (2) **Boya tek bir soldan sağa süpürme**: ekranda görünen haritanın sol kenarından
+ızgara solar, her 4. ve 16. çizgi kalır, 320² haritada çamur olmaz). (1) **Yüksel**: plaka hemen haritanın kaba bir **basamaklı kabartmasına**
+dönüşür (`SM.previewHeights`: aynı yükseklik fonksiyonu 72×72 blokta örneklenir,
+birkaç ms; repair/plato pass'lerinden önceki ham hali, kara/deniz ayrımı shape
+pass'iyle %94+ uyuşur, `--intro` denetler) ve **her kolon kendi saatinde yükselir**:
+merkez önce, kenarlar biraz sonra (dışa yayılan bir kabarma, %40 gecikme), her kolon
+smootherstep ile (iki uçta eğim sıfır: yavaş başlar, yumuşak oturur;
+`introRiseScale`, plaka ve mesh aynı fonksiyon, geometri yeniden kurulmaz). Bitmiş
+mesh (worker'da kurulur) gelince kabartmayla **700 ms'de yer değiştirir**: kabartma
+alçalırken mesh yükselir, görünen ikisinin yüksek olanı (`uIntroRise.w`), yani şekil
+sıçramaz. Kamera farkı da 700 ms'de erir. Yükselişin hızı üretim süresine uyar: zaman
+saati kapıya (`GATE` = yükselişin sonu) kadar, preview'ın maliyetinden ve worker'ın
+yükselti pass'inin (`shape`) geliş zamanından tahmin edilen mesh varışına göre
+yavaşlar (en çok x0,4); mesh gelene kadar saat kapıda durur (nefes devam eder).
+(2) **Boya tek bir soldan sağa süpürme**: ekranda görünen haritanın sol kenarından
 sağ kenarına, kamera göreli (grid x'i değil; yön `introSweep`, vertex shader'da
 `uIntroSweep`). Her an bütün renkler birlikte boyanır (renge ya da yüksekliğe göre
 sıra yok); her kolon renksizden (plaka tonu) kendi rengine geniş ve yumuşak bir
 cephenin arkasında yavaşça geçer (bant 0,55; sine ease; şerit ya da basamak yok).
 **Izgara çizgileri aynı cephe geçtikçe silinir** (`vIntroGrid.w = 1 - keep`).
 **Lav** cephe ona ulaşana kadar nötr ve ışıksız kalır, rengini alınca parlar
-(`smoothstep(0.75, 1.0, paintKeep)`). (3) **Su tek seviye olarak yükselir**: renge ya da su türüne göre
+(`smoothstep(0.75, 1.0, paintKeep)`). **Su aynı boyayla boyanır**: su seviyesi nötr tonda
+yükselir, mavisi karayla aynı cephe, aynı yumuşaklıkla gelir (rengin tek kaynağı
+süpürme; kıyı köpüğü yalnız su oraya gelince görünür). (3) **Su tek seviye olarak yükselir**: renge ya da su türüne göre
 değil *yüksekliğe* göre; seviye en derin yataktan en yüksek su yüzeyine çıkar, her
 karo kendi yatağından yüzeyine kadar dolar. Yani önce deniz (en derin voksel
 katmanından, tam katmanlarda yumuşak basamaklı), seviye yüksek araziye ulaştıkça
-göl ve nehirler (`waterFraction`: hareketin %60'ı deniz). Sıra tercihim: su seviyesi
-boyanın yarısında yükselmeye başlar, yüzeyi nötr tonda çıkar ve rengini süpürme
-geçtikçe alır (karonun rengi = su dolumu × boya); yani önce sol taraf mavileşir,
-seviye aynı anda her yerde yükselir. (4) **Bulutlar** harita
+göl ve nehirler (`waterFraction`: hareketin %60'ı deniz). Sıra: önce yükseliş, sonra su
+seviyesi (nötr), boya cephesi su dolarken başlar ve kara ile suyu birlikte boyar. (4) **Bulutlar** harita
 merkezinden kenarlara doğru büyüyerek gelir (`uCloudGrow`: her bulut kendi
 merkezinde 0'dan tam boyuta ölçeklenir, cephe merkezden kenara ilerler; gölgesi de
-solukla birlikte büyür). Çizelge (yükselişin başından, ms): yüksel 0-1400, boya
-1050-2800, su seviyesi 1600-3050, bulutlar 1900-3100; hepsi easeli.
+solukla birlikte büyür). Çizelge (yükselişin başından, ms; v4'ün ~1,7 katı, oturaklı): yüksel 0-2300,
+su seviyesi 2300-3800, boya 3300-5200, bulutlar 4000-5300; hepsi easeli.
 Bitişte el değiştirme **tık yapmaz**: mesh geldiğinde kamera, normal render'ın
 uyguladığı *son* dikey ölçekle oturtulur (`fitCamera` ölçeğe bağlı; yükseliş
 ortasındaki ölçekle oturtulunca intro kamerası bitişte yanlış `ty`'de kalıp son

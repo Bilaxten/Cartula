@@ -4087,15 +4087,15 @@ function runIntroChecks() {
     const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
     push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
       /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
-    push('intro timeline: rise, paint, water level, clouds in that order and overlapping, 2.8-3.4 s from the first rise, every move eased; paint waits at GATE for the mesh',
+    push('intro timeline: rise, paint, water level, clouds in that order and overlapping, 4.6-5.8 s from the first rise, every move eased; paint waits at GATE for the mesh',
       (() => {
         const m = /SEA_SHARE: [\d.]+, SEA_FLOOR: -?\d+,\s*RISE: \[(\d+), (\d+)\], PAINT: \[(\d+), (\d+)\], SEA: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
         if (!m) return false;
         const [r0, r1, p0, p1, s0, s1, c0, c1, end] = m.slice(1).map(Number);
         const gate = /GATE: (\d+)/.exec(vox);
-        return r0 === 0 && p0 > r0 && p0 < r1 && s0 > p0 && s0 < p1 && s1 > p1 && c0 > p0 && c1 <= end && s1 <= end && end >= 2800 && end <= 3400 &&
-          gate && +gate[1] >= p0 - 100 && +gate[1] <= p0 + 100 &&
-          /easeInOutCubic\(span\(t, VI\.RISE\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
+        return r0 === 0 && s0 >= r1 - 100 && s0 <= r1 + 100 && p0 > s0 && p0 < s1 && p1 > s1 && c0 > p0 && c1 <= end && s1 <= end && end >= 4600 && end <= 5800 &&
+          gate && +gate[1] >= r1 - 100 && +gate[1] <= r1 + 100 &&
+          /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
           /easeInOutSine\(span\(t, VI\.SEA\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
       })());
     push('intro water: one level rising by height (sea first), a pure function of progress that never goes down',
@@ -4111,7 +4111,7 @@ function runIntroChecks() {
       /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['shape'\]/.test(vox) && /SM\.previewHeights\(vi\.cfg/.test(vox) &&
       /function introRelief/.test(vox) && /setIntroSlab\(\{ w: W, h: H, bottom: -4, block: B/.test(vox) && /vi\.corr/.test(vox));
     push('intro: columns rise together (one vertical scale, no per-column delay), the sky and effects join with the water, geometry is never rebuilt per frame',
-      /setVerticalScale\(VI\.V0 \+ \(finalScale - VI\.V0\) \* rise\)/.test(vox) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
+      /rise: riseP, meshBlend: blend/.test(vox) && !/setVerticalScale/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame'))) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
       && /t >= VI\.CLOUD\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
     push('intro ends on the normal render: uniforms off, scale back to isoExag, sky restored, mesh already uploaded (no second setMesh)',
       /function voxIntroTeardown[\s\S]*?setIntro\(null\)[\s\S]*?setVerticalScale\(isoExag\(\)\)[\s\S]*?setSky/.test(vox) &&
@@ -4127,12 +4127,12 @@ function runIntroChecks() {
       /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
       /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
       /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
-    push('terrain shader intro: the paint is one left-to-right wipe on screen (no order by colour or height), grid lines fade with it, lava glows only after its own paint, one water level by height whose colour follows the wipe',
+    push('terrain shader intro: the paint is one left-to-right wipe on screen (no order by colour or height), grid lines fade with it, lava glows only after its own paint, one water level by height whose colour is the same wipe as land (never its own fill)',
       /float u = clamp\(0\.5 \+ dot\(aPosition\.xz, uIntroSweep\.xy\) \* uIntroSweep\.z, 0\.0, 1\.0\)/.test(vs) &&
       /float keep = clamp\(\(uIntro\.x \* \(1\.0 \+ band\) - u\) \/ band, 0\.0, 1\.0\)/.test(vs) && !/yN/.test(vs) &&
       /vIntroGrid\.w = 1\.0 - keep/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
       /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.75, 1\.0, paintKeep\)/.test(vs) &&
-      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && /\* paintKeep;/.test(vs) && !/bed\.g > 0\.5/.test(vs));
+      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && /fill = smoothstep\(floorY - 0\.05/.test(vs) && !/smoothstep\(floorY - 0\.05, floorY \+ 0\.9, q\) \* paintKeep/.test(vs) && /vShore \*= keep \* fill/.test(vs) && !/bed\.g > 0\.5/.test(vs));
     push('intro sweep: direction is the camera right on the ground (sin yaw, -cos yaw), extent covers the footprint, 0..1 left to right',
       (() => {
         const f = new Function(vox.slice(vox.indexOf('function introSweep'), vox.indexOf('function easeInOutCubic')) + '; return introSweep;');
@@ -4143,7 +4143,7 @@ function runIntroChecks() {
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',
-      /float introY = aPosition\.y;/.test(vs) && /\(introY \+ wave\) \* uVScale/.test(vs));
+      /float introY = aPosition\.y;/.test(vs) && /\(introY \+ wave\) \* yScale/.test(vs) && /float yScale = uVScale;/.test(vs));
     push('intro frames are painted by SM.Intro.frame from recorded passes, never by a second generate on this thread',
       !/SM\.generate\(/.test(main.slice(main.indexOf('function startIntro'), main.indexOf('function introGuard'))));
 

@@ -1027,9 +1027,9 @@
   // long the rest will take, and so does the cost of the preview itself
   // (~PREVIEW_COST times less than the worker's whole job); on a slow device
   // the clock before the gate runs slower so the rise fills the wait. A tap, a key, or a new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 1050, CAM_EASE: 700, RELIEF_BLOCKS: 72, SHAPE_SHARE: 0.12, PREVIEW_COST: 45, MIN_RATE: 0.4,
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2300, CAM_EASE: 700, RELIEF_BLOCKS: 72, SHAPE_SHARE: 0.12, PREVIEW_COST: 45, MIN_RATE: 0.4, MORPH: 700,
     SEA_SHARE: 0.6, SEA_FLOOR: -3,
-    RISE: [0, 1400], PAINT: [1050, 2800], SEA: [1600, 3050], CLOUD: [1900, 3100], END: 3100 };
+    RISE: [0, 2300], PAINT: [3300, 5200], SEA: [2300, 3800], CLOUD: [4000, 5300], END: 5300 };
 
   // The screen's rightward direction on the ground for a camera yaw, and the
   // reciprocal of the map's extent along it: the paint wipe runs from the
@@ -1040,6 +1040,7 @@
     return [rx, rz, 1 / Math.max(extent, 1)];
   }
 
+  function smootherstep(x) { return x * x * x * (x * (x * 6 - 15) + 10); }
   function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
   function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
   // The water level rising through the whole map, as a 0..1 fraction of the
@@ -1081,14 +1082,15 @@
     voxelCamera = voxelRenderer.fitCamera(est);
     var camA = { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
       tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
-    voxelRenderer.setVerticalScale(VI.V0);
+    // The scale stays final all through: the rise is per column, in the shaders.
     voxelRenderer.setSun(sunDir);
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
-    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3 });
+    voxelRenderer.setIntro({ paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3,
+      rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 0 });
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
     var vi = { cfg: cfg, camA: camA, camB: camA, corr: null, corrT: 0, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
-      amp: 1, waterTop: 1, sweep: introSweep(cfg, camA.yaw), extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
+      amp: 1, waterTop: 1, tMesh: 0, slabGone: false, sweep: introSweep(cfg, camA.yaw), extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
     var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
     it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
 
@@ -1117,11 +1119,15 @@
       var t = vi.clock;
       var waiting = !vi.tR0 || (!vi.extra && t >= VI.GATE);
       vi.amp += ((waiting ? 1 : 0) - vi.amp) * Math.min(1, dt / 160);
-      var rise = easeInOutCubic(span(t, VI.RISE));
+      var riseP = span(t, VI.RISE);          // linear: the shaders ease each column
+      var rise = smootherstep(riseP);        // the camera's share of the same move
       var paint = easeInOutSine(span(t, VI.PAINT));
       var sea = waterFraction(easeInOutSine(span(t, VI.SEA)), vi.waterTop);
-      voxelRenderer.setVerticalScale(VI.V0 + (finalScale - VI.V0) * rise);
-      if (vi.started) voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea, sweep: vi.sweep });
+      // The mesh and the stand-in relief trade places over MORPH ms: the relief
+      // lowers as the mesh lifts, the higher of the two is what shows.
+      var blend = vi.started ? smootherstep(span(now - vi.tMesh, [0, VI.MORPH])) : 0;
+      if (vi.started && blend >= 1 && !vi.slabGone) { vi.slabGone = true; voxelRenderer.setIntroSlab(null); }
+      voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea, sweep: vi.sweep, rise: riseP, meshBlend: blend });
       var cam = lerpCam(camA, vi.camB, rise);
       if (vi.corr) {
         // The real fit differs a little from the estimate the rise started
@@ -1186,7 +1192,7 @@
     voxelRenderer.setIntroFloor(ex.floor.data, ex.floor.width, ex.floor.height);
     if (ex.shadow) voxelRenderer.setShadowMap(ex.shadow, g.width, g.height);
     voxelRenderer.setMesh(ex.mesh);
-    voxelRenderer.setIntroSlab(null);
+    vi.tMesh = now;
     // The fit depends on the vertical scale, and the normal render fits at
     // the final one: fit at it too, or the camera ends the intro off by the
     // height difference and snaps into place when the intro hands over (the
@@ -1197,7 +1203,7 @@
     if (vi.tR0) {
       // Mid-rise: keep the camera where it is and let the difference to the
       // real fit fade (see frame()).
-      var k = easeInOutCubic(span(vi.clock, VI.RISE));
+      var k = smootherstep(span(vi.clock, VI.RISE));
       var was = (function (a, b) { return { zoom: a.zoom + (b.zoom - a.zoom) * k, tx: a.tx + (b.tx - a.tx) * k,
         ty: a.ty + (b.ty - a.ty) * k, tz: a.tz + (b.tz - a.tz) * k }; })(vi.camA, vi.camB);
       var now2 = { zoom: vi.camA.zoom + (real.zoom - vi.camA.zoom) * k, tx: vi.camA.tx + (real.tx - vi.camA.tx) * k,
@@ -1232,7 +1238,6 @@
     var bounds = { minX: est.minX, maxX: est.maxX, minY: est.minY, maxY: maxLv, minZ: est.minZ, maxZ: est.maxZ };
     voxelRenderer.setVerticalScale(finalScale);
     var fit = voxelRenderer.fitCamera(bounds);
-    voxelRenderer.setVerticalScale(VI.V0);
     vi.camB = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
     vi.relief = true;
     vi.rate = Math.max(VI.MIN_RATE, Math.min(1, VI.GATE / Math.max(1, cost * VI.PREVIEW_COST - VI.BLANK_MIN)));

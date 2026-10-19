@@ -4,6 +4,21 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 5 (aynı gün, Uğur v4'ü izledikten sonra).** Uğur: *"suların
+renklendirilmesi yanlış. onları da boyuyormuş gibi yapalım. gridden yükseltiye
+geçerkenki yükseliş çok ani oluyor gibi. oraya yumuşatma yapalım. genel olarak map
+generation'ı da yavaşlatalım daha oturaklı hissettirsin"*. (1) Su rengi artık
+doldurma × boya değil, yalnız boya: su nötr tonda yükselir, mavisi kara ile aynı
+cepheden gelir (köpük/kıyı çizgisi yalnız su oradaysa görünür). Sıra: yükseliş →
+su seviyesi → boya (boya su dolarken başlar, ikisi birlikte boyanır). (2) Yükseliş:
+global dikey ölçek yerine her kolon kendi saatinde (merkez önce, kenarlar %40
+sonra) ve smootherstep (iki uçta eğim sıfır), 1,4 → 2,3 sn; kabartma-mesh el
+değiştirmesi 700 ms'lik bir geçiş (kabartma alçalır, mesh yükselir, görünen yüksek
+olan), böylece şekil sıçramaz. Bunun için dikey ölçek introda sabit nihai değerde
+kalır, yükseliş shader'da (`uIntroRise`). (3) Hepsi ~1,7× yavaş: yüksel 0-2300, su
+2300-3800, boya 3300-5200, bulut 4000-5300 (bitiş 5300). Bitiş "tık" testi tekrar
+koşuldu (son intro karesi ↔ ilk normal kare farkı taban düzeyinde).
+
 **Revizyon 4b (aynı gün): bitişteki "tık" ve soldan sağa boya.** (7) Uğur:
 *"map oluşması bittiğinde tık diye yere oturuyormuş gibi oluyor en sonunda"*.
 Sebep: `fitCamera` kamera hedefini (`ty`) ve yakınlaştırmayı o anki dikey ölçeğe göre

@@ -1168,6 +1168,9 @@
       // map's extent along it (so 0.5 + dot * z runs 0..1 from the left edge of the
       // map as seen on screen to its right edge).
       'uniform vec3 uIntroSweep;',
+      // The rise (see INTRO_RISE_GLSL): progress, 1 / map radius, flat scale, mesh fade.
+      'uniform vec4 uIntroRise;',
+      INTRO_RISE_GLSL,
       'uniform vec3 uIntroNeutral;',
       'uniform highp sampler2D uIntroFloor;',
       'out vec3 vNormal;',
@@ -1268,8 +1271,10 @@
       SM.Season ? SM.Season.VERTEX_GLSL : '',
       '#endif',
       '  float introY = aPosition.y;',
+      '  float yScale = uVScale;',
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
+      '    yScale = introRiseScale(uIntroRise, aPosition.xz, uVScale);',
       '    // The paint is one wipe across the screen, left to right: every colour',
       '    // at once, each column fading from the neutral clay tone to its own',
       '    // colour as a wide soft front passes it. No order by colour or height.',
@@ -1278,6 +1283,7 @@
       '    float keep = clamp((uIntro.x * (1.0 + band) - u) / band, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
       '    float paintKeep = keep;',
+      '    float fill = 1.0;',
       '    if (aWater > 0.5) {',
       '      // Water is ONE level rising through the whole map, by height and',
       '      // not by kind: a tile fills once the level passes its own bed and',
@@ -1292,23 +1298,25 @@
       '      float lay = floor(yw + 0.0001);',
       '      float q = lay + smoothstep(0.12, 0.88, yw - lay);',
       '      introY = clamp(q, floorY, aPosition.y);',
-      '      // The surface rises by height; its colour arrives with the wipe.',
-      '      keep = smoothstep(floorY - 0.05, floorY + 0.9, q) * paintKeep;',
+      '      // The surface rises by height in the neutral tone; its colour is the',
+      '      // paint wipe, exactly as on land (keep stays paintKeep). Only the surf',
+      '      // and foam wait for the water to be there.',
+      '      fill = smoothstep(floorY - 0.05, floorY + 0.9, q);',
       '    }',
       '    // Lava stays neutral and dark until the wipe reaches it, and only',
       '    // glows once it has its colour.',
       '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.75, 1.0, paintKeep);',
       '    if (aWater > 0.5) {',
       '      // No surf or foam line on water that is not there yet.',
-      '      vShore *= keep;',
-      '      if (aFall < 0.5) vFallCoord *= keep;',
+      '      vShore *= keep * fill;',
+      '      if (aFall < 0.5) vFallCoord *= keep * fill;',
       '    }',
       '    vColor = mix(uIntroNeutral, vColor, keep);',
       '    vIntroGrid.w = 1.0 - keep;',
       '  }',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
-      '    (introY + wave) * uVScale,',
+      '    (introY + wave) * yScale,',
       '    aPosition.z,',
       '    1.0',
       '  );',
@@ -1605,6 +1613,23 @@
     '}'
   ].join('\n');
 
+  /* Loading animation: the rise. Every column lifts from the flat tone to its
+   * height on its own clock: the map centre first, the edges a little later
+   * (a swell rolling outward, not everything at once), each with a smootherstep
+   * (zero slope at both ends, so it starts slowly and lands softly). r =
+   * (progress 0..1, 1 / map radius, flat scale, fade). The fade scales the move
+   * for the slab and the mesh, so one stands down while the other takes over
+   * (the larger of the two surfaces is what shows). Same function in both
+   * shaders: no snap between them. */
+  var INTRO_RISE_GLSL = [
+    'float introRiseScale(vec4 r, vec2 xz, float vs) {',
+    '  float d = clamp(length(xz) * r.y, 0.0, 1.0);',
+    '  float l = clamp((r.x - d * 0.4) / 0.6, 0.0, 1.0);',
+    '  float k = l * l * l * (l * (l * 6.0 - 15.0) + 10.0);',
+    '  return mix(r.z, vs, k * r.w);',
+    '}'
+  ].join('\n');
+
   function makeSlabProgram(gl) {
     var vs = [
       '#version 300 es',
@@ -1612,12 +1637,14 @@
       'layout(location = 1) in vec3 aNormal;',
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
+      'uniform vec4 uIntroRise;',
+      INTRO_RISE_GLSL,
       'out vec3 vNormal;',
       'out highp vec3 vPos;',
       'void main() {',
       '  vNormal = aNormal;',
       '  vPos = aPosition;',
-      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * uVScale, aPosition.z, 1.0);',
+      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * introRiseScale(uIntroRise, aPosition.xz, uVScale), aPosition.z, 1.0);',
       '}'
     ].join('\n');
     var fs = [
@@ -1650,6 +1677,7 @@
       program: program,
       viewProjection: gl.getUniformLocation(program, 'uViewProjection'),
       verticalScale: gl.getUniformLocation(program, 'uVScale'),
+      rise: gl.getUniformLocation(program, 'uIntroRise'),
       sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
       color: gl.getUniformLocation(program, 'uColor')
     };
@@ -1934,6 +1962,7 @@
         intro: 'uIntro',
         introRange: 'uIntroRange',
         introSweep: 'uIntroSweep',
+        introRise: 'uIntroRise',
         introNeutral: 'uIntroNeutral',
         introFloor: 'uIntroFloor'
       };
@@ -1957,7 +1986,7 @@
 
     // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
     // neutral tone is the palette's Bare, so no new colour exists.
-    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3, sweep: [1, 0, 0.01] };
+    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3, sweep: [1, 0, 0.01], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
     var introNeutral = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'bare'; }).color)
       .map(function (v) { return v / 255; });
     var introFloorTexture = gl.createTexture();
@@ -2653,6 +2682,10 @@
       if (s.seaY != null) introState.seaY = s.seaY;
       if (s.floorY != null) introState.floorY = s.floorY;
       if (s.sweep) introState.sweep = s.sweep;
+      if (s.rise != null) introState.rise = s.rise;
+      if (s.invR != null) introState.invR = s.invR;
+      if (s.v0 != null) introState.v0 = s.v0;
+      if (s.meshBlend != null) introState.meshBlend = s.meshBlend;
     }
 
     // Each water tile's bed, from SM.buildIntroFloor (RG8, W x H).
@@ -2746,6 +2779,7 @@
       gl.useProgram(P.program);
       gl.uniformMatrix4fv(P.viewProjection, false, combined);
       gl.uniform1f(P.verticalScale, vScale);
+      gl.uniform4f(P.rise, introState.rise, introState.invR, introState.v0, 1 - introState.meshBlend);
       gl.uniform3fv(P.sunDirection, sun);
       gl.uniform3fv(P.color, introNeutral);
       gl.enable(gl.CULL_FACE);
@@ -2974,10 +3008,9 @@
       var bg = grade ? gradeColor(clearColor, grade) : clearColor;
       gl.clearColor(bg[0], bg[1], bg[2], clearColor[3]);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      if (!indexCount) {
-        if (slab) drawSlab();
-        return;
-      }
+      // The loading slab stands under the mesh while the two trade places.
+      if (slab) drawSlab();
+      if (!indexCount) return;
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
@@ -3111,6 +3144,7 @@
       gl.uniform4f(U.intro, introState.paint, introState.sea, introState.lake, introState.on);
       gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
       if (U.introSweep) gl.uniform3f(U.introSweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
+      if (U.introRise) gl.uniform4f(U.introRise, introState.rise, introState.invR, introState.v0, introState.meshBlend);
       gl.uniform3fv(U.introNeutral, introNeutral);
       if (U.introFloor) {
         gl.activeTexture(gl.TEXTURE5);
