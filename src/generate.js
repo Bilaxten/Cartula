@@ -166,6 +166,24 @@
     return clamp01(e);
   }
 
+  // The sea threshold (and the tallest reference sample) of a configuration:
+  // an absolute value from a fixed 96 x 96 reference sample, so it does not
+  // depend on the map size. Used by generate().
+  function seaReference(cfg, baseN, ridgeN, warpN, rfield) {
+    var RS = 96, ref = new Float32Array(RS * RS), rk = 0, x, y;
+    for (y = 0; y < RS; y++) {
+      for (x = 0; x < RS; x++) {
+        ref[rk++] = heightAt(baseN, ridgeN, warpN, rfield,
+          (x - RS / 2) / (RS / 1.8), (y - RS / 2) / (RS / 1.8), cfg);
+      }
+    }
+    ref.sort();
+    return {
+      seaThresh: ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))],
+      refPeak: ref[ref.length - 1]
+    };
+  }
+
   function generate(opts, record) {
     var cfg = Object.assign({}, DEFAULTS, opts || {});
     var w = cfg.width, h = cfg.height, n = w * h;
@@ -211,17 +229,9 @@
     // lower the whole terrain against a threshold measured without it -- the
     // slider melted land away (65% → 10% at 1) and duplicated the sea slider
     // instead of shaping one centred landmass (panel review, 2026-09-23).
-    var refCfg0 = cfg;
-    var RS = 96, ref = new Float32Array(RS * RS), rk = 0;
-    for (y = 0; y < RS; y++) {
-      for (x = 0; x < RS; x++) {
-        ref[rk++] = heightAt(baseN, ridgeN, warpN, rfield,
-          (x - RS / 2) / (RS / 1.8), (y - RS / 2) / (RS / 1.8), refCfg0);
-      }
-    }
-    ref.sort();
-    var seaThresh = ref[Math.min(ref.length - 1, Math.floor(cfg.seaLevel * (ref.length - 1)))];
-    var refPeak = ref[ref.length - 1];
+    var seaRef = seaReference(cfg, baseN, ridgeN, warpN, rfield);
+    var seaThresh = seaRef.seaThresh;
+    var refPeak = seaRef.refPeak;
     var beachThresh = seaThresh + 0.02;
 
     // --- 1+2: sample world-space height into the grid ---

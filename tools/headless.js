@@ -23,6 +23,7 @@
  *   node tools/headless.js --lightning  # lightning: rain clouds only, rare, calm pulses, axis-aligned bolt
  *   node tools/headless.js --season     # season slider: render only, snow line, frozen fresh water, autumn forest, mossy lakes
  *   node tools/headless.js --layout     # side panel toggle, phone layout, touch pinch/pan math
+ *   node tools/headless.js --intro      # first-load worker + layered intro: worker grid == main-thread grid byte for byte, player order/skip/cancel, wiring
  */
 'use strict';
 const fs = require('fs');
@@ -35,7 +36,7 @@ global.performance = { now: () => Number(process.hrtime.bigint()) / 1e6 };
 
 for (const f of ['noise.js', 'seed.js', 'grid.js', 'biome.js', 'generate.js',
                  'perf.js', 'render/topdown.js', 'render/sky.js', 'render/post.js', 'render/wind.js', 'render/weather.js', 'render/flow.js', 'render/smoke.js', 'render/fog.js', 'render/lightning.js', 'render/season.js',
-                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js']) {
+                 'render/voxel3d.js', 'time.js', 'worldtypes.js', 'export.js', 'i18n.js', 'touch.js', 'genclient.js', 'intro.js']) {
   const code = fs.readFileSync(path.join(root, f), 'utf8');
   // Stripping the canvas renderer of its getContext calls is unnecessary --
   // we simply never call renderTopDown here.
@@ -2662,7 +2663,7 @@ function runSmokeChecks() {
       /pow\(age, 1\.4\)/.test(src) && /glslFloat\(RISE\) \+ ' \* life \* \(1\.0 - ' \+ glslFloat\(DECEL\)/.test(src) &&
       /hash\(aPuff\.z, 4\.0\)/.test(src) && /smoothstep\(0\.0, ' \+ glslFloat\(EDGE\)/.test(src));
     const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
-    push('the smoke is drawn only outside debug views, before the sky', /if \(smoke && !debugView\)[\s\S]{0,400}smoke\.draw\(smokeDraw\);\s*\}\s*drawSky\(\);/.test(voxel));
+    push('the smoke is drawn only outside debug views, before the sky', /if \(smoke && !debugView && effectsOn\)[\s\S]{0,400}smoke\.draw\(smokeDraw\);\s*\}\s*drawSky\(\);/.test(voxel));
     push('colours are palette mixes (volcanic, rock, snow, lava), no new colour',
       /mix\(rgb01\('volcanic'\), rgb01\('rock'\)/.test(src) && /mix\(rgb01\('rock'\), rgb01\('snow'\)/.test(src) &&
       /rgb01\('lava'\)/.test(src) && !/#[0-9a-f]{6}/i.test(src));
@@ -2911,7 +2912,7 @@ function runLightningChecks() {
     const voxel = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
     const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
     push('the flash reaches the terrain only during a strike, with Rain & snow on, outside debug views, and not for reduced motion',
-      /if \(SM\.Lightning && weatherNow\.length && !debugView\)/.test(voxel) &&
+      /if \(SM\.Lightning && weatherNow\.length && !debugView && effectsOn\)/.test(voxel) &&
       /strike\.active && flashLight && !debugView \? strike\.flash \* SM\.Lightning\.FLASH_LIGHT : 0/.test(voxel) &&
       /prefers-reduced-motion: reduce/.test(main) && /setFlashLight\(/.test(main));
     push('every lit terrain variant takes the flash light (uFlash) into its lambert term',
@@ -3685,10 +3686,10 @@ function runWeatherChecks() {
       /float falls = step\(0\.5, g\.y\) \* onMap;/.test(wsrc) && /\* o\.fades\[n\];/.test(wsrc), '');
     push('one cloudsAt per frame feeds the weather cloud and its rain; weather clouds cast no shadow (cost); Rain & snow off removes both',
       (vsrc.match(/SM\.Weather\.cloudsAt\(/g) || []).length === 1 &&
-      /var list = weatherBuilt && showWeather && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
+      /var list = weatherBuilt && showWeather && effectsOn && sky && sky\.weatherCount \? weatherBuilt\.clouds : \[\];/.test(vsrc) &&
       (vsrc.match(/SM\.Sky\.cloudShadowUniforms\(/g) || []).length === 1 &&
       /SM\.Sky\.cloudShadowUniforms\(cloudNow, meshBounds/.test(vsrc) &&
-      /if \(weather && showWeather && !debugView && weatherNow\.length\) \{/.test(vsrc) &&
+      /if \(weather && showWeather && !debugView && weatherNow\.length && effectsOn\) \{/.test(vsrc) &&
       /if \(weatherNow\.length && sky\.weatherCount\) \{/.test(vsrc) &&
       /weatherDraw\.centres = weatherCentres;/.test(vsrc), '');
   }
@@ -3800,7 +3801,338 @@ function runWeatherChecks() {
   if (!results.every(r => r[1])) process.exitCode = 1;
 }
 
-if (process.argv[2] === '--layout') {
+// First-load worker + layered intro. The browser half (a real Worker, the
+// sweep on a real canvas) cannot run here; what CAN be pinned is the part that
+// must never drift: the worker script, driven through a stand-in worker scope,
+// returns exactly the grid and the pass snapshots that SM.generate returns on
+// this thread, and the scheduler paints in order and honours skip / cancel.
+function runIntroChecks() {
+  const vm = require('vm');
+  const results = [];
+  const push = (name, ok, detail) => results.push([name, ok, detail || '']);
+  const repo = path.join(__dirname, '..');
+
+  // Drive src/gen-worker.js in a vm context that looks like a worker scope.
+  function runWorker(cfg, stages, mesh) {
+    const out = [];
+    out.transfers = [];
+    const self = {
+      postMessage(m, tr) { out.push(m); out.transfers.push(tr || []); },
+      performance: { now: () => Number(process.hrtime.bigint()) / 1e6 },
+      importScripts(...files) {
+        for (const f of files) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx, { filename: f });
+      }
+    };
+    self.self = self;
+    const ctx = vm.createContext(self);
+    vm.runInContext(fs.readFileSync(path.join(root, 'gen-worker.js'), 'utf8'), ctx, { filename: 'gen-worker.js' });
+    self.onmessage({ data: { cfg, stages, mesh: mesh || null } });
+    return out;
+  }
+  const bytes = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength);
+  // Same value, whatever realm built it: typed arrays by bytes, the rest as JSON.
+  function same(a, b) {
+    if (a && ArrayBuffer.isView(a)) return !!b && ArrayBuffer.isView(b) && bytes(a).equals(bytes(b));
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+  function diffKeys(a, b) {
+    const keys = new Set(Object.keys(a).concat(Object.keys(b)));
+    return [...keys].filter(k => typeof a[k] !== 'function' && typeof b[k] !== 'function' && !same(a[k], b[k]));
+  }
+
+  const PASSES = SM.Intro.PASSES;
+  const cases = [{ seed: 1337, width: 320, height: 320 }, { seed: 20261019, width: 160, height: 160, seaLevel: 0.45, rivers: 1.5 }];
+  for (const cfg of cases) {
+    const label = `seed ${cfg.seed} ${cfg.width}²`;
+    const snaps = {};
+    const ref = SM.generate(cfg, (id, snap) => { snaps[id] = snap; });
+    const msgs = runWorker(cfg, PASSES);
+    const stageMsgs = msgs.filter(m => m.t === 'stage');
+    const done = msgs.find(m => m.t === 'done');
+    push(`${label}: worker finishes without error`, !!done && !msgs.some(m => m.t === 'error'),
+      msgs.filter(m => m.t === 'error').map(m => m.msg).join('; '));
+    if (!done) continue;
+    push(`${label}: worker reports the requested passes, in pipeline order, and only those`,
+      JSON.stringify(stageMsgs.map(m => m.id)) === JSON.stringify(PASSES),
+      stageMsgs.map(m => m.id).join(','));
+    const strayFn = Object.keys(done.grid).filter(k => typeof done.grid[k] === 'function');
+    push(`${label}: nothing un-cloneable in the worker's grid`, strayFn.length === 0, strayFn.join(','));
+    const built = SM.GenClient.toGrid(done.grid);
+    const gridDiff = diffKeys(ref, built);
+    push(`${label}: worker grid == main-thread grid, every field byte for byte`, gridDiff.length === 0, gridDiff.join(','));
+    push(`${label}: rebuilt grid keeps the model's methods`,
+      typeof built.index === 'function' && typeof built.inBounds === 'function' && built.index(3, 2) === 2 * built.width + 3);
+    const snapBad = stageMsgs.filter(m => diffKeys(snaps[m.id], m.snap).length).map(m => m.id);
+    push(`${label}: worker pass snapshots == main-thread snapshots`, snapBad.length === 0, snapBad.join(','));
+    // No pass reported = nothing recorded: the reduced-motion path pays no copies.
+    const quiet = runWorker(cfg, []).filter(m => m.t === 'stage').length;
+    push(`${label}: no passes asked, none sent`, quiet === 0);
+  }
+
+  // Frames: Intro.pixels must paint the colours the real renderers paint. A
+  // recording stand-in canvas runs SM.renderTopDown / SM.renderStage at one
+  // pixel per cell (fillStyle + fillRect, alpha-blended like a canvas) and the
+  // result is compared pixel by pixel, to within the rounding of 8-bit blending.
+  {
+    function fakeCanvas() {
+      const cv = { width: 0, height: 0, buf: null };
+      let style = [0, 0, 0, 1];
+      cv.getContext = () => ({
+        set fillStyle(v) {
+          const m = /rgba?\(([^)]+)\)/.exec(v);
+          const p = m[1].split(',').map(Number);
+          style = [p[0], p[1], p[2]].map(c => Math.max(0, Math.min(255, c))).concat(p.length > 3 ? p[3] : 1);
+        },
+        clearRect() { cv.buf = new Float64Array(cv.width * cv.height * 4); },
+        fillRect(x, y, w, h) {
+          if (!cv.buf) cv.buf = new Float64Array(cv.width * cv.height * 4);
+          for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+            const o = (yy * cv.width + xx) * 4, a = style[3];
+            for (let k = 0; k < 3; k++) cv.buf[o + k] = style[k] * a + cv.buf[o + k] * (1 - a);
+            cv.buf[o + 3] = 255;
+          }
+        },
+        beginPath() {}, stroke() {}, moveTo() {}, lineTo() {}, closePath() {}, fill() {}
+      });
+      return cv;
+    }
+    function maxDiff(cv, px) {
+      let worst = 0, at = -1;
+      for (let i = 0; i < px.length; i++) {
+        if (i % 4 === 3) continue;
+        const d = Math.abs(cv.buf[i] - px[i]);
+        if (d > worst) { worst = d; at = i; }
+      }
+      return [worst, at];
+    }
+    const cfg = { seed: 1337, width: 96, height: 96 };
+    const snaps = {};
+    const g = SM.generate(cfg, (id, s) => { snaps[id] = s; });
+    const defs = {}; SM.PIPELINE_STAGES.forEach(s => { defs[s.id] = s; });
+    for (const id of PASSES) {
+      const cv = fakeCanvas();
+      if (defs[id].view === 'map') SM.renderTopDown(cv, snaps[id], { tile: 1, grid: false, shade: true, markers: false });
+      else SM.renderStage(cv, snaps[id], defs[id], { tile: 1, shade: true });
+      const [d, at] = maxDiff(cv, SM.Intro.pixels(snaps[id], defs[id]));
+      push(`frame "${id}" (${defs[id].view}) matches the real renderer`, d <= 2.01, `max channel diff ${d.toFixed(2)} at byte ${at}`);
+    }
+    const cv = fakeCanvas();
+    SM.renderTopDown(cv, g, { tile: 1, grid: false, shade: true, markers: false });
+    const [d, at] = maxDiff(cv, SM.Intro.pixels(g, { view: 'map' }));
+    push('frame of the finished grid matches the real top-down render (no icons)', d <= 2.01, `max channel diff ${d.toFixed(2)} at byte ${at}`);
+  }
+
+  // Scheduler: a stand-in clock and rAF, stepped by hand.
+  {
+    function rig() {
+      let now = 0, queued = null; const log = [];
+      global.requestAnimationFrame = f => { queued = f; return 1; };
+      global.cancelAnimationFrame = () => { queued = null; };
+      const player = SM.Intro.createPlayer({
+        paint: (from, to, p) => log.push(['paint', from, to, p]),
+        line: p => log.push(['line', p]),
+        final: sk => log.push(['final', sk])
+      });
+      const tick = ms => { now += ms; const f = queued; queued = null; if (f) f(now); };
+      const run = (ms, step) => { for (let t = 0; t < ms; t += step) tick(step); };
+      return { player, log, tick, run, pending: () => !!queued };
+    }
+    const paints = log => log.filter(e => e[0] === 'paint');
+    let r = rig();
+    r.player.push('A'); r.player.push('B'); r.player.end();
+    r.run(2000, 16);
+    const order = paints(r.log).filter(e => e[3] === 1).map(e => e[2]);
+    push('player: frames are printed whole, in order, each after a partial sweep',
+      order.join('') === 'AB' && paints(r.log).some(e => e[2] === 'A' && e[3] > 0 && e[3] < 1) &&
+      paints(r.log).some(e => e[1] === 'A' && e[2] === 'B' && e[3] > 0 && e[3] < 1));
+    push('player: final fires once, after the last frame, not skipped',
+      r.log.filter(e => e[0] === 'final').length === 1 && r.log[r.log.length - 1][0] === 'final' && r.log[r.log.length - 1][1] === false);
+    const t = r.log.filter(e => e[0] === 'line' && e[1] != null).map(e => e[1]);
+    push('player: ink line stays within one sweep (0..1)', t.length > 0 && t.every(v => v >= 0 && v <= 1));
+
+    r = rig();
+    r.player.push('A'); r.run(100, 16);
+    r.player.push('B'); r.player.push('C');
+    r.player.skip();
+    r.player.end();
+    r.run(400, 16);
+    const fin = r.log.filter(e => e[0] === 'final');
+    const lastPaint = paints(r.log).pop();
+    push('player: skip paints the newest frame whole and reports skipped',
+      fin.length === 1 && fin[0][1] === true && lastPaint[2] === 'C' && lastPaint[3] === 1);
+
+    r = rig();
+    r.player.push('A'); r.run(64, 16);
+    r.player.cancel(); r.player.push('B'); r.player.end();
+    const before = r.log.length;
+    r.run(1000, 16);
+    push('player: cancel stops everything, no final, line hidden',
+      !r.log.some(e => e[0] === 'final') && r.log.slice(before).every(e => e[0] === 'line' && e[1] === null) && !r.pending());
+
+    r = rig();
+    for (const f of ['A', 'B', 'C', 'D']) r.player.push(f);
+    r.player.end();
+    r.run(5000, 16);
+    push('player: all passes of a backlog still print', paints(r.log).filter(e => e[3] === 1).map(e => e[2]).join('') === 'ABCD');
+    delete global.requestAnimationFrame; delete global.cancelAnimationFrame;
+  }
+
+  // Isometric intro: the worker also builds the mesh and effects. Same bytes
+  // as the page would build, nothing listed twice in the transfer list (a
+  // duplicate makes postMessage throw, the page then silently falls back to
+  // the main thread), and the water beds mean what the shader reads.
+  {
+    const cfg = { seed: 20261019, width: 160, height: 160, seaLevel: 0.45, rivers: 1.5 };
+    const sun = [0.4, 0.8, 0.3];
+    const ref = SM.generate(cfg);
+    const refX = SM.buildIsoExtra(ref, sun);
+    const msgs = runWorker(cfg, [], { sun });
+    const done = msgs.find(m => m.t === 'done');
+    push('iso: worker finishes with an extra when asked, without when not',
+      !!done && !!done.extra && !msgs.some(m => m.t === 'error') && runWorker(cfg, []).find(m => m.t === 'done').extra === null,
+      msgs.filter(m => m.t === 'error').map(m => m.msg).join('; '));
+    if (done && done.extra) {
+      const ex = done.extra;
+      const tr = msgs.transfers[msgs.length - 1];
+      push('iso: transfer list has no duplicate buffer and carries the mesh',
+        new Set(tr).size === tr.length && tr.includes(ex.mesh.positions.buffer), `${tr.length} entries, ${new Set(tr).size} distinct`);
+      const bad = [];
+      for (const k of ['positions', 'normals', 'colors', 'cellUV', 'indices', 'water', 'wave']) if (!same(refX.mesh[k], ex.mesh[k])) bad.push('mesh.' + k);
+      if (!same(refX.shadow, ex.shadow)) bad.push('shadow');
+      if (JSON.stringify(refX.wind.prevailing) !== JSON.stringify(ex.wind.prevailing)) bad.push('wind');
+      if (JSON.stringify(refX.smoke) !== JSON.stringify(ex.smoke)) bad.push('smoke');
+      if (JSON.stringify(refX.weather.clouds) !== JSON.stringify(ex.weather.clouds)) bad.push('weather');
+      push('iso: worker mesh, sun shadow, wind, weather and smoke == what the page builds', bad.length === 0, bad.join(','));
+      // Last: a real transfer detaches the buffers.
+      let cloned = true;
+      try { structuredClone(done, { transfer: tr.map(b => b) }); } catch (e) { cloned = false; }
+      push('iso: the done message survives a real structured clone with that transfer list', cloned);
+    }
+  }
+
+  // Wiring: the worker loads the same files the page does, in the same order;
+  // the page loads the client and scheduler before main.js; the first map goes
+  // through startIntro; any other regenerate cancels it.
+  function finish() {
+    const html = fs.readFileSync(path.join(repo, 'index.html'), 'utf8');
+    const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8').replace(/\r\n/g, '\n');
+    const worker = fs.readFileSync(path.join(root, 'gen-worker.js'), 'utf8');
+    const css = fs.readFileSync(path.join(repo, 'css', 'style.css'), 'utf8');
+    const scripts = [...html.matchAll(/<script[^>]+src="src\/([^"]+)"/g)].map(m => m[1]);
+    const imp = /importScripts\(([^)]*)\)/.exec(worker);
+    const impFiles = imp ? imp[1].split(',').map(x => x.trim().replace(/['"]/g, '')) : [];
+    const pageGen = scripts.filter(f => impFiles.includes(f));
+    push('worker imports its files in the page\'s own order (generation first, then the isometric builders)',
+      JSON.stringify(impFiles) === JSON.stringify(pageGen) &&
+      JSON.stringify(impFiles.slice(0, 4)) === JSON.stringify(['noise.js', 'biome.js', 'grid.js', 'generate.js']),
+      `${impFiles} vs ${pageGen}`);
+    push('worker script has no DOM and no Math.random', !/\bdocument\b|\bwindow\.(?!SM)|Math\.random/.test(worker.replace(/\/\*[\s\S]*?\*\//g, '')));
+    push('index.html loads genclient.js and intro.js before main.js',
+      scripts.indexOf('genclient.js') > scripts.indexOf('generate.js') && scripts.indexOf('intro.js') > scripts.indexOf('genclient.js') &&
+      scripts.indexOf('main.js') > scripts.indexOf('intro.js'));
+    push('main.js starts the first map with startIntro(); regenerate() cancels a running intro',
+      /\n {2}startIntro\(\);\n {2}applyDayNight\(\);/.test(main) && /function regenerate\(animate\) \{\n(?:.*\n)*? {4}cancelIntro\(\);/.test(main));
+    push('prefers-reduced-motion skips the sweeps and asks the worker for no passes',
+      /prefers-reduced-motion: reduce\)'\)\.matches\);/.test(main) && /stages: reduced \? \[\]/.test(main));
+    push('ink line uses the page accent, no new colour', /#introLine \{[^}]*background: var\(--accent\)/.test(css));
+    const en = SM.I18N.STRINGS.en, tr = SM.I18N.STRINGS.tr;
+    push('busy text exists in both languages', !!en['gen.busy'] && !!tr['gen.busy']);
+    const vox = main.slice(main.indexOf('var VI = {'), main.indexOf('function introGuard'));
+    const vs = SM.voxelTerrainShaderSources('').vertex;
+    const fsrc = SM.voxelTerrainShaderSources('').fragment;
+    const v3d = fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8');
+    const vsb = vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'));
+    push('isometric first load plays the intro on the voxel world (not under reduced motion, not with a camera link); the plain path stays for everything else',
+      /if \(!reduced && isVoxelMode\(\) && !voxelCameraQuery && startVoxelIntro\(cfg\)\) return;/.test(main));
+    push('intro timeline: paint first on the flat map, the relief starts rising before it ends (grid fade overlapping), then clouds; 4-5.2 s from the first paint, every move eased; the rise waits at GATE for the mesh',
+      (() => {
+        const m = /PAINT: \[(\d+), (\d+)\], GRID: \[(\d+), (\d+)\], RISE: \[(\d+), (\d+)\], CLOUD: \[(\d+), (\d+)\], END: (\d+)/.exec(vox);
+        if (!m) return false;
+        const [p0, p1, g0, g1, r0, r1, c0, c1, end] = m.slice(1).map(Number);
+        const gate = /GATE: (\d+)/.exec(vox);
+        // the rise starts as the paint ends (no gap), the grid fade overlaps both
+        return p0 === 0 && g0 > p0 && g0 < p1 && g1 > r0 && g1 <= r0 + 1200 && r0 >= p1 - 450 && r0 < p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && p1 >= 2200 && end >= 4000 && end <= 5200 &&
+          gate && +gate[1] >= r0 - 100 && +gate[1] <= r0 + 100 &&
+          /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
+          /easeInOutSine\(span\(t, VI\.GRID\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
+      })());
+    push('intro: the slab is blank for ~0.5 s only; the flat map is coloured from the worker\'s own passes (sample, sea, climate) until the mesh exists, no previews, no water animation',
+      /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['sample', 'sea', 'climate'\]/.test(vox) &&
+      /SM\.Intro\.pixels\(snap, stageDefs\[id\]\)/.test(vox) && /function introImage\(/.test(vox) && !/previewHeights|introRelief|waterFraction|setIntroFloor/.test(vox));
+    push('intro: every column rises on its own clock in the shader (no global scale change), the mesh is never rebuilt per frame, the sky and effects join after the rise starts',
+      /rise: riseP/.test(vox) && !/setVerticalScale/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame'))) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
+      && /t >= VI\.CLOUD\[0\]\) \{[\s\S]*?applyIntroEffects\(vi\)/.test(vox));
+    push('intro ends on the normal render: uniforms off, scale back to isoExag, sky restored, mesh already uploaded (no second setMesh)',
+      /function voxIntroTeardown[\s\S]*?setIntro\(null\)[\s\S]*?setVerticalScale\(isoExag\(\)\)[\s\S]*?setSky/.test(vox) &&
+      /rebuildVoxelMesh\(true, ex\)/.test(vox) && /if \(pre\) \{[\s\S]*?requestVoxelRender\(\);\s*\} else \{[\s\S]*?setMesh\(voxelMesh\)/.test(main));
+    push('intro: tap, key, new seed or a new map skip/cancel it, with the slab and uniforms cleaned up',
+      /it\.player = \{ skip: function \(\) \{ vi\.skip = true; if \(vi\.extra\) voxIntroFinish\(\)/.test(vox) &&
+      /if \(intro\.vox\) voxIntroTeardown\(\);/.test(main));
+    push('terrain vertex shader: intro block is behind one uniform (uIntro.w), uses the neutral Bare tone and the existing palette only, no new colour literal',
+      /uniform vec4 uIntro;/.test(vs) && /if \(uIntro\.w > 0\.5\)/.test(vs) && vsb.length > 200 && !/#[0-9a-fA-F]{3,8}\b|vec3\(\s*[0-9.]+\s*,\s*[0-9.]+\s*,\s*[0-9.]+\s*\)/.test(vsb) &&
+      /0x13 \/ 255/.test(fs.readFileSync(path.join(root, 'render', 'voxel3d.js'), 'utf8')));
+    push('intro: Random, a seed and a world type play the animation on the voxel world; sliders stay instant; skip and reduced motion intact',
+      /function regenerate\(animate\)/.test(main) && /animate === true && !reduced && isVoxelMode\(\)[^\n]*startVoxelIntro\(cfg, true\)/.test(main) &&
+      /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
+      /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
+      /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
+    push('terrain shader intro: the paint is one hard, rough, per-cell front that closes in from the corners (warped, not a circle) on the flat map (no order by colour or height), water is plain coloured cells (no fill animation), the grid stays through the paint and fades by its own uniform, lava glows with the rise, stand-in colours ease into the mesh\'s own',
+      /introFront\(vec2\(ic\)/.test(vs) &&
+      /float keep = step\(introFront\(vec2\(ic\) \+ 0\.5 - 0\.5 \* uIntroMap, uIntroSweep\), uIntro\.x \* 1\.5\)/.test(vs) && !/band|smoothstep\(0\.0, 1\.0, keep/.test(vs.slice(vs.indexOf('uIntro.w > 0.5) {'), vs.indexOf('gl_Position'))) &&
+      /vIntroGrid\.w = uIntro\.z/.test(vs) && /baseColor = mix\(baseColor, vec3\(0\.62\), 0\.30 \* vIntroGrid\.w/.test(fsrc) &&
+      /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.45, 1\.0, uIntroRise\.x\)/.test(vs) &&
+      /vColor = mix\(texelFetch\(uIntroImage, ic, 0\)\.rgb, vColor, uIntroBlend\.y\)/.test(vs) && !/uIntroFloor|yw = mix/.test(vs) &&
+      /aoFactor = mix\(1\.0, aoFactor, uIntroLight\)/.test(fsrc) && /shadow \* uIntroLight/.test(fsrc));
+    push('intro paint front: warped fractal front from the corners (not a circle), seeded noise (offset from the map seed, no Math.random), deterministic',
+      (() => {
+        const f = new Function(vox.slice(vox.indexOf('function introFront'), vox.indexOf('function smootherstep')) + '; return introFront;');
+        const fr = f(), a = fr({ width: 320, height: 200, seed: 1337 }), b = fr({ width: 320, height: 200, seed: 1337 }), c = fr({ width: 320, height: 200, seed: 99 });
+        return JSON.stringify(a) === JSON.stringify(b) && JSON.stringify(a) !== JSON.stringify(c) &&
+          Math.abs(a[2] - 2 / Math.sqrt(320 * 320 + 200 * 200)) < 1e-12 && !/Math\.random/.test(vox) &&
+          /float introFront\(highp vec2 cell, highp vec3 s\)/.test(v3d) && /q \+ w \* 1\.25/.test(v3d) && /introFbm5\(q \* 13\.0/.test(v3d) && /clamp\(1\.0 - d, 0\.02, 1\.5\)/.test(v3d);
+      })());
+    push('intro rise order: the paint front reversed (the cell painted last rises first), evaluated per vertex, each column eased; the rise starts as the paint ends',
+      /pow\(\(1\.5 - introFront\(aPosition\.xz, uIntroSweep\)\) \/ 1\.48, 1\.5\)/.test(vs) && /float l = clamp\(\(r\.x - order \* 0\.62\) \/ 0\.38, 0\.0, 1\.0\)/.test(v3d) &&
+      /l \* l \* l \* \(l \* \(l \* 6\.0 - 15\.0\) \+ 10\.0\)/.test(v3d));
+    push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
+      /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
+    push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',
+      /float introY = aPosition\.y;/.test(vs) && /\(introY \+ wave\) \* yScale/.test(vs) && /float yScale = uVScale;/.test(vs));
+    push('intro frames are painted by SM.Intro.frame from recorded passes, never by a second generate on this thread',
+      !/SM\.generate\(/.test(main.slice(main.indexOf('function startIntro'), main.indexOf('function introGuard'))));
+
+    console.log('first-load intro checks:');
+    for (const [name, ok, detail] of results) {
+      console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}`);
+      if (!ok && detail) console.log(`         ${detail}`);
+    }
+    if (!results.every(r => r[1])) process.exitCode = 1;
+  }
+
+  // The synchronous fallback (no Worker API in this scope) yields the same grid.
+  {
+    const cfg = cases[1];
+    const ref = SM.generate(cfg);
+    const got = []; let doneGrid = null;
+    const hadWorker = typeof global.Worker;
+    new Promise(res => {
+      SM.GenClient.run(cfg, {
+        stages: PASSES,
+        onStage: id => got.push(id),
+        onDone: g => { doneGrid = g; res(); },
+        onError: () => res()
+      });
+    }).then(() => {
+      push('fallback (no Worker): same grid, passes in order', hadWorker === 'undefined' && !!doneGrid &&
+        diffKeys(ref, doneGrid).length === 0 && JSON.stringify(got) === JSON.stringify(PASSES), got.join(','));
+      finish();
+    });
+  }
+}
+
+if (process.argv[2] === '--intro') {
+  runIntroChecks();
+} else if (process.argv[2] === '--layout') {
   runLayoutChecks();
 } else if (process.argv[2] === '--season') {
   runSeasonChecks();
@@ -4077,15 +4409,15 @@ function runSeedChecks() {
       /<input\b[^>]*type="text"[^>]*id="seed"/.test(html) && /id="seedMsg"[^>]*role="status"/.test(html), '');
     push('src/seed.js loads before main.js in index.html', html.indexOf('src/seed.js') > 0 && html.indexOf('src/seed.js') < html.indexOf('<script src="src/main.js">'), '');
     push('Random draws a new base (SM.Seed.randomBase); no Regenerate button, hotkey or handler is left; no 1e6 numeric seed left',
-      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(\);/g) || []).length === 1 &&
+      (mainJs.match(/seedBase = SM\.Seed\.randomBase\(\);\n\s*syncSeedField\(\);\n\s*regenerate\(true\);/g) || []).length === 1 &&
       !/regenMap|regen\.(label|title)/.test(mainJs + html + fs.readFileSync(path.join(root, 'i18n.js'), 'utf8')) &&
       /key === 'r' && !ev\.altKey && ev\.shiftKey/.test(mainJs) &&
       !/Math\.random\(\) \* 1e6/.test(mainJs), '');
     push('every generation slider and the season keep the field in step on input; world type too',
       /SM\.Seed\.FIELDS\.forEach\(function \(f\) \{ \$\(f\.id\)\.addEventListener\('input', syncSeedField\)/.test(mainJs) &&
-      /syncSeedField\(\);\n\s*regenerate\(\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
+      /syncSeedField\(\);\n\s*regenerate\(true\);\n\s*\}\n\n\s*\/\/ Which world type/.test(mainJs), '');
     push('a code applies on blur or Enter only (no per-keystroke or paste apply); invalid shows a message and keeps the text',
-      /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(\)/.test(mainJs) &&
+      /function applySeedText[\s\S]*?showSeedError\(d\.error\)[\s\S]*?writeSettings\(d\.settings\)[\s\S]*?regenerate\(true\)/.test(mainJs) &&
       /\$\('seed'\)\.addEventListener\('blur', commitSeedField\)/.test(mainJs) && /ev\.key === 'Enter'/.test(mainJs) &&
       !/\$\('seed'\)\.addEventListener\('(paste|change)'/.test(mainJs) &&
       !/function showSeedError[\s\S]{0,300}\$\('seed'\)\.value\s*=/.test(mainJs), '');

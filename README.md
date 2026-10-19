@@ -69,6 +69,81 @@ taşma eşiği (göl nehrin 2 üstünde; göller sabit çapa) —, nehir akış 
 eşiğinin 0.06'dan fazla altında değil) ve `--sweep` (7 deniz seviyesi — kara
 monotonluğu, ada konsolidasyonu, determinizm). Ölçüm paketi: `docs/measurements/`.
 
+**İlk yükleme: worker + katman katman açılış** (`src/gen-worker.js`,
+`src/genclient.js`, `src/intro.js`; `startIntro` / `adoptGrid`, `main.js`).
+Sayfa hemen çizilir; ilk harita bir Web Worker'da üretilir (classic worker,
+`importScripts` ile `noise → biome → grid → generate`: sayfayla aynı dosyalar,
+aynı sıra — grid modeli tek doğru kaynak, pass'ler `generate.js`'te, hiçbiri
+kopyalanmadı). Worker, `SM.generate`'in kayıt kancasıyla beş pass'i bitirdikçe
+yollar (ham noise → dağlar → deniz seviyesi → iklim/biyom → nehirler) ve bitmiş
+grid'i transfer eder. Ana thread her pass'i küçük bir karede (ekrana yetecek en
+küçük tile) çizer ve lansman filmindeki gibi bir mürekkep çizgisi yukarıdan
+aşağı süpürerek bastırır (280 ms süpürme + 50 ms bekleme; çizgi `--accent`,
+yeni renk yok). Sıra: **noise → dağlar → deniz → biyom → nehirler → bitmiş
+harita**. **Üstten görünümde** son kare gerçek `renderTopDown`. **İzometrikte
+(varsayılan, insanların beklediği yer) animasyon 3B voxel dünyanın kendisinde**
+(Uğur 2026-10-19: *"animasyon 3d voxel üzerinde olsun"*; *"render olmak zorunda değil"*),
+aşağıda. **Atlama:** haritaya dokunmak / tuşa basmak, `regenerate()` (her slider/seed
+değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-motion`
+(worker yine kullanılır, pass istenmez, harita hazır olunca doğrudan çıkar).
+Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
+thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
+**İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
+`setIntroSlab` / `setIntroImage`). Kamera tüm süre boyunca izometrik kalır. Sıra
+(Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**: haritanın ayak izinde **neredeyse siyah (#131313)** düz bir voksel
+plaka, üstünde **soluk açık gri hücre ızgarası** (koyu zeminde okunsun diye çizgiler
+artık siyah değil: albedo'yu %30 açık griye (0,62) doğru karıştırır), alçak bir
+**nefes** (kamera ± %0,6 sinüs); yalnız ilk ~450 ms. Izgara çizgileri
+`INTRO_GRID_GLSL`: tam birimlerde çizgi, hücre birkaç pikselin altına inince ince ızgara
+solar, her 4. ve 16. çizgi kalır. (1) **Düz haritayı boya**: harita *düz* haldeyken
+renkler köşelerden ve kenarlardan gelir, boyanmamış bölge orta civarında kapanır ama
+**daire gibi değil**: merkeze uzaklık önce büyük bir alçak frekanslı gürültüyle
+**domain warp** edilir (±0,6), sonra geniş bir gürültüyle (±0,33) bükülür, en sonda
+5 oktavlı fraktal (±0,2) kenarı pürüzlendirir (`introFront`). Kenar **sert ve kaba**:
+bant ya da yumuşatma yok, **hücre merkezinde** değerlendirilip ilerlemeyle sert
+eşikle (`step`) kıyaslanır, yani kenar voksel ızgarasını izler (mesh'te köşe başına
+değil karo başına, plakada hücre başına, aynı fonksiyon ve aynı hücre; el
+değiştirmede kenar kaymaz). Gürültü kayması harita seed'inden (aynı harita hep aynı
+boyanır). Bütün renkler birlikte (su da yalnız mavi hücreler), ızgara bu sırada
+görünür kalır; ön izleme görüntüleri yalnız boyanmış yerde görünür. Bitmiş harita
+worker'dan gelene kadar renkler **worker'ın kendi pass'lerinden**: ham yükselti
+(`sample`), kara/deniz (`sea`), biyomlar (`climate`) `SM.Intro.pixels` ile düz bir
+RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gösterilir ve
+görüntüler birbirine 600 ms'de eriyerek geçer. Mesh gelince plaka kalkar, mesh aynı
+görüntüden başlar (`uIntroImage`) ve 700 ms'de kendi renklerine erir; ışık da aynı
+(düz tepede AO/gölge/dalga gölgesi yok, `uIntroLight`), yani el değiştirmede renk ya da
+parlaklık sıçraması olmaz. (2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
+boya bitmeden ~300 ms önce başlar** (kapanan lekenin üstünde, ölü boşluk yok),
+**boyanın tersi sırayla**: en son boyanan yer (ortada kapanan leke) ilk yükselir,
+boyanın başladığı köşeler ve kenarlar en son. Sıra aynı çarpık/gürültülü cephe
+alanından türetilir (`order = ((1,5 - introFront) / 1,48)^1,5`: üs, orta bölgeden de
+geniş bir alanın hemen kalkmasını sağlar; köşe noktasında değerlendirilir, komşu
+kolonlar köşelerini paylaştığı için çatlak açılmaz); her kolonun kendi yükselişi
+smootherstep (yayılma 0,62, kolon süresi 0,38·yükseliş; `introRiseScale`, geometri
+yeniden kurulmaz). Sular
+kendi seviyesinde kalır: kara denizin etrafında yükselir (deniz yüzeyi 0'da durur),
+göl ve nehirler kendi zeminleriyle yükselir; ayrı bir su animasyonu yoktur. AO, gölge ve
+dalga gölgesi yükselişle birlikte devreye girer; lav yükselirken parlar. (4)
+**Bulutlar** merkezden kenara büyür (`uCloudGrow`). Çizelge (ilk boyadan, ms): boya
+0-2400, ızgara 2000-2900, yükseliş 2100-3800, bulut 3300-4500. Yükseliş mesh ister:
+zaman saati kapıda (`GATE` = yükselişin başı) düz ve renkli haritada nefes alarak
+bekler. Yavaş cihazda saat kapıya kadar yavaşlar (en çok x0,4; her pass'in geldiği
+an mesh varışını tahmin ettirir), yani bekleyiş renkli düz haritada geçer, renksiz
+plakada değil. Bitişte uniform'lar kapanır ve değerler tam normal render'a iner.
+**Mesh, gölge görüntüsü, rüzgâr alanı, hava ve duman worker'da kurulur**
+(`SM.buildIsoExtra`). Seed bayt bayt aynı (üretim koduna dokunulmadı).
+**Yeni harita da aynı animasyonla gelir**: *Random*, seed alanı (kapanınca/Enter) ve
+dünya tipi seçimi eski haritayı bırakıp (`renderer.clearMesh`, eski rüzgâr/yağmur/
+duman gizli) aynı animasyonu oynatır; slider bırakmaları anlıktır (tekrar tekrar
+denenir), üstten görünüm ve `prefers-reduced-motion` de öyle.
+Atla: dokun / tuş / `prefers-reduced-motion`; kameralı
+paylaşım bağlantısı ve üstten görünüm eski yolda kalır.
+
+Doğrulama: `node tools/headless.js --intro` — worker betiği sahte worker
+kapsamında sürülür, grid ve pass kayıtları ana-thread çıktısıyla **bayt bayt**
+aynı olmalı; oynatıcı sırası/atla/iptal; kablolama. Tarayıcıda gözle bakılması
+gerekir (süpürme tuvalde çizilir).
+
 **Pipeline adım adım modu** (panel → *Pipeline* → *Step through generation*):
 mevcut haritanın ayarlarıyla üretim bir kez kayıtla yeniden koşulur
 (`SM.generate(cfg, record)`) ve 10 aşama (`SM.PIPELINE_STAGES`: ham noise →

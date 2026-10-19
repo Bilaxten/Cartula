@@ -1157,6 +1157,27 @@
       'uniform mat4 uViewProjection;',
       'uniform float uVScale;',
       'uniform highp float uTime;',
+      // Loading animation (2026-10-19, SM.Voxel3D setIntro): x = paint 0..1
+      // (a colour wipe across the screen, left to right), y = sea fill 0..1, z = lake /
+      // river fill 0..1, w = on. Range = lowest / highest land level, sea
+      // level, deepest sea layer. The floor image: R = each water tile's bed
+      // (level, offset 8, over 32), G = 1 for sea. All off (w = 0) in normal use.
+      'uniform vec4 uIntro;',
+      'uniform vec4 uIntroRange;',
+      // Paint front (INTRO_FRONT_GLSL): xy = noise offset, z = 1 / the map's half diagonal.
+      'uniform vec3 uIntroSweep;',
+      INTRO_FRONT_GLSL,
+      // The rise (see INTRO_RISE_GLSL): progress, 1 / map radius, flat scale, mesh fade.
+      'uniform vec4 uIntroRise;',
+      INTRO_RISE_GLSL,
+      'uniform vec3 uIntroNeutral;',
+      // The flat map's colours (RGBA8, one texel per cell): what the slab shows
+      // while the worker is still generating. The mesh starts from them and
+      // eases into its own colours. x = image there, y = mesh colours' share.
+      'uniform highp sampler2D uIntroImage;',
+      'uniform vec2 uIntroBlend;',
+      // The map's size in cells (the front and the image are decided per cell).
+      'uniform vec2 uIntroMap;',
       'out vec3 vNormal;',
       'out vec3 vColor;',
       'out float vSideDepth;',
@@ -1169,6 +1190,9 @@
       'out float vFallCoord;',
       'out float vWaveShade;',
       'out float vWater;',
+      // Loading animation: raw position for the grid lines, w = how much line
+      // is left (1 on the neutral map, 0 once the paint arrives).
+      'out highp vec4 vIntroGrid;',
       '#ifdef RIVER',
       // World x/z for the flow pattern (highp: a quarter-tile hash cell on a
       // 448-tile map needs more than mediump's 10-bit mantissa).
@@ -1251,9 +1275,35 @@
       '#ifdef SEASON',
       SM.Season ? SM.Season.VERTEX_GLSL : '',
       '#endif',
+      '  float introY = aPosition.y;',
+      '  float yScale = uVScale;',
+      '  vIntroGrid = vec4(aPosition, 0.0);',
+      '  if (uIntro.w > 0.5) {',
+      '    yScale = introRiseScale(uIntroRise, pow((1.5 - introFront(aPosition.xz, uIntroSweep)) / 1.48, 1.5), uVScale);',   // ^1.5: a visible area lifts at once
+      '    // The paint, on the FLAT map: a hard, rough front (INTRO_FRONT_GLSL) that',
+      '    // closes in from the corners, decided per CELL (the cell centre), so the',
+      '    // edge follows the voxel grid. Every colour at once; water is just',
+      '    // coloured cells; every surface keeps its own level and the land rises',
+      '    // around the sea afterwards. Everything not painted is the blank tone.',
+      '    ivec2 isz = ivec2(uIntroMap);',
+      '    ivec2 ic = clamp(ivec2(aCellUV * uIntroMap), ivec2(0), isz - 1);',
+      '    float keep = step(introFront(vec2(ic) + 0.5 - 0.5 * uIntroMap, uIntroSweep), uIntro.x * 1.5);',
+      '    // Colours: the stand-in image the slab showed, easing into the mesh\'s own.',
+      '    if (uIntroBlend.x > 0.5) {',
+      '      vColor = mix(texelFetch(uIntroImage, ic, 0).rgb, vColor, uIntroBlend.y);',
+      '    }',
+      '    // Lava glows only as the relief rises, once it has its colour.',
+      '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.45, 1.0, uIntroRise.x);',
+      '    if (aWater > 0.5) {',
+      '      vShore *= keep;',
+      '      if (aFall < 0.5) vFallCoord *= keep;',
+      '    }',
+      '    vColor = keep > 0.5 ? vColor : uIntroNeutral;',
+      '    vIntroGrid.w = uIntro.z;',   // the grid stays through the paint and fades before the rise
+      '  }',
       '  gl_Position = uViewProjection * vec4(',
       '    aPosition.x,',
-      '    (aPosition.y + wave) * uVScale,',
+      '    (introY + wave) * yScale,',
       '    aPosition.z,',
       '    1.0',
       '  );',
@@ -1275,6 +1325,10 @@
       'in float vFallCoord;',
       'in float vWaveShade;',
       'in float vWater;',
+      'in highp vec4 vIntroGrid;',
+      // Loading animation: 0 on the flat map (plain light, no occlusion or cast
+      // shadow, no swell shading), 1 once the relief has risen.
+      'uniform float uIntroLight;',
       'uniform vec3 uSunDirection;',
       'uniform float uSunStrength;',
       'uniform highp float uTime;',
@@ -1323,6 +1377,7 @@
       '#else',
       '#define GRADE(c) (c)',
       '#endif',
+      INTRO_GRID_GLSL,
       'out vec4 outColor;',
       '',
       'void main() {',
@@ -1368,7 +1423,8 @@
       '  float shadowDepth = ' + glslFloat(SHADOW_DEPTH) + ' *',
       '    smoothstep(' + glslFloat(SHADOW_LOW_SUN[0]) + ', ' + glslFloat(SHADOW_LOW_SUN[1]) + ', daylight) *',
       '    mix(1.0, ' + glslFloat(SHADOW_WATER) + ', vWater);',
-      '  float shadowFactor = 1.0 - shadowDepth * shadowHit * shadow;',
+      '  aoFactor = mix(1.0, aoFactor, uIntroLight);',
+      '  float shadowFactor = 1.0 - shadowDepth * shadowHit * shadow * uIntroLight;',
       '  float gradient = 1.0 - 0.28 * min(1.0, vSideDepth / 2.6);',
       '  // Cell UV offsets lava so an entire volcano never pulses in lockstep.',
       '  float lavaPhase = dot(vCellUV, vec2(113.0, 173.0));',
@@ -1410,6 +1466,13 @@
       '  baseColor = riverFlow(baseColor);',
       '#endif',
       '#endif',
+      '  // Loading animation: dim light cell lines on the near-black map and on',
+      '  // the colours as they arrive, faded out before the rise (vIntroGrid.w).',
+      '  // The derivative is taken outside the branch.',
+      '  highp vec3 gridW = fwidth(vIntroGrid.xyz);',
+      '  if (vIntroGrid.w > 0.002) {',
+      '    baseColor = mix(baseColor, vec3(0.62), 0.30 * vIntroGrid.w * introGridLine(vIntroGrid.xyz, vNormal, gridW, step(0.5, vWater)));',
+      '  }',
       '  // Shore foam: where a water top touches land (vFallCoord = interpolated',
       '  // corner flag, 1 at the shore). Quantised into quarter steps so the',
       '  // line is blocky like the voxels; its reach follows the SAME per-tile',
@@ -1455,13 +1518,13 @@
       '#ifdef NIGHT',
       '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * sunShade * aoFactor *',
-      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
+      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade * uIntroLight) +',
       '      emission * (1.0 - uNightLight) + foamColor)) +',
       '    emission * (uNightLight * ' + glslFloat(LAVA_NIGHT) + ');',
       '#else',
       '  vec3 color = GRADE(FOGGED(',
       '    baseColor * lambert * gradient * sunShade * aoFactor *',
-      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade) +',
+      '      (1.0 + ' + glslFloat(WAVE_SHADE) + ' * vWaveShade * uIntroLight) +',
       '      emission + foamColor));',
       '#endif',
       '  outColor = vec4(color, 1.0);',
@@ -1514,6 +1577,170 @@
    * uniform (the terrain shader needs the same numbers for the shadow), birds
    * derive their entire path in the shader from their index (nothing else in the
    * scene cares where a bird is). */
+  // The loading slab: a lit neutral box. Faint cell lines on its top fade out
+  // when a cell is only a few pixels wide (fwidth), where they would shimmer.
+  /* Loading animation: the cell grid as black lines on the single-tone map.
+   * p = raw world position (x, level, z), n = the face normal (axis aligned),
+   * w = fwidth(p) (world units per pixel). Lines sit on whole units; the
+   * fine grid thins out as cells shrink below a few pixels and every 4th and
+   * 16th line carry on, so the grid never turns to mush at 320 x 320. Used by
+   * the terrain shader (faded away with the paint front) and the slab. */
+  var INTRO_GRID_GLSL = [
+    'float introGridLine(highp vec3 p, vec3 n, highp vec3 w, float water) {',
+    '  vec3 ax = vec3(1.0) - abs(n);',
+    '  ax.y *= 1.0 - water;',
+    '  highp float wmax = max(max(w.x * ax.x, w.y * ax.y), w.z * ax.z);',
+    '  float line = 0.0;',
+    '  for (int k = 0; k < 3; k++) {',
+    '    highp float s = k == 0 ? 1.0 : (k == 1 ? 4.0 : 16.0);',
+    '    highp vec3 d = abs(fract(p / s + 0.5) - 0.5);',
+    '    highp vec3 ww = w / s;',
+    '    vec3 l = vec3(1.0) - smoothstep(vec3(0.0), ww * 1.4 + vec3(0.0001), d);',
+    '    float vis = 1.0 - smoothstep(0.22, 0.45, wmax / s);',
+    '    float hit = max(l.x * ax.x, max(l.y * ax.y, l.z * ax.z));',
+    '    line = max(line, hit * vis * (k == 0 ? 0.75 : 1.0));',
+    '  }',
+    '  return line;',
+    '}'
+  ].join('\n');
+
+  /* Loading animation: the paint front. Colour starts at the corners and edges
+   * of the map and the unpainted region shrinks to somewhere near the middle,
+   * but never as a circle: the distance from the centre is domain-warped by a
+   * large low-frequency noise (the hole becomes an irregular, organic blob), then
+   * bent again by a broad noise and finally roughened by a five-octave fractal,
+   * so the boundary is jagged like an eroding edge. It is evaluated at the
+   * CENTRE OF A CELL and compared with the progress as a hard step, so the edge
+   * follows the voxel grid, crisp, with no band and no smoothing. s = (noise
+   * offset x, noise offset z, 1 / half diagonal), from the map's seed: the same
+   * map always paints the same way. Returns the cell's turn in 0.02..1.5; the
+   * cell is painted once the progress (times 1.5) reaches it. */
+  var INTRO_FRONT_GLSL = [
+    'float introHash(highp vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }',
+    'float introNoise(highp vec2 p) {',
+    '  highp vec2 i = floor(p);',
+    '  highp vec2 f = fract(p);',
+    '  f = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(introHash(i), introHash(i + vec2(1.0, 0.0)), f.x),',
+    '    mix(introHash(i + vec2(0.0, 1.0)), introHash(i + vec2(1.0, 1.0)), f.x), f.y);',
+    '}',
+    'float introFbm3(highp vec2 p) {',
+    '  return introNoise(p) * 0.57 + introNoise(p * 2.03 + 3.1) * 0.29 + introNoise(p * 4.1 + 7.7) * 0.14;',
+    '}',
+    'float introFbm5(highp vec2 p) {',
+    '  return introNoise(p) * 0.4 + introNoise(p * 2.03 + 3.1) * 0.25 + introNoise(p * 4.1 + 7.7) * 0.17 +',
+    '    introNoise(p * 8.3 + 1.9) * 0.11 + introNoise(p * 16.7 + 5.3) * 0.07;',
+    '}',
+    'float introFront(highp vec2 cell, highp vec3 s) {',
+    '  highp vec2 q = cell * s.z;',
+    '  highp vec2 w = vec2(introFbm3(q * 1.15 + s.xy), introFbm3(q * 1.15 + s.yx + vec2(4.7, 9.1))) - 0.5;',
+    '  highp vec2 p = q + w * 1.25;',
+    '  float d = length(p);',
+    '  d += (introFbm3(q * 2.2 + s.xy * 1.3 + 11.0) - 0.5) * 0.65;',
+    '  d += (introFbm5(q * 13.0 + s.yx) - 0.5) * 0.4;',
+    '  return clamp(1.0 - d, 0.02, 1.5);',
+    '}'
+  ].join('\n');
+
+  /* Loading animation: the rise. Every column lifts from the flat tone to its
+   * height on its own clock, each with a smootherstep (zero slope at both ends,
+   * so it starts slowly and lands softly). The ORDER is the paint front run
+   * backwards: `order` is 0 where the paint closed last (the middle blob) and 1
+   * where it started (corners and edges), so the relief swells up from the
+   * centre in the same irregular shape the paint left behind and reaches the
+   * edges last. The front is evaluated at the vertex, not the cell, so
+   * neighbouring columns share their corners and no crack opens between them.
+   * r = (progress 0..1, -, flat scale, fade); the fade scales the move. */
+  var INTRO_RISE_GLSL = [
+    'float introRiseScale(vec4 r, float order, float vs) {',
+    '  float l = clamp((r.x - order * 0.62) / 0.38, 0.0, 1.0);',
+    '  float k = l * l * l * (l * (l * 6.0 - 15.0) + 10.0);',
+    '  return mix(r.z, vs, k * r.w);',
+    '}'
+  ].join('\n');
+
+  function makeSlabProgram(gl) {
+    var vs = [
+      '#version 300 es',
+      'layout(location = 0) in vec3 aPosition;',
+      'layout(location = 1) in vec3 aNormal;',
+      'uniform mat4 uViewProjection;',
+      'uniform float uVScale;',
+      'uniform vec4 uIntroRise;',
+      INTRO_RISE_GLSL,
+      'out vec3 vNormal;',
+      'out highp vec3 vPos;',
+      'void main() {',
+      '  vNormal = aNormal;',
+      '  vPos = aPosition;',
+      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * introRiseScale(uIntroRise, 0.0, uVScale), aPosition.z, 1.0);',
+      '}'
+    ].join('\n');
+    var fs = [
+      '#version 300 es',
+      'precision mediump float;',
+      'in vec3 vNormal;',
+      'in highp vec3 vPos;',
+      'uniform vec3 uSunDirection;',
+      'uniform vec3 uColor;',
+      'uniform highp sampler2D uIntroImage;',
+      // x = paint 0..1, y = image there, z = grid amount, w = sun strength.
+      'uniform vec4 uSlab;',
+      'uniform vec3 uIntroSweep;',
+      'uniform vec2 uIntroMap;',
+      INTRO_FRONT_GLSL,
+      INTRO_GRID_GLSL,
+      'out vec4 outColor;',
+      'void main() {',
+      '  vec3 n = normalize(vNormal);',
+      '  // The terrain\'s own light on a flat top (no occlusion, no cast shadow), so',
+      '  // the mesh takes over without a change of brightness.',
+      '  float daylight = clamp(uSlab.w / 0.42, 0.0, 1.0);',
+      '  float lambert = mix(0.38, 0.47, daylight) + 0.61 * daylight * max(dot(n, normalize(uSunDirection)), 0.0);',
+      '  vec3 albedo = uColor;',
+      '  if (uSlab.y > 0.5) {',
+      '    // The flat map: the worker\'s colours, washed in by the same left to',
+      '    // right front as the mesh uses; the plinth takes its own colour with it.',
+      '    // Hard, rough front, per cell (the same function and cell as the mesh).',
+      '    vec2 cell = floor(vPos.xz + 0.5 * uIntroMap) + 0.5 - 0.5 * uIntroMap;',
+      '    float keep = step(introFront(cell, uIntroSweep), uSlab.x * 1.5);',
+      '    if (n.y > 0.5) {',
+      '      ivec2 sz = textureSize(uIntroImage, 0);',
+      '      ivec2 ic = clamp(ivec2(floor(vPos.xz + 0.5 * vec2(sz))), ivec2(0), sz - 1);',
+      '      albedo = mix(uColor, texelFetch(uIntroImage, ic, 0).rgb, keep);',
+      '    } else {',
+      '      albedo = mix(uColor, vec3(' + BORD.map(function (v) { return glslFloat(v / 255); }).join(', ') + '), keep);',
+      '    }',
+      '  }',
+      '  float line = introGridLine(vPos, vNormal, fwidth(vPos), 0.0);',
+      '  albedo = mix(albedo, vec3(0.62), 0.30 * line * uSlab.z);',
+      '  outColor = vec4(albedo * lambert, 1.0);',
+      '}'
+    ].join('\n');
+    var v = compileShader(gl, gl.VERTEX_SHADER, vs);
+    var f = compileShader(gl, gl.FRAGMENT_SHADER, fs);
+    if (!v || !f) return null;
+    var program = gl.createProgram();
+    gl.attachShader(program, v);
+    gl.attachShader(program, f);
+    gl.linkProgram(program);
+    gl.deleteShader(v);
+    gl.deleteShader(f);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { gl.deleteProgram(program); return null; }
+    return {
+      program: program,
+      viewProjection: gl.getUniformLocation(program, 'uViewProjection'),
+      verticalScale: gl.getUniformLocation(program, 'uVScale'),
+      rise: gl.getUniformLocation(program, 'uIntroRise'),
+      slab: gl.getUniformLocation(program, 'uSlab'),
+      sweep: gl.getUniformLocation(program, 'uIntroSweep'),
+      image: gl.getUniformLocation(program, 'uIntroImage'),
+      map: gl.getUniformLocation(program, 'uIntroMap'),
+      sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
+      color: gl.getUniformLocation(program, 'uColor')
+    };
+  }
+
   function makeSkyProgram(gl) {
     var vertexSource = [
       '#version 300 es',
@@ -1527,6 +1754,9 @@
       // Per-cloud opacity (SM.Sky.cloudFade). Vertex-only, so no cross-stage
       // precision question; the fragment gets it through vFade.
       'uniform float uCloudFade[6];',
+      // Growth of each cloud (1 = full size), the loading animation's radial
+      // grow-in: the cloud scales up about its own centre.
+      'uniform float uCloudGrow[6];',
       // ⚠️ EXPLICIT PRECISION ON BOTH STAGES. `int` defaults to highp in the
       // vertex shader and mediump in the fragment shader, and a uniform of the
       // same name with different precision is a LINK ERROR -- silent, because
@@ -1547,7 +1777,7 @@
       'void main() {',
       '  vec3 world;',
       '  if (uMode == 0) {',
-      '    world = aPosition + uCloudPos[int(aCloudIndex)];',
+      '    world = aPosition * uCloudGrow[int(aCloudIndex)] + uCloudPos[int(aCloudIndex)];',
       '    vShade = 1.0;',
       '    vFade = uCloudFade[int(aCloudIndex)];',
       '    // A fully faded cloud is not drawn at all: without this it would',
@@ -1765,7 +1995,16 @@
         iceColor: 'uIceColor',
         autumnA: 'uAutumnA',
         autumnB: 'uAutumnB',
-        bare: 'uBare'
+        bare: 'uBare',
+        intro: 'uIntro',
+        introRange: 'uIntroRange',
+        introSweep: 'uIntroSweep',
+        introRise: 'uIntroRise',
+        introNeutral: 'uIntroNeutral',
+        introImage: 'uIntroImage',
+        introBlend: 'uIntroBlend',
+        introMap: 'uIntroMap',
+        introLight: 'uIntroLight'
       };
       var out = { program: prog };
       if (!prog) return null;
@@ -1784,6 +2023,15 @@
     var fogAmount = 0;
     var fogColor = [1, 1, 1];
     var FOG_MIN = 0.003;
+
+    // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
+    // neutral tone is the palette's Bare, so no new colour exists.
+    var introState = { on: 0, paint: 0, grid: 0, light: 1, imageOn: 0, blend: 1, sweep: [1, 0, 0.01], map: [1, 1], rise: 1, invR: 0.01, v0: 0.05, meshBlend: 1 };
+    // Everything not painted yet: near-black (Uğur 2026-10-19, #131313).
+    var introNeutral = [0x13 / 255, 0x13 / 255, 0x13 / 255];
+    var introImageTexture = gl.createTexture();
+    var slab = null;
+    var slabProgram = null;
 
     // Seasons: the per-map bytes and the slider's winter / autumn amounts.
     var seasonTexture = gl.createTexture();
@@ -1907,6 +2155,12 @@
     var FAIR_CLOUD_COLOR = new Float32Array([0.93, 0.95, 0.99]);
     var meshBounds = null;
     var showSky = true;
+    // Loading animation: the sky grows in from the map centre (0 = nothing yet,
+    // 1 = done / off) and the effects of the previous map stay hidden until the
+    // new map's own arrive.
+    var skyGrow = 1;
+    var effectsOn = true;
+    var cloudGrowData = new Float32Array(SM.Sky.MAX_CLOUDS).fill(1);
     var debugView = 0;
     // Tuned by eye against the map: below ~0.4 the shadow reads as a smudge,
     // above ~0.6 it competes with the sun shadow and the terrain goes muddy.
@@ -1985,6 +2239,15 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 0, 255]));
     acct.texture(seasonTexture, 4);
+    gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([128, 128, 128, 255]));
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    acct.texture(introImageTexture, 4);
     gl.bindTexture(gl.TEXTURE_2D, null);
 
     /* Redraw the cloud shadow image if anything it depends on changed
@@ -2089,6 +2352,7 @@
           time: gl.getUniformLocation(skyProgram, 'uTime'),
           cloudPosUniform: gl.getUniformLocation(skyProgram, 'uCloudPos'),
           cloudFadeUniform: gl.getUniformLocation(skyProgram, 'uCloudFade'),
+          cloudGrowUniform: gl.getUniformLocation(skyProgram, 'uCloudGrow'),
           mode: gl.getUniformLocation(skyProgram, 'uMode'),
           color: gl.getUniformLocation(skyProgram, 'uColor'),
           sunDirection: gl.getUniformLocation(skyProgram, 'uSunDirection'),
@@ -2143,6 +2407,20 @@
       gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
     }
 
+    /* The loading animation's radial grow-in for a cloud at (x, z): clouds near
+     * the map centre start first and the front moves out to the edges, each
+     * cloud easing from nothing to full size over a stretch of the front. */
+    function cloudGrowAt(x, z) {
+      if (skyGrow >= 1 || !meshBounds) return 1;
+      var cx = (meshBounds.minX + meshBounds.maxX) * 0.5, cz = (meshBounds.minZ + meshBounds.maxZ) * 0.5;
+      var reach = Math.sqrt(Math.pow(meshBounds.maxX - cx, 2) + Math.pow(meshBounds.maxZ - cz, 2));
+      var d = Math.sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz)) / Math.max(reach, 1e-3);
+      var span = 0.5;
+      var k = (skyGrow * (1 + span) - Math.min(d, 1)) / span;
+      k = k < 0 ? 0 : k > 1 ? 1 : k;
+      return k * k * (3 - 2 * k);
+    }
+
     /* Resolve this frame's cloud positions once, for both programs. */
     function updateClouds() {
       var f;
@@ -2157,6 +2435,11 @@
       // no allocation at all.
       if (cloudInstances.length) {
         SM.Sky.driftClouds(cloudInstances, elapsedTime, meshBounds, vScale, cloudNow);
+        // Growth multiplies the fade too, so the cloud's shadow grows with it.
+        for (f = 0; f < cloudNow.length; f++) {
+          cloudNow[f].grow = cloudGrowAt(cloudNow[f].x, cloudNow[f].z);
+          cloudNow[f].fade *= cloudNow[f].grow;
+        }
       } else {
         cloudNow = [];
       }
@@ -2180,7 +2463,7 @@
      * underside in levels (so the rain starts exactly under it at any
      * height scale). Empty while Rain & snow is off. */
     function updateWeatherClouds() {
-      var list = weatherBuilt && showWeather && sky && sky.weatherCount ? weatherBuilt.clouds : [];
+      var list = weatherBuilt && showWeather && effectsOn && sky && sky.weatherCount ? weatherBuilt.clouds : [];
       var n;
 
       weatherNow.length = list.length;
@@ -2192,7 +2475,8 @@
         e.z = weatherCentres[n * 2 + 1] - gridSize[1] / 2;
         e.y = list[n].bottom * vScale + SM.Sky.CLOUD_LAYER * 0.5;
         e.radius = list[n].radius;
-        e.fade = list[n].alpha * weatherFades[n];
+        e.grow = cloudGrowAt(e.x, e.z);
+        e.fade = list[n].alpha * weatherFades[n] * e.grow;
         e.lobes = list[n].lobes;
       }
     }
@@ -2321,6 +2605,7 @@
 
       flat.fill(0);
       cloudFadeData.fill(0);
+      cloudGrowData.fill(1);
       if (weatherGroup) {
         for (n = 0; n < weatherNow.length && n < SM.Sky.MAX_CLOUDS; n++) {
           flat[n * 3] = weatherNow[n].x;
@@ -2329,6 +2614,7 @@
           // A glowing cloud keeps its opacity: the bolt behind it must
           // still show through.
           cloudFadeData[n] = weatherNow[n].fade;
+          cloudGrowData[n] = weatherNow[n].grow == null ? 1 : weatherNow[n].grow;
         }
         gl.bindVertexArray(sky.weatherVao);
       } else {
@@ -2337,15 +2623,37 @@
           flat[n * 3 + 1] = cloudNow[n].y;
           flat[n * 3 + 2] = cloudNow[n].z;
           cloudFadeData[n] = cloudNow[n].fade * SM.Sky.CLOUD_ALPHA;
+          cloudGrowData[n] = cloudNow[n].grow == null ? 1 : cloudNow[n].grow;
         }
         gl.bindVertexArray(sky.cloudVao);
       }
       gl.uniform3fv(sky.cloudPosUniform, flat);
       gl.uniform1fv(sky.cloudFadeUniform, cloudFadeData);
+      gl.uniform1fv(sky.cloudGrowUniform, cloudGrowData);
     }
 
     function setSky(enabled) {
       showSky = enabled !== false;
+    }
+
+    /* Loading animation: 0..1 grows the clouds in from the map centre outward;
+     * null (or 1) is the normal sky. */
+    function setSkyGrow(g) {
+      skyGrow = g == null ? 1 : Math.max(0, Math.min(1, +g));
+    }
+
+    /* Loading animation: false hides wind lines, rain / snow, lightning and
+     * volcano smoke (they belong to the previous map until the new one's data
+     * is handed over). */
+    function setEffects(on) {
+      effectsOn = on !== false;
+    }
+
+    /* Loading animation: forget the drawn mesh (the next setMesh replaces its
+     * buffers), so the slab can stand in while a new map is generated. */
+    function clearMesh() {
+      indexCount = 0;
+      riverIndexStart = 0;
     }
 
     // 0 = lit; 1 AO, 2 normals, 3 height, 4 albedo, 5 sun shadow, 6 waterfalls
@@ -2397,6 +2705,135 @@
     function setTime(seconds) {
       // Time is render state, so mesh buffers remain immutable between frames.
       elapsedTime = Math.max(0, +seconds || 0);
+    }
+
+    /* Loading animation (main.js startVoxelIntro). `s` null turns it off.
+     * Everything is a uniform: the mesh is the finished one, its columns
+     * rise with setVerticalScale, its colours and water follow these four
+     * numbers, so no frame rebuilds geometry. */
+    function setIntro(s) {
+      if (!s) { introState.on = 0; return; }
+      introState.on = 1;
+      if (s.paint != null) introState.paint = s.paint;
+      if (s.grid != null) introState.grid = s.grid;
+      if (s.light != null) introState.light = s.light;
+      if (s.blend != null) introState.blend = s.blend;
+      if (s.imageOn != null) introState.imageOn = s.imageOn;
+      if (s.sweep) introState.sweep = s.sweep;
+      if (s.map) introState.map = s.map;
+      if (s.rise != null) introState.rise = s.rise;
+      if (s.invR != null) introState.invR = s.invR;
+      if (s.v0 != null) introState.v0 = s.v0;
+      if (s.meshBlend != null) introState.meshBlend = s.meshBlend;
+    }
+
+    // The flat map's colours (RGBA8, W x H, one texel per cell). Replaced as
+    // better stand-ins arrive from the worker; the slab and the mesh both read it.
+    function setIntroImage(data, w, h) {
+      if (!data || disposed) return;
+      gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+      acct.texture(introImageTexture, w * h * 4);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      introState.imageOn = 1;
+    }
+
+    /* The slab shown before any map exists (the first load): a box at the
+     * map's footprint, neutral tone, a faint voxel grid on top. It is only
+     * drawn while there is no mesh. info {w, h, top, bottom} is the flat blank
+     * slab; with info.heights (an integer level per block, bw x bh blocks of
+     * info.block cells, row-major) the top is a stepped relief instead -- a
+     * coarse stand-in for the terrain, built from the elevation pass while the
+     * rest of the map is still being generated. Or null. */
+    function setIntroSlab(info) {
+      if (disposed) return;
+      if (slab) {
+        gl.deleteBuffer(slab.vb); gl.deleteBuffer(slab.ib); gl.deleteVertexArray(slab.vao);
+        slab = null;
+      }
+      if (!info) return;
+      if (!slabProgram) slabProgram = makeSlabProgram(gl);
+      if (!slabProgram) return;
+      var vert = [], idx = [];
+      // One quad: normal (nx, ny, nz) and its four corners, wound like the
+      // terrain mesh (counter-clockwise seen from outside).
+      function quad(n, c) {
+        var base = vert.length / 6;
+        for (var v = 0; v < 4; v++) vert.push(c[v * 3], c[v * 3 + 1], c[v * 3 + 2], n[0], n[1], n[2]);
+        idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      function top(x0, x1, z0, z1, y) { quad([0, 1, 0], [x0, y, z0, x0, y, z1, x1, y, z1, x1, y, z0]); }
+      function wallPZ(x0, x1, z, yb, yt) { quad([0, 0, 1], [x0, yb, z, x1, yb, z, x1, yt, z, x0, yt, z]); }
+      function wallNZ(x0, x1, z, yb, yt) { quad([0, 0, -1], [x1, yb, z, x0, yb, z, x0, yt, z, x1, yt, z]); }
+      function wallPX(x, z0, z1, yb, yt) { quad([1, 0, 0], [x, yb, z1, x, yb, z0, x, yt, z0, x, yt, z1]); }
+      function wallNX(x, z0, z1, yb, yt) { quad([-1, 0, 0], [x, yb, z0, x, yb, z1, x, yt, z1, x, yt, z0]); }
+      var yb = info.bottom;
+      if (info.heights) {
+        var B = info.block, bw = info.bw, bh = info.bh, hs = info.heights;
+        var ox = -info.w / 2, oz = -info.h / 2;
+        var bx0 = function (i) { return ox + i * B; };
+        var bz0 = function (j) { return oz + j * B; };
+        var bx1 = function (i) { return Math.min(ox + (i + 1) * B, info.w / 2); };
+        var bz1 = function (j) { return Math.min(oz + (j + 1) * B, info.h / 2); };
+        for (var j = 0; j < bh; j++) {
+          for (var i = 0; i < bw; i++) {
+            var hc = hs[j * bw + i];
+            top(bx0(i), bx1(i), bz0(j), bz1(j), hc);
+            var hE = i + 1 < bw ? hs[j * bw + i + 1] : yb;
+            if (hc > hE) wallPX(bx1(i), bz0(j), bz1(j), hE, hc);
+            else if (hE > hc) wallNX(bx1(i), bz0(j), bz1(j), hc, hE);
+            var hS = j + 1 < bh ? hs[(j + 1) * bw + i] : yb;
+            if (hc > hS) wallPZ(bx0(i), bx1(i), bz1(j), hS, hc);
+            else if (hS > hc) wallNZ(bx0(i), bx1(i), bz1(j), hc, hS);
+            if (i === 0) wallNX(bx0(i), bz0(j), bz1(j), yb, hc);
+            if (j === 0) wallNZ(bx0(i), bx1(i), bz0(j), yb, hc);
+          }
+        }
+      } else {
+        var x0 = -info.w / 2, x1 = info.w / 2, z0 = -info.h / 2, z1 = info.h / 2;
+        var yt = info.top;
+        top(x0, x1, z0, z1, yt);
+        wallPZ(x0, x1, z1, yb, yt);
+        wallNZ(x0, x1, z0, yb, yt);
+        wallPX(x1, z0, z1, yb, yt);
+        wallNX(x0, z0, z1, yb, yt);
+      }
+      var vao2 = gl.createVertexArray();
+      var vb = gl.createBuffer(), ib = gl.createBuffer();
+      gl.bindVertexArray(vao2);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+      acct.bufferData(gl.ARRAY_BUFFER, vb, new Float32Array(vert), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 24, 0);
+      gl.enableVertexAttribArray(1);
+      gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 24, 12);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+      acct.bufferData(gl.ELEMENT_ARRAY_BUFFER, ib, new Uint32Array(idx), gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      slab = { vao: vao2, vb: vb, ib: ib, count: idx.length };
+    }
+
+    function drawSlab() {
+      var P = slabProgram;
+      gl.useProgram(P.program);
+      gl.uniformMatrix4fv(P.viewProjection, false, combined);
+      gl.uniform1f(P.verticalScale, vScale);
+      gl.uniform4f(P.rise, introState.rise, introState.invR, introState.v0, 1 - introState.meshBlend);
+      gl.uniform3fv(P.sunDirection, sun);
+      gl.uniform3fv(P.color, introNeutral);
+      gl.uniform4f(P.slab, introState.paint, introState.imageOn, introState.grid, strength);
+      gl.uniform3f(P.sweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
+      gl.uniform2f(P.map, introState.map[0], introState.map[1]);
+      gl.activeTexture(gl.TEXTURE5);
+      gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+      gl.uniform1i(P.image, 5);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.enable(gl.CULL_FACE);
+      gl.bindVertexArray(slab.vao);
+      acct.drawElements(gl.TRIANGLES, slab.count, gl.UNSIGNED_INT, 0);
+      gl.bindVertexArray(null);
     }
 
     function setShadowMap(data, mapWidth, mapHeight) {
@@ -2619,11 +3056,13 @@
       var bg = grade ? gradeColor(clearColor, grade) : clearColor;
       gl.clearColor(bg[0], bg[1], bg[2], clearColor[3]);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      // The loading slab stands under the mesh while the two trade places.
+      if (slab) drawSlab();
       if (!indexCount) return;
       // Cloud positions are resolved BEFORE the terrain draw: the ground needs
       // this frame's shadow, and the sky pass below reuses the same numbers.
       updateClouds();
-      if (SM.Lightning && weatherNow.length && !debugView) {
+      if (SM.Lightning && weatherNow.length && !debugView && effectsOn) {
         SM.Lightning.strikeAt(weatherBuilt, skySeed, elapsedTime, strike);
       } else {
         strike.active = false;
@@ -2661,7 +3100,7 @@
       gl.bindVertexArray(null);
       // Wind lines: after the terrain (depth-tested against it, so a ridge
       // hides them), before the sky (clouds pass over them).
-      if (wind && showWind && !debugView) {
+      if (wind && showWind && !debugView && effectsOn) {
         windDraw.combined = combined;
         windDraw.vScale = vScale;
         windDraw.time = elapsedTime;
@@ -2669,7 +3108,7 @@
         windDraw.setGrade = setGradeUniforms;
         wind.draw(windDraw);
       }
-      if (weather && showWeather && !debugView && weatherNow.length) {
+      if (weather && showWeather && !debugView && weatherNow.length && effectsOn) {
         weatherDraw.combined = combined;
         weatherDraw.view = view;
         weatherDraw.vScale = vScale;
@@ -2688,7 +3127,7 @@
         boltDraw.height = gridSize[1];
         lightning.draw(boltDraw);
       }
-      if (smoke && !debugView) {
+      if (smoke && !debugView && effectsOn) {
         smokeDraw.combined = combined;
         smokeDraw.vScale = vScale;
         smokeDraw.time = elapsedTime;
@@ -2749,6 +3188,20 @@
         gl.uniform3f(U.autumnA, seasonColors.autumnA[0] / 255, seasonColors.autumnA[1] / 255, seasonColors.autumnA[2] / 255);
         gl.uniform3f(U.autumnB, seasonColors.autumnB[0] / 255, seasonColors.autumnB[1] / 255, seasonColors.autumnB[2] / 255);
         gl.uniform3f(U.bare, seasonColors.bare[0] / 255, seasonColors.bare[1] / 255, seasonColors.bare[2] / 255);
+      }
+      gl.uniform4f(U.intro, introState.paint, 0, introState.grid, introState.on);
+      if (U.introLight) gl.uniform1f(U.introLight, introState.on ? introState.light : 1);
+      if (U.introBlend) gl.uniform2f(U.introBlend, introState.imageOn, introState.blend);
+      if (U.introMap) gl.uniform2f(U.introMap, introState.map[0], introState.map[1]);
+      gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
+      if (U.introSweep) gl.uniform3f(U.introSweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
+      if (U.introRise) gl.uniform4f(U.introRise, introState.rise, introState.invR, introState.v0, introState.meshBlend);
+      gl.uniform3fv(U.introNeutral, introNeutral);
+      if (U.introImage) {
+        gl.activeTexture(gl.TEXTURE5);
+        gl.bindTexture(gl.TEXTURE_2D, introImageTexture);
+        gl.uniform1i(U.introImage, 5);
+        gl.activeTexture(gl.TEXTURE0);
       }
       setGradeUniforms(U.gradeTint, U.gradeBS, U.gradeOn);
     }
@@ -2983,6 +3436,10 @@
       acct.forget(seasonTexture);
       gl.deleteTexture(fogTexture);
       acct.forget(fogTexture);
+      gl.deleteTexture(introImageTexture);
+      acct.forget(introImageTexture);
+      if (slab) setIntroSlab(null);
+      if (slabProgram) gl.deleteProgram(slabProgram.program);
       gl.deleteTexture(flowTexture);
       acct.forget(flowTexture);
       if (sky) {
@@ -3030,7 +3487,13 @@
       setFlashLight: setFlashLight,
       setSeason: setSeason,
       setShadowMap: setShadowMap,
+      setIntro: setIntro,
+      setIntroImage: setIntroImage,
+      setIntroSlab: setIntroSlab,
       setSky: setSky,
+      setSkyGrow: setSkyGrow,
+      setEffects: setEffects,
+      clearMesh: clearMesh,
       setDebugView: setDebugView,
       capture: capture,
       fitCamera: fitCamera,
@@ -3042,7 +3505,30 @@
     };
   }
 
+  /* Everything the isometric view needs from a finished grid, in one call:
+   * the mesh, the sun-shadow image, the loading animation's water beds, and
+   * the wind field, weather and volcano smoke (main.js used to build the last
+   * three on the page thread when a map arrived: ~170 ms for the wind alone).
+   * Pure, so the generation worker runs it (src/gen-worker.js) and the page
+   * falls back to it when there is no worker. Missing optional modules skip
+   * their part. */
+  function buildIsoExtra(grid, sun) {
+    var seed = grid.config && grid.config.seed;
+    var out = {
+      mesh: buildVoxelMesh(grid),
+      shadow: sun ? buildShadowMap(grid, sun) : null,
+      wind: null, weather: null, smoke: null
+    };
+    if (SM.Wind) {
+      out.wind = SM.Wind.field(grid, seed);
+      if (SM.Weather) out.weather = SM.Weather.build(grid, seed);
+      if (SM.Smoke) out.smoke = SM.Smoke.build(grid, out.wind);
+    }
+    return out;
+  }
+
   SM.buildVoxelMesh = buildVoxelMesh;
+  SM.buildIsoExtra = buildIsoExtra;
   SM.VOXEL_WAVE_DIP = WAVE_DIP;
   SM.voxelGradeColor = gradeColor;
   SM.voxelWaveField = waveField;

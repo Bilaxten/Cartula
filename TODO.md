@@ -24,7 +24,9 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       **Bulundu:** (1) izometrik dokunmatik ipucu hâlâ "two fingers to pan ·
       pinch to zoom" / "iki parmak: kaydır / yakınlaş" (`src/i18n.js`
       `hint.iso.touch`); `cfd3853` iki parmağı yalnız zoom yaptı, ipucu bayat.
-      (2) Sayfa yüklemesi telefonda ~4,9 sn (üretim 320² sırasında ekran boş).
+      (2) Sayfa yüklemesi telefonda ~4,9 sn (üretim 320² sırasında ekran boş):
+      `layered-intro` dalında (PR) worker + katman katman açılışla çözüldü, Uğur'un
+      telefonda izlemesi ve onayı bekleniyor.
       **Uğur'un gözü gereken:** kar tanelerinin göze görünürlüğü ve gölge/
       şimşek zevki (ekran görüntüleri var), yosunlu göl (bataklık seed'i
       aranmadı), gerçek iki parmak (adb ile değil CDP ile sentetik dokunuş).

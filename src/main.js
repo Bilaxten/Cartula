@@ -221,7 +221,7 @@
     seedBase = d.base;
     writeSettings(d.settings);
     syncSeedField();
-    regenerate();
+    regenerate(true);
     return true;
   }
 
@@ -573,30 +573,46 @@
       a.minZ === b.minZ && a.maxZ === b.maxZ;
   }
 
-  function rebuildVoxelMesh(forceFit) {
-    var shouldFit;
-
-    if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
-    voxelMesh = SM.buildVoxelMesh(grid);
-    voxelRenderer.setVerticalScale(isoExag());
-    // The wind field follows the terrain, so it is rebuilt with the mesh
-    // (new map or brush edit). A few ms at 192².
+  // Wind, rain/snow and volcano smoke follow the terrain, so they are rebuilt
+  // with the mesh (new map or brush edit). The wind field alone is ~170 ms at
+  // 320², so the intro's worker builds all three (`pre`) and hands them over
+  // once, when the sky appears (`pre.applied`).
+  function applyVoxelEffects(pre) {
+    if (pre && pre.applied) return;
+    if (pre) pre.applied = true;
     if (SM.Wind && voxelRenderer.setWindField) {
-      var windField = SM.Wind.field(grid, grid.config && grid.config.seed);
+      var windField = pre && pre.wind ? pre.wind : SM.Wind.field(grid, grid.config && grid.config.seed);
       voxelRenderer.setWindField(windField);
       // Rain and snow: zones and particles per map seed; snow drifts with
       // the same prevailing wind.
       if (SM.Weather && voxelRenderer.setWeatherData) {
-        voxelRenderer.setWeatherData(SM.Weather.build(grid, grid.config && grid.config.seed),
+        voxelRenderer.setWeatherData(pre && pre.weather ? pre.weather : SM.Weather.build(grid, grid.config && grid.config.seed),
           windField.prevailing);
       }
       // Volcano smoke: a plume per crater, bent by this same wind field.
       if (SM.Smoke && voxelRenderer.setSmokeData) {
-        voxelRenderer.setSmokeData(SM.Smoke.build(grid, windField));
+        voxelRenderer.setSmokeData(pre && pre.smoke ? pre.smoke : SM.Smoke.build(grid, windField));
       }
     }
-    updateVoxelSun();
-    voxelRenderer.setMesh(voxelMesh);
+  }
+
+  // `pre` (SM.buildIsoExtra's result): the isometric intro already built the
+  // mesh and effects in the worker and handed the mesh to the renderer.
+  function rebuildVoxelMesh(forceFit, pre) {
+    var shouldFit;
+
+    if (!voxelRenderer || !grid || !SM.buildVoxelMesh) return;
+    voxelMesh = pre ? pre.mesh : SM.buildVoxelMesh(grid);
+    voxelRenderer.setVerticalScale(isoExag());
+    applyVoxelEffects(pre);
+    if (pre) {
+      // Sun shadow came with the mesh (same sun, the intro only runs a few
+      // seconds); the sun direction itself is already set.
+      requestVoxelRender();
+    } else {
+      updateVoxelSun();
+      voxelRenderer.setMesh(voxelMesh);
+    }
     // Terrain edits can alter height, but only a new grid or XZ footprint
     // needs refitting.
     shouldFit = forceFit || voxelNeedsFit || !voxelCamera ||
@@ -678,9 +694,10 @@
     }
   }
   // shrink the tile for very large maps so the canvas stays GPU-friendly
-  function topTile() {
+  function topTile(w, h) {
+    if (w == null) { w = grid.width; h = grid.height; }
     return Math.max(3, Math.min(TOP_TILE,
-      Math.floor(Math.sqrt(9e6 / (grid.width * grid.height)))));
+      Math.floor(Math.sqrt(9e6 / (w * h)))));
   }
 
   // --- pipeline step-through ---------------------------------------------
@@ -796,23 +813,478 @@
     startRiverAnim();
   }
 
-  function regenerate() {
+  // `animate`: a new map the user asked for (Random, a seed, a world type)
+  // plays the loading animation on the voxel world, like the first load.
+  // Slider tweaks stay instant: they are retried over and over. Not under
+  // reduced motion, not in the top view, not with a camera link pending.
+  function regenerate(animate) {
+    cancelIntro();
     exitPipeline(true);
     var cfg = readConfig();
+    var reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (animate === true && !reduced && isVoxelMode() && voxelRenderer && !voxelCameraQuery && startVoxelIntro(cfg, true)) return;
     var t0 = performance.now();
-    grid = SM.generate(cfg);
-    var dt = performance.now() - t0;
+    var g = SM.generate(cfg);
+    adoptGrid(g, cfg, performance.now() - t0, false);
+  }
+
+  // A finished grid becomes the map on screen: edit history reset, view drawn,
+  // stats written. `reveal` (first load, isometric only) lets the voxel world
+  // be printed in under an ink sweep instead of appearing at once.
+  function adoptGrid(g, cfg, dt, reveal) {
+    grid = g;
     undoStack = [];
     redoStack = [];
     editedSinceRender = false;
     voxelNeedsFit = true;
     updateUndoButtons();
-    refresh(true, true);
+    if (reveal && isVoxelMode() && startVoxel()) {
+      map.hidden = false;                 // startVoxel hid it; it is the layer under the sweep
+      glCanvas.style.clipPath = 'inset(0 0 100% 0)';
+      rebuildVoxelMesh(true);
+      introReveal = revealVoxel();
+    } else {
+      refresh(true, true);
+    }
 
     var s = SM.summarize(grid);
     lastStats = { w: cfg.width, h: cfg.height, ms: dt.toFixed(1), landPct: s.landPct, editedLandPct: null };
     renderStats();
+    if (performance.mark) performance.mark('sm-final-map');
   }
+
+  // --- layered intro (first load) ------------------------------------------
+  // The first map is generated in a worker (src/genclient.js) so the page is
+  // painted and usable at once, and the recorded passes are printed as they
+  // arrive (src/intro.js): ink sweep per pass, then the finished map. Anything
+  // that changes the map (regenerate), a tap, a key press or
+  // prefers-reduced-motion skips straight to the result.
+  var intro = null;         // { run, player, grid, ms, cfg, tile, frameShown, iso }
+  var introReveal = null;   // running voxel reveal, { finish() }
+
+  function introLineEl() { return $('introLine'); }
+  function placeLine(x, y, w) {
+    var el = introLineEl();
+    el.hidden = false;
+    el.style.left = x + 'px';
+    el.style.width = w + 'px';
+    el.style.transform = 'translateY(' + y + 'px)';
+  }
+
+  // Pixels per cell of an intro frame: enough to look crisp at the size the
+  // map is shown (refresh() draws the full-resolution render once it is final).
+  function introTile(size) {
+    var avail = Math.min(stage.clientWidth, stage.clientHeight) * (window.devicePixelRatio || 1) * 0.92;
+    return Math.max(2, Math.min(topTile(size, size), Math.ceil(avail / size)));
+  }
+
+  function introEnsureMap(frame) {
+    if (intro.frameShown) return;
+    intro.frameShown = true;
+    map.width = frame.width;
+    map.height = frame.height;
+    content = { width: frame.width, height: frame.height, tile: intro.tile, rivers: [], lavas: [] };
+    fitCam();
+    applyCam();
+    map.hidden = false;
+    $('riverfx').hidden = true;
+    if (performance.mark) performance.mark('sm-first-map');
+  }
+
+  function introPaint(from, to, p) {
+    var ctx = map.getContext('2d');
+    var w = map.width, h = map.height;
+    ctx.clearRect(0, 0, w, h);
+    if (from) ctx.drawImage(from, 0, 0);
+    if (p >= 1) { ctx.drawImage(to, 0, 0); return; }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h * p);
+    ctx.clip();
+    ctx.drawImage(to, 0, 0);
+    ctx.restore();
+  }
+
+  function introLine(p, frame) {
+    if (p == null) { introLineEl().hidden = true; return; }
+    placeLine(cam.x, cam.y + p * frame.height * cam.scale, frame.width * cam.scale);
+  }
+
+  function revealVoxel() {
+    var t0 = 0, raf = 0, done = false;
+    function end() {
+      if (done) return;
+      done = true;
+      if (raf) cancelAnimationFrame(raf);
+      glCanvas.style.clipPath = '';
+      if (isVoxelMode()) map.hidden = true;
+      introLineEl().hidden = true;
+      introReveal = null;
+    }
+    function step(now) {
+      raf = 0;
+      if (!t0) t0 = now;
+      var p = Math.min(1, (now - t0) / 520);
+      var e = 1 - Math.pow(1 - p, 3);
+      glCanvas.style.clipPath = 'inset(0 0 ' + ((1 - e) * 100).toFixed(2) + '% 0)';
+      placeLine(0, e * stage.clientHeight, stage.clientWidth);
+      if (p >= 1) end(); else raf = requestAnimationFrame(step);
+    }
+    raf = requestAnimationFrame(step);
+    return { finish: end };
+  }
+
+  function cancelIntro() {
+    if (introReveal) introReveal.finish();
+    if (!intro) return;
+    if (intro.vox) voxIntroTeardown();
+    intro.run.cancel();
+    intro.player.cancel();
+    intro = null;
+  }
+
+  function introFinish(skipped) {
+    var it = intro;
+    intro = null;
+    // The sweep only makes sense if the view is still isometric; otherwise the
+    // map is drawn the ordinary way.
+    adoptGrid(it.grid, it.cfg, it.ms, !skipped && it.iso);
+  }
+
+  function startIntro() {
+    var cfg = readConfig();
+    var reduced = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // Isometric (the default, where people wait): the loading animation is
+    // played ON the 3D voxel world. A shared link with a camera, reduced
+    // motion and a missing WebGL2 keep the plain path below.
+    if (!reduced && isVoxelMode() && !voxelCameraQuery && startVoxelIntro(cfg)) return;
+    var defs = {};
+    SM.PIPELINE_STAGES.forEach(function (s) { defs[s.id] = s; });
+    var MAP_STAGE = { view: 'map' };
+    if (performance.mark) performance.mark('sm-generate-start');
+    $('stats').textContent = T('gen.busy');
+
+    var it = intro = { cfg: cfg, tile: introTile(cfg.width), frameShown: false, grid: null, ms: 0, iso: false };
+    it.player = SM.Intro.createPlayer({
+      paint: introPaint,
+      line: introLine,
+      final: introFinish
+    });
+    it.run = SM.GenClient.run(cfg, {
+      stages: reduced ? [] : SM.Intro.PASSES,
+      onStage: function (id, snap) {
+        var c = document.createElement('canvas');
+        SM.Intro.frame(c, snap, defs[id], it.tile);
+        introEnsureMap(c);
+        it.player.push(c);
+      },
+      onDone: function (g, ms) {
+        if (performance.mark) performance.mark('sm-generated');
+        it.grid = g;
+        it.ms = ms;
+        it.iso = isVoxelMode();
+        if (reduced) it.player.skip();
+        if (!it.iso && !reduced) {
+          var c = document.createElement('canvas');
+          SM.Intro.frame(c, g, MAP_STAGE, it.tile);
+          introEnsureMap(c);
+          it.player.push(c);
+        }
+        it.player.end();
+      },
+      onError: function () {
+        // Generation itself threw in the worker: build the map the old,
+        // synchronous way (which reports the error properly) rather than
+        // leave the page empty.
+        if (intro === it) regenerate();
+      }
+    });
+  }
+
+  // --- isometric intro: the loading screen IS the voxel world --------------
+  // (Uğur 2026-10-19.) The camera stays isometric throughout. Colour comes
+  // first, on the FLAT map; the relief rises afterwards:
+  //   slab   a near-black (#131313) slab at the map's footprint with a dim
+  //          light cell grid on it, breathing, for the first ~0.45 s only
+  //   paint  the flat map takes its colours behind a hard, rough front that
+  //          starts at the corners and edges and closes in somewhere near the
+  //          middle, as an irregular blob rather than a circle (domain warp +
+  //          fractal noise, decided per cell, so the edge follows the voxel
+  //          grid): all colours at once (water is just coloured cells), the
+  //          grid still visible. Until the finished map exists the colours are
+  //          the worker's own passes (raw relief, land and sea, then biomes:
+  //          SM.Intro.pixels), shown flat on the slab where it is painted and
+  //          eased into one another; the mesh then starts from them and eases
+  //          into its own colours
+  //   grid   the grid lines fade out as the paint closes, overlapping the start of the rise
+  //   rise   the relief starts to rise ~300 ms before the paint ends (over the
+  //          closing blob), every column on its own
+  //          clock (smootherstep each), in the paint's order reversed: where the
+  //          paint closed last (the middle blob) rises first, the corners and
+  //          edges it began with rise last. Water keeps
+  //          its own level, so the land rises around the sea; lakes and
+  //          rivers rise with their ground. Occlusion, cast shadow and swell
+  //          shading ease in with the rise. Lava glows as it rises
+  //   clouds grow in from the map centre out to the edges
+  // then it IS the normal render (the uniforms land exactly on it). The rise
+  // needs the mesh: the clock holds at GATE (flat, coloured map, breathing)
+  // until it is there. Each worker pass that lands (stageShare of its time incl.
+  // the mesh) says how long the rest will take; on a slow device the clock
+  // before the gate runs slower so the paint fills the wait. A tap, a key, or a
+  // new map skips to the end.
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], END: 4500 };
+
+  // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
+  // the map's seed (same map, same front) and 1 / the map's half diagonal, so
+  // the front is a circle about the map centre: corners first, centre last.
+  function introFront(cfg) {
+    var seed = (cfg.seed >>> 0) % 4099;
+    return [3 + (seed % 61) * 0.83, 5 + ((seed * 7) % 59) * 0.79, 2 / Math.max(Math.sqrt(cfg.width * cfg.width + cfg.height * cfg.height), 1)];
+  }
+
+  function smootherstep(x) { return x * x * x * (x * (x * 6 - 15) + 10); }
+  function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
+  function span(t, w) { return Math.max(0, Math.min(1, (t - w[0]) / (w[1] - w[0]))); }
+
+  // A stand-in colour image from the worker arrived (RGBA, one texel per
+  // cell): the first one appears as it is, later ones are eased into.
+  function introImage(vi, px, w, h) {
+    var data = new Uint8Array(px.buffer, px.byteOffset, px.length);
+    var im = vi.img;
+    if (!im) {
+      vi.img = { w: w, h: h, cur: new Uint8Array(data), from: null, to: null, t0: 0 };
+      voxelRenderer.setIntroImage(vi.img.cur, w, h);
+      if (performance.mark) performance.mark('sm-image');
+      return;
+    }
+    im.from = new Uint8Array(im.cur);
+    im.to = new Uint8Array(data);
+    im.t0 = performance.now();
+  }
+
+  // One step of the image ease (per frame, only while a new image arrives).
+  function introImageStep(vi, now) {
+    var im = vi.img;
+    if (!im || !im.to) return;
+    var k = easeInOutSine(span(now - im.t0, [0, VI.IMG_FADE])), i, n = im.cur.length;
+    for (i = 0; i < n; i += 4) {
+      im.cur[i] = im.from[i] + (im.to[i] - im.from[i]) * k;
+      im.cur[i + 1] = im.from[i + 1] + (im.to[i + 1] - im.from[i + 1]) * k;
+      im.cur[i + 2] = im.from[i + 2] + (im.to[i + 2] - im.from[i + 2]) * k;
+    }
+    voxelRenderer.setIntroImage(im.cur, im.w, im.h);
+    if (k >= 1) im.to = im.from = null;
+  }
+
+  // `replay`: a new map while one is on screen (Random, a seed, a world type).
+  // The old map is dropped first and the same animation plays.
+  function startVoxelIntro(cfg, replay) {
+    if (!SM.Voxel3D || !SM.Voxel3D.isSupported() || !SM.GenClient) return false;
+    if (!startVoxel()) return false;
+    if (replay) {
+      grid = null;                    // like the first load: no map to act on until the new one is there
+      voxelMesh = null;
+      undoStack = [];
+      redoStack = [];
+      updateUndoButtons();
+      voxelRenderer.clearMesh();
+    }
+    if (voxelRenderer.setEffects) voxelRenderer.setEffects(false);   // the old map's wind / rain / smoke
+    if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(0);
+    var W = cfg.width, H = cfg.height;
+    var sunDir = sunModel(parseFloat($('sun').value)).iso;
+    if (performance.mark) performance.mark('sm-generate-start');
+    $('stats').textContent = T('gen.busy');
+    map.hidden = true;
+    var finalScale = isoExag();
+    // The camera the finished map will get, from a footprint estimate (levels
+    // are 0..11 incl. the plinth); the real fit replaces it when the mesh lands.
+    var est = { minX: -W / 2, maxX: W / 2, minY: -4, maxY: 11, minZ: -H / 2, maxZ: H / 2 };
+    voxelRenderer.setVerticalScale(finalScale);
+    voxelCamera = voxelRenderer.fitCamera(est);
+    var camA = { yaw: voxelCamera.yaw, pitch: voxelCamera.pitch, zoom: voxelCamera.zoom,
+      tx: voxelCamera.tx, ty: voxelCamera.ty, tz: voxelCamera.tz };
+    // The scale stays final all through: the rise is per column, in the shaders.
+    var sweep = introFront(cfg);
+    voxelRenderer.setSun(sunDir);
+    voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
+    voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep, map: [W, H],
+      rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 1 });
+    if (voxelRenderer.setSky) voxelRenderer.setSky(false);
+
+    var vi = { cfg: cfg, camA: camA, camB: camA, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
+      amp: 1, tMesh: 0, sweep: sweep, img: null, staged: false, extra: null, g: null, ms: 0, raf: 0, skip: false,
+      started: false, done: false, skyOn: false };
+    var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
+    it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
+
+    function lerpCam(a, b, k) {
+      return { yaw: a.yaw, pitch: a.pitch, zoom: a.zoom + (b.zoom - a.zoom) * k,
+        tx: a.tx + (b.tx - a.tx) * k, ty: a.ty + (b.ty - a.ty) * k, tz: a.tz + (b.tz - a.tz) * k };
+    }
+
+    function frame(now) {
+      vi.raf = 0;
+      if (vi.done || intro !== it) return;
+      var dt = vi.last ? now - vi.last : 0;
+      vi.last = now;
+      // The paint starts once the minimum wait is over and either a colour
+      // image or the mesh is there; until then the clock sits at 0.
+      if (!vi.tR0 && now - vi.t0 >= VI.BLANK_MIN && (vi.img || vi.extra)) {
+        vi.tR0 = now;
+        if (performance.mark) performance.mark('sm-rise-start');
+      }
+      if (vi.extra && !vi.started) voxIntroStart(now);
+      introImageStep(vi, now);
+      // The timeline clock: stands at 0 until the paint starts, runs at `rate`
+      // (slower than real time while a slow generation is being covered), and
+      // holds at the gate until the mesh is there.
+      if (vi.tR0) vi.clock += Math.min(dt, 100) * (vi.extra ? 1 : vi.rate);   // a long task must not eat the move
+      if (!vi.extra && vi.clock > VI.GATE) vi.clock = VI.GATE;
+      var t = vi.clock;
+      var waiting = !vi.tR0 || (!vi.extra && t >= VI.GATE);
+      vi.amp += ((waiting ? 1 : 0) - vi.amp) * Math.min(1, dt / 160);
+      var riseP = span(t, VI.RISE);          // linear: the shaders ease each column
+      var rise = smootherstep(riseP);        // the camera's and the lighting's share of the same move
+      var paint = easeInOutSine(span(t, VI.PAINT));
+      var gridAmt = 1 - easeInOutSine(span(t, VI.GRID));
+      // The mesh starts from the stand-in colours and eases into its own.
+      var cblend = vi.started ? smootherstep(span(now - vi.tMesh, [0, VI.MORPH])) : 1;
+      voxelRenderer.setIntro({ paint: paint, grid: gridAmt, light: rise, rise: riseP, imageOn: vi.img ? 1 : 0, blend: cblend });
+      var cam = lerpCam(camA, vi.camB, rise);
+      // Waiting: a slow, low breath of the whole map (camera lift and a hair
+      // of zoom, a sine, never a wave across it).
+      var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4)) * vi.amp;
+      cam.ty += camA.zoom * 0.006 * s;
+      cam.zoom *= 1 + 0.004 * s;
+      voxelRenderer.setCamera(cam);
+      if (vi.started && t >= VI.CLOUD[0]) {
+        if (!vi.skyOn) {
+          vi.skyOn = true;
+          if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+          applyIntroEffects(vi);
+          if (voxelRenderer.setEffects) voxelRenderer.setEffects(true);
+        }
+        if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(easeInOutSine(span(t, VI.CLOUD)));
+      }
+      requestVoxelRender();
+      if (vi.started && t >= VI.END) { voxIntroFinish(); return; }
+      vi.raf = requestAnimationFrame(frame);
+    }
+    vi.frame = frame;
+
+    // The passes worth showing and how far into the worker's whole job (mesh
+    // included) each one lands.
+    var stageDefs = { sample: { view: 'height' }, sea: { view: 'sea' }, climate: { view: 'map' } };
+    var stageShare = { sample: 0.083, sea: 0.136, climate: 0.2 };
+    it.run = SM.GenClient.run(cfg, {
+      stages: ['sample', 'sea', 'climate'],
+      mesh: { sun: sunDir },
+      onStage: function (id, snap) {
+        if (intro !== it || vi.extra || !stageDefs[id]) return;
+        introImage(vi, SM.Intro.pixels(snap, stageDefs[id]), snap.width, snap.height);
+        // The worker has run stageShare[id] of its work, so the mesh is due in
+        // about (now / share) from the start.
+        vi.staged = true;
+        var now = performance.now(), due = vi.t0 + (now - vi.t0) / stageShare[id];
+        var start = Math.max(vi.tR0 || now, vi.t0 + VI.BLANK_MIN);
+        vi.rate = Math.max(VI.MIN_RATE, Math.min(1, (VI.GATE - vi.clock) / Math.max(1, due - Math.max(now, start))));
+      },
+      onDone: function (g, ms, extra) {
+        if (performance.mark) performance.mark('sm-generated');
+        vi.g = g; vi.ms = ms; vi.extra = extra;
+        if (!extra || !extra.mesh) { voxIntroTeardown(); intro = null; adoptGrid(g, cfg, ms, false); return; }
+        it.grid = g;
+        if (vi.skip) voxIntroFinish();
+      },
+      onError: function () { if (intro === it) regenerate(); }
+    });
+    vi.raf = requestAnimationFrame(frame);
+    if (performance.mark) performance.mark('sm-first-map');
+    return true;
+  }
+
+  // The mesh lands: it replaces the slab (flat, same colours, same light, same
+  // place) and the sun shadow goes up with it.
+  function voxIntroStart(now) {
+    var vi = intro.vox, ex = vi.extra, g = vi.g;
+    vi.started = true;
+    if (ex.shadow) voxelRenderer.setShadowMap(ex.shadow, g.width, g.height);
+    voxelRenderer.setMesh(ex.mesh);
+    voxelRenderer.setIntroSlab(null);
+    vi.tMesh = now;
+    // The fit depends on the vertical scale, and the normal render fits at
+    // the final one: fit at it too, or the camera ends the intro off by the
+    // height difference and snaps into place when the intro hands over (the
+    // "click" at the end, Uğur 2026-10-19).
+    voxelRenderer.setVerticalScale(isoExag());
+    var fit = voxelRenderer.fitCamera(ex.mesh.bounds);
+    vi.camB = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
+    if (performance.mark) performance.mark('sm-mesh-up');
+  }
+
+  function voxIntroTeardown() {
+    var vi = intro && intro.vox;
+    if (!vi) return;
+    vi.done = true;
+    if (vi.raf) cancelAnimationFrame(vi.raf);
+    vi.raf = 0;
+    if (voxelRenderer) {
+      voxelRenderer.setIntro(null);
+      voxelRenderer.setIntroSlab(null);
+      if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(null);
+      if (voxelRenderer.setEffects) voxelRenderer.setEffects(true);
+      voxelRenderer.setVerticalScale(isoExag());
+      if (voxelRenderer.setSky) voxelRenderer.setSky($('showClouds').checked);
+    }
+  }
+
+  // Wind lines, rain clouds and smoke join the sky (their data came from the
+  // worker). They need the grid only for the weather's sake: set it now.
+  function applyIntroEffects(vi) {
+    if (vi.extra.applied) return;
+    grid = vi.g;                   // effects read grid.config; edits stay off until the end (introGuard)
+    applyVoxelEffects(vi.extra);
+    grid = null;
+  }
+
+  // Every uniform lands on the normal render; the grid becomes the map.
+  function voxIntroFinish() {
+    var it = intro;
+    if (!it || !it.vox || it.vox.done) return;
+    var vi = it.vox, ex = vi.extra;
+    if (!vi.started) voxIntroStart(performance.now());
+    voxIntroTeardown();
+    intro = null;
+    grid = vi.g;
+    undoStack = [];
+    redoStack = [];
+    editedSinceRender = false;
+    voxelNeedsFit = true;
+    updateUndoButtons();
+    rebuildVoxelMesh(true, ex);
+    var s = SM.summarize(grid);
+    lastStats = { w: vi.cfg.width, h: vi.cfg.height, ms: vi.ms.toFixed(1), landPct: s.landPct, editedLandPct: null };
+    renderStats();
+    if (performance.mark) performance.mark('sm-final-map');
+  }
+
+  // While the first map is still being built there is no grid to act on: a tap
+  // or key skips the animation, and the event goes no further.
+  function introGuard(ev) {
+    if (grid || !intro) return;
+    intro.player.skip();
+    ev.stopImmediatePropagation();
+  }
+  ['pointerdown', 'mousedown', 'touchstart', 'wheel'].forEach(function (type) {
+    stage.addEventListener(type, introGuard, { capture: true, passive: true });
+  });
+  window.addEventListener('keydown', function (ev) {
+    var tag = ev.target && ev.target.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || ev.key === 'Tab') return;
+    introGuard(ev);
+  }, true);
 
   function rotateView(dir) {
     // Q/E: yalnızca voxel kamerasını çeyrek tur döndürür. Eskiden burada
@@ -1560,6 +2032,7 @@
   }
 
   function exportPng() {
+    if (!grid) return;
     var out;
     var octx;
     var fx;
@@ -1618,7 +2091,7 @@
       $(SLIDERS[id].label).textContent = SLIDERS[id].fmt(input.value);
     });
     syncSeedField();
-    regenerate();
+    regenerate(true);
   }
 
   // Which world type the sliders currently match (a shared link, or a user
@@ -1715,7 +2188,7 @@
     randomSettings();
     seedBase = SM.Seed.randomBase();
     syncSeedField();
-    regenerate();
+    regenerate(true);
     spin('randomMap');
   }
   $('randomMap').addEventListener('click', randomMap);
@@ -2331,7 +2804,8 @@
     Object.keys(SLIDERS).forEach(function (id) {
       if (id !== 'sea') $(SLIDERS[id].label).textContent = SLIDERS[id].fmt($(id).value);
     });
-    renderStats();
+    if (intro && !grid) $('stats').textContent = T('gen.busy');
+    else renderStats();
     $('isohint').textContent = T(hintKeyFor(isoHintKey));
     $('pipelineToggle').textContent = T(pipeline ? 'pipeline.exit' : 'pipeline.enter');
     updateStageText();
@@ -2370,6 +2844,6 @@
   buildBiomeSelect();
   syncEditControls();
   updateUndoButtons();
-  regenerate();
+  startIntro();
   applyDayNight();
 })(window.SM = window.SM || {});

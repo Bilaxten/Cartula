@@ -2,6 +2,214 @@
 
 <!-- 2026-10-18: aşağıdaki bloklar CURRENT.md'den olduğu gibi taşındı (el-değiştirme biçimindeki oturum anlatıları, 2026-10-14 ve öncesi). Aynı oturumların DEVLOG biçimindeki girdileri bunların altında. -->
 
+## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
+
+**Revizyon 10 (aynı gün): hızlandırma.** Uğur: *"renklendirme ve yükseltme arasındaki
+geçiş çok yavaş. renklendirme ve yükseltmenin kendi animasyonları da aşırı yavaş çok
+bekliyoruz. hızlandıralım"*. Şekil, sıra, renkler v9 ile aynı; yalnız süre: boya
+3800 → 2400 ms, yükseliş 2800 → 1700 ms ve **boya bitmeden 300 ms önce** (2100'de)
+başlıyor, ızgara 2000-2900, bulutlar yükselişin sonuna binerek 3300-4500, toplam
+~7,2 → ~4,5 sn. Geçişteki ölü aralık için yalnız sayıları değil algıyı düzelttim:
+ters cephe küçük bir lekeyle başlıyor ve kolon smootherstep'i düz başlıyor, bu yüzden
+sıra `order^1,5` ile eğildi (orta bölgenin geniş bir alanı hemen kalkar) ve kolon
+süresi 0,45 → 0,38'e, yayılma 0,55 → 0,62'ye çekildi. Ölçüm (kare farkı, hızlı yol):
+yükseliş başlayınca hareket enerjisi taban 0,004'ten ~150-200 ms'de 0,05'e, 400 ms'de
+0,13'e çıkıyor. Yavaş-worker yolunda mesh bekleme kapısı aynı (yükselişin başı).
+
+**Revizyon 9 (aynı gün): yükselti boya biter bitmez, boyanın tersi sırayla.** Uğur v8
+boyasını beğendi: *"ilk renklendirme animasyonu güzel ama yükselti çok geç giriyor.
+renkleme bitince girsin hemen, o da tam ortadan başlayarak yükseltileri getirmeye
+başlasın. rengin tersi şekilde yani."* Yükseliş 4300 → 3800'de (boyanın bitişinde)
+başlar, ızgara sönmesi 3400-4400 ile ikisine biner (seçimim: tek global sönme, hücre
+başına değil; boya kapanırken söner ve yükseliş başlarken biter). Sıra: boyadaki
+`introFront` alanı ters çevrilir (en son boyanan = ortadaki leke ilk yükselir, köşeler
+son), köşe noktasında değerlendirilir (hücre merkezinde değil; komşu kolonlar
+köşelerini paylaştığı için çatlak açılmaz); her kolon yine smootherstep (yayılma
+0,55, kolon süresi 0,45·yükseliş). Boyaya dokunulmadı. Çizelge: boya 0-3800, yükseliş
+3800-6600, bulut 5300-6700 (v8'e göre ~0,5 sn kısa).
+
+**Revizyon 8 (aynı gün): siyah plaka, sert ve kaba kenar, daha yavaş boya.** Uğur:
+*"siyah olsun boş map 131313 olabilir. ortadaki circle hala circle'a benziyor. onu
+öyle yapmayalım. kenarları baya rough olmalı. kenarları keskin ve rough olsun.
+yumuşatma yapma kenarlara ve daha yavaş boyansın."* (1) Boş harita #131313 (Bare tonu
+yerine); ızgara çizgileri artık siyah değil, koyu zeminde okunacak soluk açık gri
+(albedo %30 → 0,62). Worker pass görüntüleri yalnız boyanmış yerde görünür (boş
+alan hep siyah). (2) Daire kırıldı: mesafe önce domain warp (±0,6), sonra geniş
+gürültü (±0,33); kapanan delik düzensiz bir leke. (3) Kenar sert: yumuşak bant yok,
+hücre merkezinde değerlendirilip `step` ile ilerlemeye kıyaslanır (kenar voksel
+ızgarasını izler, per-pixel yerine seçtim: izometrikte hücre ~1 px olduğundan
+fark görünmez, ama plaka/mesh aynı hücreyi aynı sonuçla boyar ve zoom'dan bağımsız);
+5 oktavlı fraktal kenarı yanık/aşınan bir sınıra çevirir. (4) Boya 2000 → 3800 ms,
+ızgara 3500-4300, yükseliş 4300-6600, bulut 6000-7200 (toplam ~7,2 sn).
+
+**Revizyon 7 (aynı gün): boya köşelerden ortaya.** Uğur: *"köşeden birleşerek gelsin
+renkler. ortadan büyüyen bir circle'ın tam tersi... ortaya doğru boyanıyor. ancak
+boyanırken biraz noise atarsın tam dümdüz kenarlı boyama olmaz da azıcık dağılımlı
+olmuş olur"*. Soldan sağa süpürme yerine içe doğru daralan dairesel cephe: mesafe harita
+merkezine göre yarı köşegene bölünür (köşe 0, merkez 1), cepheye iki katmanlı değer
+gürültüsü (düşük frekans 0,65 + ince 0,35, toplam ±0,15) eklenir; kayma noktası seed'den
+(sabit, `Math.random` yok). Aynı fonksiyon plaka (fragment) ve mesh (vertex) için
+(`INTRO_FRONT_GLSL`), böylece el değiştirmede kenar kaymaz. Zaman çizelgesi, ızgara,
+worker pass önizlemeleri aynı.
+
+**Revizyon 6 (aynı gün): önce renk, sonra yükselti.** Uğur: *"sonradan boyama
+olmasın. boyamayı da öne alalım zaten 2d çıkarken renkli çıkıyor direkt 2d olarak
+gelsin. ama yine izometrik görelim biz. sonra yükselti oluşacakken grid'i söndür
+sonrasında yükseltiler gelmeye başlasın"*. Yeni sıra: düz plaka + ızgara → düz haritada
+soldan sağa boya (ızgara görünür) → ızgara söner → yükselti yükselir → bulutlar. Karar
+ve gerekçeler: (a) Bitmiş renkler mesh'ten gelir, mesh en sonda; bekleyiş renksiz plakada
+geçmesin diye worker'ın zaten yolladığı pass'ler (`sample` ham yükselti, `sea` kara/deniz,
+`climate` biyom) `SM.Intro.pixels` ile düz görüntüye çevrilip plakaya doku olarak
+konur ve birbirine erir; mesh gelince aynı görüntüden başlayıp kendi renklerine erir
+(ışık da aynı: düz tepede AO/gölge yok, yükselişle gelir; böylece el değiştirmede
+sıçrama yok). (b) Su: ayrı su animasyonu kalktı. En yumuşak yol buydu: deniz yüzeyi zaten
+0'da, kara etrafında yükselir; göl ve nehirler kendi zeminleriyle yükselir, sonuç
+doğru çıkar, ek geçiş gerekmez. (c) Lav boyayla renklenir, yükselirken parlar.
+(d) Kabartma önizlemesi (`previewHeights`), su yatakları (`buildIntroFloor`) ve su
+seviyesi kodu artık gereksiz, silindi.
+
+**Revizyon 5 (aynı gün, Uğur v4'ü izledikten sonra).** Uğur: *"suların
+renklendirilmesi yanlış. onları da boyuyormuş gibi yapalım. gridden yükseltiye
+geçerkenki yükseliş çok ani oluyor gibi. oraya yumuşatma yapalım. genel olarak map
+generation'ı da yavaşlatalım daha oturaklı hissettirsin"*. (1) Su rengi artık
+doldurma × boya değil, yalnız boya: su nötr tonda yükselir, mavisi kara ile aynı
+cepheden gelir (köpük/kıyı çizgisi yalnız su oradaysa görünür). Sıra: yükseliş →
+su seviyesi → boya (boya su dolarken başlar, ikisi birlikte boyanır). (2) Yükseliş:
+global dikey ölçek yerine her kolon kendi saatinde (merkez önce, kenarlar %40
+sonra) ve smootherstep (iki uçta eğim sıfır), 1,4 → 2,3 sn; kabartma-mesh el
+değiştirmesi 700 ms'lik bir geçiş (kabartma alçalır, mesh yükselir, görünen yüksek
+olan), böylece şekil sıçramaz. Bunun için dikey ölçek introda sabit nihai değerde
+kalır, yükseliş shader'da (`uIntroRise`). (3) Hepsi ~1,7× yavaş: yüksel 0-2300, su
+2300-3800, boya 3300-5200, bulut 4000-5300 (bitiş 5300). Bitiş "tık" testi tekrar
+koşuldu (son intro karesi ↔ ilk normal kare farkı taban düzeyinde).
+
+**Revizyon 4b (aynı gün): bitişteki "tık" ve soldan sağa boya.** (7) Uğur:
+*"map oluşması bittiğinde tık diye yere oturuyormuş gibi oluyor en sonunda"*.
+Sebep: `fitCamera` kamera hedefini (`ty`) ve yakınlaştırmayı o anki dikey ölçeğe göre
+hesaplıyor; intro mesh'i geldiğinde (yükselişin ortasında, ölçek ~0,05-1) kamerayı
+o ölçekle oturtup hedef kamera yapıyordu, bitişteki normal render ise nihai
+ölçekle oturtuyor. Sonuç: intro son karede `ty` 22,6-27,7'de bitiyor (nihai 28,06),
+el değiştirince kamera tek karede sıçrıyordu. Çözüm: mesh geldiğinde nihai ölçekle
+oturt. Doğrulama: son intro karesi ile ilk normal kare arasındaki piksel farkı
+(rAF'e takılıp WebGL tuvalinden 195×422 küçük kopya, ardışık kare ortalama mutlak
+fark): önce 4,01, sonra ~0,02-0,03 (taban: dalga/rüzgâr hareketi 0,019). (8) Uğur:
+*"boyamayı da şöyle yapalım. tekte boyama olmasın. sol taraftan sağa doğru boyansın.
+yavaş geçişli bir boyama olsun. renksizden renkliye... soldan başlamışız... flow
+şeklinde"*. Boya artık renge/yüksekliğe göre değil, ekranda soldan sağa tek geniş
+yumuşak bir cephe (ayrıntı README). Izgara aynı cepheyle silinir; lav cephe
+ulaşınca renklenir, sonra parlar (artık "en son" değil, cepheye bağlı). Su:
+seviye yüksekliğe göre yükselmeye devam eder (boyanın yarısında başlar), yüzeyi
+nötr çıkar ve rengi süpürmeyle gelir; bu sırayı seçtim çünkü iki akış birbirini
+bölmüyor, sol taraf mavileşirken seviye her yerde yükseliyor. Çizelge: boya
+1050-2800, su 1600-3050.
+
+**Revizyon 4 (aynı gün, Uğur v3'ü localhost'ta izledikten sonra), altı istek.**
+Uğur: *"random'a basınca da aynı şekilde mapler create edilsin. sular doluyormuş gibi
+animasyon olsun katman katman. renge göre değil. daha yumuşak geçişlerle yapalım. ilk
+tek renkken map gridler gözükür olsun siyah çizgilerle. sonrasında renkleri atarken o
+çizgileri de renk geldikçe silelim. bulutlar ortadan başlayarak kenarlara doğru
+büyüme animasyonuna sahip olsun. lav en başta belli oluyor onu en son boyanınca belli
+olacak şekilde yapalım"*. Yapılan: (1) Random, seed alanı ve dünya tipi yeni haritayı
+aynı animasyonla getirir (`regenerate(true)`; eski harita `clearMesh` ile bırakılır,
+eski rüzgâr/yağmur/duman/şimşek `setEffects(false)` ile gizli kalır); slider
+bırakmaları anlık kaldı (kullanıcı onları art arda dener), üstten görünüm ve
+reduced-motion de. (2) Su artık tek seviye: en derin yataktan en yüksek su yüzeyine
+çıkar, her karo yatağından yüzeyine dolar; yani deniz önce, göl/nehir seviye
+yüksek araziye gelince; hareket tam katmanlarda yumuşak basamaklı ve easeInOutSine
+(boya bandı da 0,24 → 0,34 daha yumuşak). (3) Tek renkte siyah hücre ızgarası, boya
+cephesiyle silinir; plaka ve mesh aynı fonksiyonu kullanır, hücre küçüldükçe ince
+ızgara solar (4. ve 16. çizgiler kalır). (4) Bulutlar merkezden kenara büyür (bulut
+başına ölçek + fade, gölge fade'i izler). (5) Lav en başta belliydi: rengi nötrdü ama
+emisyonu (`vEmissive`) nötr tonun üstüne binip parlıyordu. Artık boyanın son
+%20'sinde rengini alır, ardından parlar. Çizelge: 0-1400 yüksel,
+1050-2300 boya, 1700-3100 su, 1900-3100 bulut.
+Ölçüm (aynı düzen: gerçek GPU, 390×844 @2x, CPU x4 / x6, worker 4 / 6 sn
+yavaşlatılmış): v3 → v4 sadece-plaka 0,46 → 0,46 sn; son harita 6,03 → 6,16 sn (x4),
+8,09 → 8,19 sn (x6); bekletmesiz 3,47 → 3,58 sn; fps 59-60. Bedel: toplam yaklaşık
+0,1 sn uzadı (su seviyesi penceresi uzun). Random ile ikinci harita aynı süreleri verir.
+
+**Revizyon 3 (aynı gün): bekleyiş adımlara yayıldı.** Uğur v2 videosunu görünce:
+*"baştaki grimsi kahverengimsi tek renk yer çok uzun süre duruyor ekranda adım adım
+gösterirken diğer adımları biraz uzak ya da yumuşak ki bu kadar uzun kalmasın"*.
+Sorun: boş plaka mesh gelene kadar duruyordu (yavaş cihazda ~4 sn), sonraki adımlar
+toplam ~2,85 sn'ydi. Çözüm: plaka yalnız ilk ~450 ms boş; sonra aynı yükseklik
+fonksiyonunun kaba örneği (`SM.previewHeights`, 72×72, birkaç ms, `generate.js`'te
+deniz eşiği hesabı ortak `seaReference`'a çıkarıldı, boru hattı davranışı aynı)
+basamaklı kabartma olarak yükselmeye başlar; mesh gelince ortada yerini alır. Yükselişin
+zaman saati üretim süresine göre yavaşlar (preview maliyeti + worker'ın `shape`
+pass'inin geliş zamanı), mesh gelmeden kapıda durur; yükseliş 950 → 1400 ms,
+boya ~1 → 1,15 sn, deniz ~0,95 sn (çizelge README'de). Neden `shape` pass'i tek
+başına yetmedi: worker'ın işinin ~%12'sinde gelir, yavaş telefonda yine ~1 sn boş
+plaka kalırdı; ham örnek ise hemen elde. Bedel: kabartma son haritanın kaba hali
+(ortalama 0,6 kademe fark), mesh yer değiştirirken küçük bir şekil sıçraması olur
+(ikisi de aynı nötr ton).
+Ölçüm (headless Chrome, gerçek GPU, 390×844 @2x, CPU x4/x6; worker CDP ile
+kısılamıyor, bu yüzden worker'a pass zamanlarını gerçek orana göre bekleten bir
+kopya, 4 / 6 sn toplam): sadece-plaka evresi 4,06 / 6,08 sn → 0,46 sn; son haritaya
+kadar 6,9 → 6,0 sn (x4), 8,9 → 8,1 sn (x6); hızlı makinede (bekletmesiz) 3,3 → 3,45 sn;
+fps 59-60 (en kötü kare aralığı 33-50 ms), v2 ile aynı. Atla (tuş, dokunma),
+worker'sız yol ve `prefers-reduced-motion` kontrol edildi.
+
+**Revizyon (aynı gün, Uğur videoları izledikten sonra): izometrikte animasyon 3B
+voxel dünyada.** Uğur: *"izometrikte bekletiyoruz... orada çizimi voxel şekilde
+yapıp sonra yükselti değişikliği yapıp renklendirelim. animasyon 3d voxel üzerinde
+olsun"*, sonra *"render olmak zorunda değil... boş gönderip hareket ettirirken
+yükseltiyi yapıp renklendirerek... dalga şeklinde gelmesin; önce voxeller yükselsin,
+aynı anda; sonra boyansınlar, renk bazlı; sonra sular en derinden dolarak"*. Yapılan:
+boş plaka + nefes → hepsi birden yüksel → yükselti sırasıyla boya → deniz en derin
+katmandan dolsun, göl/nehir son (ayrıntı README *İzometrik yükleme animasyonu*).
+Karar: ayrı bir mini render yazmak yerine **gerçek mesh** vertex shader'daki dört
+uniform'la (`uIntro`) oynatılıyor; böylece geçiş piksel pikselin aynısına iniyor
+ve her kare ucuz (geometri yeniden kurulmuyor). Ölçüm (Edge, 390×844 @2x, gerçek
+GPU 144 Hz ekran; CPU x4 / x6, worker CDP ile kısılamadığı için bir gölgeyle
+yavaşlatıldı): her fazda 140 fps civarı, uzun görev yok (önceden bitişte rüzgâr
+alanı yüzünden x4'te 1 sn'lik bir blok vardı; rüzgâr/hava/duman worker'a taşındı).
+Gerçek telefon GPU'su (A32 Mali-G52) bu makinede yok: orada kare hızı bitmiş
+haritanınkine (31-36 fps) yakın beklenir, ölçülmedi.
+
+A32 bulgusu 2'nin çözümü (telefonda ~4,9 sn boş ekran; senkron 320² `regenerate()`).
+Uğur: *"tanıtım videosundaki gibi, katman katman güzel animasyonlu oluşsun"*.
+Dal `layered-intro`, PR açık; Uğur'un telefonda izleyip onaylaması bekleniyor,
+yayınlanmadı.
+
+**Ne değişti.** Sayfa hemen çizilir; ilk harita Web Worker'da üretilir
+(`src/gen-worker.js`, classic worker, `importScripts` ile sayfayla aynı dört dosya,
+aynı sıra). Worker, `SM.generate`'in zaten var olan kayıt kancasıyla beş pass'i
+(ham noise, dağlar, deniz seviyesi, iklim/biyom, nehirler) bitirdikçe yollar, en
+sonda bitmiş grid'i transfer eder (`src/genclient.js`; worker yoksa ya da
+başlamazsa aynı `SM.generate` ana thread'de, bir kare çizildikten sonra koşar).
+`src/intro.js` lansman filmindeki mürekkep süpürmesini oynatır: çizgi (`--accent`,
+yeni renk yok) haritayı yukarıdan aşağı süpürür, her süpürme bir pass'i basar
+(280 ms + 50 ms bekleme). Sıra: noise → dağlar → deniz → biyom → nehirler →
+bitmiş harita; izometrikte (varsayılan) son adım düz harita üstünde voxel
+dünyanın 520 ms'lik süpürmesi. Hızlı makinede toplam ~2,4 sn, yavaş cihazda
+pass'ler geldikçe basılır. Haritaya dokunma / tuş, `regenerate()` (her
+slider/seed değişikliği) ve `prefers-reduced-motion` animasyonu atlar.
+
+**Neden kare çizici ayrı.** Gerçek `renderTopDown` hücre başına iki canvas çağrısı
+ve bir stil dizgesi harcıyor; telefonda tek karesi üretimin kendisi kadar
+(CPU x4: 1,0 sn). Beş kare, intro'yu üretimden pahalı yapıyordu. `SM.Intro.pixels`
+aynı renkleri (palet, deniz rampası, göl tonu, hücre gölgesi, hillshade) tek
+geçişte piksele yazar (10-100 ms); yalnız duruşta anlamlı olanı (yerleşim
+simgeleri, nehir parıltısı) atlar, bitmiş harita gerçek renderer'la hemen
+ardından çizilir. `--intro` bu kare çiziciyi gerçek renderer'a (`renderTopDown`,
+`renderStage`) hücre hücre bağlar (8 bit karışım yuvarlaması içinde).
+
+**Doğrulama.** `node tools/headless.js --intro` (checks.sh'e bağlı): worker
+betiği sahte worker kapsamında sürülür; grid'in her alanı ve pass kayıtları
+ana-thread `SM.generate` çıktısıyla **bayt bayt aynı** (seed 1337 320², seed
+20261019 160²), oynatıcı sırası/atla/iptal, kablolama. Gerçek tarayıcıda
+(headless Edge) worker grid'i ile ana-thread grid'i FNV özeti aynı (1337 320²,
+987654 256²); Worker silinince, `file://`'de, reduced-motion'da, dokunup
+atlayınca, süpürme sırasında seed değişince ve izometrik açılışta hatasız.
+Süpürmenin görünüşü tuvalde: tarayıcıda gözle bakılması gerekiyor.
+
+**Bilinen sınırlar.** (1) İlk yükleme dışındaki `regenerate()` hâlâ senkron ve
+animasyonsuz (slider sürüklemesi, rastgele harita düğmesi). (2) Voxel dünya
+(mesh, gölge haritası, shader derlemesi) hâlâ ana thread'de ve süpürmeden önce
+bir kez bloklar; bunu parçalara bölmek ayrı iş. (3) Üstten görünümde
+süpürmenin bitiminde gerçek render bir kez yerine oturur (simgeler belirir).
+
 ## Oturum — seed haritanın tamamı, Kaydır düğmesi (2026-10-19)
 
 Uğur'un gerçek telefondan iki isteği. (1) *"pan düzgün çalışmıyor, buton olarak
