@@ -1672,9 +1672,9 @@
     }
   });
 
-  // Two "new map" actions (Uğur 2026-10-05; between 2026-09-23 and then there was only one):
-  //   Regenerate -- a new random seed, every slider stays as set (R).
-  //   Random     -- random world settings AND a new seed (Shift+R).
+  // One "new map" action: Random -- random world settings AND a new seed
+  // (Shift+R). There is no Regenerate (Uğur 2026-10-19): the same code always
+  // gives the same map, so rebuilding it would change nothing.
   // "Undo my brush edits" is still Edit → Reset to generated.
   function spin(id) {
     var btn = $(id);
@@ -1682,15 +1682,6 @@
     void btn.offsetWidth; // restart the icon spin
     btn.classList.add('rolling');
     setTimeout(function () { btn.classList.remove('rolling'); }, 360);
-  }
-
-  // Regenerate rebuilds the map of the current seed code, exactly (Uğur
-  // 2026-10-19: "aynı seed aynı sonucu versin"): same code, same map. After
-  // brush edits it restores the pristine map. Only Random draws a new code.
-  function regenMap() {
-    syncSeedField();
-    regenerate();
-    spin('regenMap');
   }
 
   // Random settings start from a random world type preset (so the result reads as a kind of
@@ -1727,20 +1718,54 @@
     regenerate();
     spin('randomMap');
   }
-  $('regenMap').addEventListener('click', regenMap);
   $('randomMap').addEventListener('click', randomMap);
-  // Seed field: Enter, leaving the field or a paste applies the code. An
-  // unchanged code (the field is already what is on screen) does nothing.
+  // Seed field: a typed or pasted code applies when the field closes (blur;
+  // on a phone, when the keyboard closes) or on Enter -- never per keystroke
+  // (Uğur 2026-10-19). An unchanged code does nothing; an invalid one keeps
+  // the text in the field, shows why, and leaves the map alone.
   function commitSeedField() {
     var text = $('seed').value;
     if (SM.Seed.normalize(text) === currentSeedCode()) { syncSeedField(); return; }
     applySeedText(text);
   }
-  $('seed').addEventListener('change', commitSeedField);
+  $('seed').addEventListener('blur', commitSeedField);
   $('seed').addEventListener('keydown', function (ev) {
     if (ev.key === 'Enter') { ev.preventDefault(); commitSeedField(); }
   });
-  $('seed').addEventListener('paste', function () { setTimeout(commitSeedField, 0); });
+  // Copy the APPLIED code (what is on screen), never an unapplied draft.
+  var seedCopyTimer = 0;
+  function seedCopied(ok) {
+    var btn = $('seedCopy');
+    btn.classList.toggle('ok', ok);
+    btn.title = T(ok ? 'seed.copied' : 'seed.copyFailed');
+    clearTimeout(seedCopyTimer);
+    seedCopyTimer = setTimeout(function () { btn.classList.remove('ok'); btn.title = T('seed.copy'); }, 1500);
+  }
+  // Non-secure or old contexts: a throwaway readonly textarea + execCommand.
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea'), ok = false;
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;font-size:16px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return legacyCopy(text); });
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+  // mousedown keeps the field's focus, so pressing Copy never blur-applies a draft.
+  $('seedCopy').addEventListener('mousedown', function (ev) { ev.preventDefault(); });
+  $('seedCopy').addEventListener('click', function () {
+    copyText(currentSeedCode()).then(seedCopied);
+  });
   $('seed').addEventListener('input', function (ev) {
     // Typing clears a stale message; the slider listener above also fires
     // syncSeedField for slider input, so only react to the field's own input.
@@ -2067,7 +2092,7 @@
       if (key === 'arrowleft') { ev.preventDefault(); showStage(pipeline.index - 1); return; }
       if (key === 'arrowright') { ev.preventDefault(); showStage(pipeline.index + 1); return; }
     }
-    if (key === 'r' && !ev.altKey) { if (ev.shiftKey) randomMap(); else regenMap(); return; }
+    if (key === 'r' && !ev.altKey && ev.shiftKey) { randomMap(); return; }
     if (key === 'p' && !ev.altKey && !ev.shiftKey) { setPerfVisible(!perf.on); return; }
     if (key === 'q') rotateView(-1);
     else if (key === 'e') rotateView(1);
@@ -2321,6 +2346,7 @@
     syncPanToggle();
     if (perf.on) paintPerf();
     if (seedErrorKey) $('seedMsg').textContent = T(seedErrorKey);
+    $('seedCopy').title = T($('seedCopy').classList.contains('ok') ? 'seed.copied' : 'seed.copy');
   }
   SM.I18N.onChange(refreshLangText);
 

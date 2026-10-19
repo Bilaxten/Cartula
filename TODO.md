@@ -90,7 +90,7 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
         seçiliyor (karar). Bakıldı: 1337 ilk çakma, gündüz ve gece, 4 kare.
       - `e9efaaf` **Mevsim** (View → *Season*): sonbaharda orman pas/sarı,
         kışta dağlardan inen kar, soğuk göller buz, lav karsız; üstten
-        görünümde de. Random/Regenerate mevsime dokunmamalı (CDP ile
+        görünümde de. Random mevsime dokunmamalı (CDP ile
         denendi: dokunmuyor). Bakıldı: 1337 yaz/sonbahar/kış genel, donmuş
         göl yakın çekim, üstten kış/sonbahar, TR/EN panel.
       Kararların listesi ve "alternatif" seçenekleri: `CURRENT.md` 2026-10-06.

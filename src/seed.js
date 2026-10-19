@@ -3,12 +3,13 @@
  * Pure data + math, no DOM, so the round trip is verified headless
  * (`node tools/headless.js --seed`).
  *
- *   1-k3m9-0bx7-4h2d-q8wn-5ztc
+ *   1k3m90bx74h2dq8wn5ztc
  *   ^ version, then 20 characters = 100 bits:
  *     32 bits random base · 54 bits of settings · 14 bits check
  *
  * Alphabet: 32 symbols without i, l, o, u (typed "o" reads as 0, "i"/"l" as 1,
- * "u" as v), case-insensitive, dashes and spaces ignored. Settings are stored
+ * "u" as v), case-insensitive. A pasted code may carry dashes or spaces (they
+ * are stripped); a code is never shown or written with them. Settings are stored
  * as the slider's step index, so a code can only carry values the sliders can
  * show. `season` is render-only but travels in the code too.
  *
@@ -76,9 +77,8 @@
       var v = 0;
       for (b = 0; b < 5; b++) v = (v << 1) | bits[k * 5 + b];
       out += ALPHABET.charAt(v);
-      if (k % 4 === 3 && k < CHARS - 1) out += '-';
     }
-    return VERSION + '-' + out;
+    return VERSION + out;
   }
 
   // -> { ok: true, base, settings } | { ok: false, error }
