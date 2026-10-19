@@ -1005,7 +1005,11 @@
   // (Uğur 2026-10-19.) The camera stays isometric throughout. Colour comes
   // first, on the FLAT map; the relief rises afterwards:
   //   slab   a near-black (#131313) slab at the map's footprint with a dim
-  //          light cell grid on it, breathing, for the first ~0.45 s only
+  //          light cell grid on it, seen from straight above (pitch 89, the 2D
+  //          map's view), for the first 250 ms
+  //   camera the camera tilts into the normal isometric one (1.2 s,
+  //          smootherstep, same yaw so it does not spin). Nothing is coloured
+  //          before it has arrived
   //   paint  the flat map takes its colours behind a hard, rough front that
   //          starts at the corners and edges and closes in somewhere near the
   //          middle, as an irregular blob rather than a circle (domain warp +
@@ -1016,9 +1020,6 @@
   //          SM.Intro.pixels), shown flat on the slab where it is painted and
   //          eased into one another; the mesh then starts from them and eases
   //          into its own colours
-  //   camera looks straight down (pitch 89, the 2D map's view) through the slab
-  //          and the paint, then tilts into the normal isometric camera across
-  //          the end of the paint and the start of the rise (same yaw: no spin)
   //   grid   the grid lines fade out as the paint closes, overlapping the start of the rise
   //   rise   the relief starts to rise ~300 ms before the paint ends (over the
   //          closing blob), every column on its own
@@ -1035,8 +1036,12 @@
   // the mesh) says how long the rest will take; on a slow device the clock
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
-    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], TILT: [1900, 3100], TOP_PITCH: 89, END: 4500 };
+  var VI = { V0: 0.05, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], TILT: [250, 1450], TOP_PITCH: 89, END: 4500 };
+  // PAINT .. END run on the timeline clock, which starts when the camera has
+  // finished tilting (and a colour image or the mesh exists). TILT is in plain
+  // milliseconds from the start: the black slab shows for TILT[0], the camera
+  // then tilts into the isometric view, and nothing coloured shows before it.
 
   // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
   // the map's seed (same map, same front) and 1 / the map's half diagonal, so
@@ -1135,7 +1140,7 @@
       vi.last = now;
       // The paint starts once the minimum wait is over and either a colour
       // image or the mesh is there; until then the clock sits at 0.
-      if (!vi.tR0 && now - vi.t0 >= VI.BLANK_MIN && (vi.img || vi.extra)) {
+      if (!vi.tR0 && now - vi.t0 >= VI.TILT[1] && (vi.img || vi.extra)) {
         vi.tR0 = now;
         if (performance.mark) performance.mark('sm-rise-start');
       }
@@ -1161,7 +1166,7 @@
       // the paint, then tilts into the normal isometric one across the end of
       // the paint and the start of the rise. The yaw never changes, so the
       // tilt does not spin; the pitch ends exactly on the normal camera's.
-      cam.pitch = VI.TOP_PITCH + (camA.pitch - VI.TOP_PITCH) * smootherstep(span(t, VI.TILT));
+      cam.pitch = VI.TOP_PITCH + (camA.pitch - VI.TOP_PITCH) * smootherstep(span(now - vi.t0, VI.TILT));
       // Waiting: a slow, low breath of the whole map (camera lift and a hair
       // of zoom, a sine, never a wave across it).
       var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4)) * vi.amp;
@@ -1197,7 +1202,7 @@
         // about (now / share) from the start.
         vi.staged = true;
         var now = performance.now(), due = vi.t0 + (now - vi.t0) / stageShare[id];
-        var start = Math.max(vi.tR0 || now, vi.t0 + VI.BLANK_MIN);
+        var start = Math.max(vi.tR0 || now, vi.t0 + VI.TILT[1]);
         vi.rate = Math.max(VI.MIN_RATE, Math.min(1, (VI.GATE - vi.clock) / Math.max(1, due - Math.max(now, start))));
       },
       onDone: function (g, ms, extra) {

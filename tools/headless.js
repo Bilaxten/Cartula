@@ -4051,13 +4051,13 @@ function runIntroChecks() {
         const [p0, p1, g0, g1, r0, r1, c0, c1, t0, t1, tp, end] = m.slice(1).map(Number);
         const gate = /GATE: (\d+)/.exec(vox);
         // the rise starts as the paint ends (no gap), the grid fade overlaps both
-        return p0 === 0 && g0 > p0 && g0 < p1 && g1 > r0 && g1 <= r0 + 1200 && r0 >= p1 - 450 && r0 < p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && p1 >= 2200 && end >= 4000 && end <= 5200 && t0 < p1 && t0 >= p1 - 600 && t1 > r0 && t1 <= r1 && t1 - t0 >= 900 && t1 - t0 <= 1500 && tp >= 80 && tp <= 89 &&
+        return p0 === 0 && g0 > p0 && g0 < p1 && g1 > r0 && g1 <= r0 + 1200 && r0 >= p1 - 450 && r0 < p1 && r1 > r0 && c0 > r0 && c0 < r1 && c1 <= end && r1 <= end && p1 >= 2200 && end >= 4000 && end <= 5200 && t0 <= 400 && t1 - t0 >= 900 && t1 - t0 <= 1500 && tp >= 80 && tp <= 89 && /now - vi\.t0 >= VI\.TILT\[1\] && \(vi\.img \|\| vi\.extra\)/.test(vox) &&
           gate && +gate[1] >= r0 - 100 && +gate[1] <= r0 + 100 &&
           /smootherstep\(riseP\)/.test(vox) && /riseP = span\(t, VI\.RISE\)/.test(vox) && /easeInOutSine\(span\(t, VI\.PAINT\)\)/.test(vox) &&
           /easeInOutSine\(span\(t, VI\.GRID\)\)/.test(vox) && /easeInOutSine\(span\(t, VI\.CLOUD\)\)/.test(vox);
       })());
-    push('intro: the slab is blank for ~0.5 s only; the flat map is coloured from the worker\'s own passes (sample, sea, climate) until the mesh exists, no previews, no water animation',
-      /BLANK_MIN: (\d+)/.test(vox) && +/BLANK_MIN: (\d+)/.exec(vox)[1] <= 600 && /stages: \['sample', 'sea', 'climate'\]/.test(vox) &&
+    push('intro: the black slab shows 250 ms, then the camera tilts and only afterwards the paint starts; the flat map is coloured from the worker\'s own passes (sample, sea, climate) until the mesh exists, no previews, no water animation',
+      /stages: \['sample', 'sea', 'climate'\]/.test(vox) &&
       /SM\.Intro\.pixels\(snap, stageDefs\[id\]\)/.test(vox) && /function introImage\(/.test(vox) && !/previewHeights|introRelief|waterFraction|setIntroFloor/.test(vox));
     push('intro: every column rises on its own clock in the shader (no global scale change), the mesh is never rebuilt per frame, the sky and effects join after the rise starts',
       /rise: riseP/.test(vox) && !/setVerticalScale/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame'))) && !/buildVoxelMesh|setMesh/.test(vox.slice(vox.indexOf('function frame'), vox.indexOf('vi.frame = frame')))
@@ -4095,8 +4095,11 @@ function runIntroChecks() {
       /pow\(\(1\.5 - introFront\(aPosition\.xz, uIntroSweep\)\) \/ 1\.48, 1\.5\)/.test(vs) && /float l = clamp\(\(r\.x - order \* 0\.62\) \/ 0\.38, 0\.0, 1\.0\)/.test(v3d) &&
       /l \* l \* l \* \(l \* \(l \* 6\.0 - 15\.0\) \+ 10\.0\)/.test(v3d));
     push('intro camera: straight down for the slab and the paint, tilts into the normal camera (same yaw, pitch ends on the normal pitch); skip or cancel restores the normal camera',
-      /cam\.pitch = VI\.TOP_PITCH \+ \(camA\.pitch - VI\.TOP_PITCH\) \* smootherstep\(span\(t, VI\.TILT\)\)/.test(vox) &&
+      /cam\.pitch = VI\.TOP_PITCH \+ \(camA\.pitch - VI\.TOP_PITCH\) \* smootherstep\(span\(now - vi\.t0, VI\.TILT\)\)/.test(vox) &&
       /pitch: VI\.TOP_PITCH, zoom: camA\.zoom/.test(vox) && /function voxIntroTeardown[\s\S]*?setCamera\(\{ yaw: vi\.camA\.yaw, pitch: vi\.camA\.pitch/.test(vox) && !/yaw: [^,]*TILT/.test(vox));
+    push('terrain shader intro: nothing but the blank tone before the front arrives (no surf, foam, waterfall, river glints or lava light on unpainted cells)',
+      /vShore \*= keep;/.test(vs) && /vFall \*= keep;/.test(vs) && /vIntroKeep = keep;/.test(vs) && /if \(keep < 0\.5\) vEmissive = 0\.0;/.test(vs) &&
+      /baseColor = mix\(preRiver, baseColor, step\(0\.5, vIntroKeep\)\)/.test(fsrc));
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',

@@ -4,6 +4,19 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 12 (`intro-topdown`): renk izometriğe döndükten sonra gelsin.** Uğur: *"renk
+izometriğe döndükten sonra gelsin önce değil"*. Yeni sıra: üstten siyah plaka + ızgara
+(250 ms) → kamera izometriğe eğilir (~1,2 sn, aynı smootherstep, sabit yaw) → eğilme bittikten
+sonra v10 boyası (köşelerden ortaya, sert/kaba, 2400 ms), yükseliş boyadan ~300 ms önce,
+ızgara sönmesi, bulutlar. Eğilme artık zaman saatinde değil duvar saatinde (başlangıçtan
+250-1450 ms); boya saati `now - t0 >= TILT[1]` ve bir görüntü ya da mesh olunca başlar,
+yani boya eğilmeyle çakışmaz. Yavaş cihazda dürüst bekleme aynı: eğilme bekleyişin içinde
+geçer, mesh geç gelirse kapı (yükselişin başı) tutar. Bu sırayla fark edilen bir kusur
+düzeldi: mesh artık boyadan önce uzun süre ekranda kalabildiği için boyanmamış hücrelerde
+(a) kıyı köpüğü (plaj dahil), (b) beyaz şelale, (c) akan nehir parıltıları, (d) lav ışığı
+görünüyordu; hepsi artık boyayla birlikte gelir (`vIntroKeep`). Toplam ~1 sn uzadı
+(renk ilk 1,45 sn'de başlıyor).
+
 **Revizyon 11 (2026-10-19, `intro-topdown` dalı, v10 canlıya çıktıktan sonra): üstten 2B
 görünümden izometriğe kayma.** Uğur: *"bir de mapi düz 2d görünümünden, izometriğe
 kaydırarak getirelim kalan kısımlar aynı."* Kamera düz aşağı (pitch 89) başlar, plaka ve
