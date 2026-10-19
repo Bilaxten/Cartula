@@ -1012,9 +1012,11 @@
   //          move. When the finished mesh arrives (built in the worker too) it
   //          takes the relief's place in mid-move, uniforms only, no geometry
   //          rebuilt per frame
-  //   paint  the black cell grid of the single-tone map fades away as land
-  //          colours wash in bottom to top, band by band, overlapping; lava
-  //          is painted last (it is neutral and dark until then)
+  //   paint  one slow wipe across the screen from the left edge of the map to
+  //          the right: all colours at once, each column fading from the
+  //          neutral tone to its colour behind a wide soft front. The black
+  //          cell grid fades with the same front; lava stays neutral until
+  //          the front reaches it and glows only after
   //   water  one water level rises through the whole map, layer by layer:
   //          the sea fills from its deepest voxel, lakes and rivers fill when
   //          the level reaches them
@@ -1027,7 +1029,16 @@
   // the clock before the gate runs slower so the rise fills the wait. A tap, a key, or a new map skips to the end.
   var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 1050, CAM_EASE: 700, RELIEF_BLOCKS: 72, SHAPE_SHARE: 0.12, PREVIEW_COST: 45, MIN_RATE: 0.4,
     SEA_SHARE: 0.6, SEA_FLOOR: -3,
-    RISE: [0, 1400], PAINT: [1050, 2300], SEA: [1700, 3100], CLOUD: [1900, 3100], END: 3100 };
+    RISE: [0, 1400], PAINT: [1050, 2800], SEA: [1600, 3050], CLOUD: [1900, 3100], END: 3100 };
+
+  // The screen's rightward direction on the ground for a camera yaw, and the
+  // reciprocal of the map's extent along it: the paint wipe runs from the
+  // left edge of the map as it appears on screen to the right edge.
+  function introSweep(cfg, yaw) {
+    var a = yaw * Math.PI / 180, rx = Math.sin(a), rz = -Math.cos(a);
+    var extent = Math.abs(rx) * cfg.width + Math.abs(rz) * cfg.height;
+    return [rx, rz, 1 / Math.max(extent, 1)];
+  }
 
   function easeInOutCubic(x) { return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; }
   function easeInOutSine(x) { return -(Math.cos(Math.PI * x) - 1) / 2; }
@@ -1077,7 +1088,7 @@
     if (voxelRenderer.setSky) voxelRenderer.setSky(false);
 
     var vi = { cfg: cfg, camA: camA, camB: camA, corr: null, corrT: 0, t0: performance.now(), tR0: 0, clock: 0, rate: 1, last: 0,
-      amp: 1, waterTop: 1, extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
+      amp: 1, waterTop: 1, sweep: introSweep(cfg, camA.yaw), extra: null, g: null, ms: 0, raf: 0, skip: false, started: false, done: false, skyOn: false, relief: false };
     var it = intro = { cfg: cfg, vox: vi, grid: null, ms: 0, iso: true };
     it.player = { skip: function () { vi.skip = true; if (vi.extra) voxIntroFinish(); }, cancel: function () {} };
 
@@ -1110,7 +1121,7 @@
       var paint = easeInOutSine(span(t, VI.PAINT));
       var sea = waterFraction(easeInOutSine(span(t, VI.SEA)), vi.waterTop);
       voxelRenderer.setVerticalScale(VI.V0 + (finalScale - VI.V0) * rise);
-      if (vi.started) voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea });
+      if (vi.started) voxelRenderer.setIntro({ paint: paint, sea: sea, lake: sea, sweep: vi.sweep });
       var cam = lerpCam(camA, vi.camB, rise);
       if (vi.corr) {
         // The real fit differs a little from the estimate the rise started
@@ -1176,6 +1187,11 @@
     if (ex.shadow) voxelRenderer.setShadowMap(ex.shadow, g.width, g.height);
     voxelRenderer.setMesh(ex.mesh);
     voxelRenderer.setIntroSlab(null);
+    // The fit depends on the vertical scale, and the normal render fits at
+    // the final one: fit at it too, or the camera ends the intro off by the
+    // height difference and snaps into place when the intro hands over (the
+    // "click" at the end, Uğur 2026-10-19). The frame sets the real scale.
+    voxelRenderer.setVerticalScale(isoExag());
     var fit = voxelRenderer.fitCamera(ex.mesh.bounds);
     var real = { yaw: fit.yaw, pitch: fit.pitch, zoom: fit.zoom, tx: fit.tx, ty: fit.ty, tz: fit.tz };
     if (vi.tR0) {

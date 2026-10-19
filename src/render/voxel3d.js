@@ -1158,12 +1158,16 @@
       'uniform float uVScale;',
       'uniform highp float uTime;',
       // Loading animation (2026-10-19, SM.Voxel3D setIntro): x = paint 0..1
-      // (land colours wash in bottom to top), y = sea fill 0..1, z = lake /
+      // (a colour wipe across the screen, left to right), y = sea fill 0..1, z = lake /
       // river fill 0..1, w = on. Range = lowest / highest land level, sea
       // level, deepest sea layer. The floor image: R = each water tile's bed
       // (level, offset 8, over 32), G = 1 for sea. All off (w = 0) in normal use.
       'uniform vec4 uIntro;',
       'uniform vec4 uIntroRange;',
+      // Paint wipe: xy = the screen's rightward direction on the ground, z = 1 / the
+      // map's extent along it (so 0.5 + dot * z runs 0..1 from the left edge of the
+      // map as seen on screen to its right edge).
+      'uniform vec3 uIntroSweep;',
       'uniform vec3 uIntroNeutral;',
       'uniform highp sampler2D uIntroFloor;',
       'out vec3 vNormal;',
@@ -1266,13 +1270,14 @@
       '  float introY = aPosition.y;',
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
-      '    // Land: every column is the neutral clay tone until the paint front',
-      '    // (rising with elevation, soft edge) reaches its height.',
-      '    float span = max(uIntroRange.y - uIntroRange.x, 1.0);',
-      '    float yN = clamp((aPosition.y - uIntroRange.x) / span, 0.0, 1.0);',
-      '    float band = 0.34;',
-      '    float keep = clamp((uIntro.x * (1.0 + band) - yN) / band, 0.0, 1.0);',
+      '    // The paint is one wipe across the screen, left to right: every colour',
+      '    // at once, each column fading from the neutral clay tone to its own',
+      '    // colour as a wide soft front passes it. No order by colour or height.',
+      '    float u = clamp(0.5 + dot(aPosition.xz, uIntroSweep.xy) * uIntroSweep.z, 0.0, 1.0);',
+      '    float band = 0.55;',
+      '    float keep = clamp((uIntro.x * (1.0 + band) - u) / band, 0.0, 1.0);',
       '    keep = keep * keep * (3.0 - 2.0 * keep);',
+      '    float paintKeep = keep;',
       '    if (aWater > 0.5) {',
       '      // Water is ONE level rising through the whole map, by height and',
       '      // not by kind: a tile fills once the level passes its own bed and',
@@ -1287,14 +1292,12 @@
       '      float lay = floor(yw + 0.0001);',
       '      float q = lay + smoothstep(0.12, 0.88, yw - lay);',
       '      introY = clamp(q, floorY, aPosition.y);',
-      '      keep = smoothstep(floorY - 0.05, floorY + 0.9, q);',
+      '      // The surface rises by height; its colour arrives with the wipe.',
+      '      keep = smoothstep(floorY - 0.05, floorY + 0.9, q) * paintKeep;',
       '    }',
-      '    // Lava stays the neutral tone, unlit, until the very end of the',
-      '    // paint; then it takes its colour and only afterwards its glow.',
-      '    if (aEmissive > 0.01) {',
-      '      keep = smoothstep(0.80, 0.97, uIntro.x);',
-      '      vEmissive = aEmissive * smoothstep(0.93, 1.0, uIntro.x);',
-      '    }',
+      '    // Lava stays neutral and dark until the wipe reaches it, and only',
+      '    // glows once it has its colour.',
+      '    if (aEmissive > 0.01) vEmissive = aEmissive * smoothstep(0.75, 1.0, paintKeep);',
       '    if (aWater > 0.5) {',
       '      // No surf or foam line on water that is not there yet.',
       '      vShore *= keep;',
@@ -1930,6 +1933,7 @@
         bare: 'uBare',
         intro: 'uIntro',
         introRange: 'uIntroRange',
+        introSweep: 'uIntroSweep',
         introNeutral: 'uIntroNeutral',
         introFloor: 'uIntroFloor'
       };
@@ -1953,7 +1957,7 @@
 
     // Loading animation state (setIntro / setIntroFloor / setIntroSlab). The
     // neutral tone is the palette's Bare, so no new colour exists.
-    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3 };
+    var introState = { on: 0, paint: 0, sea: 0, lake: 0, low: 0, high: 11, seaY: 0, floorY: -3, sweep: [1, 0, 0.01] };
     var introNeutral = hexToRgb(SM.BIOME_LIST.find(function (b) { return b.id === 'bare'; }).color)
       .map(function (v) { return v / 255; });
     var introFloorTexture = gl.createTexture();
@@ -2648,6 +2652,7 @@
       if (s.high != null) introState.high = s.high;
       if (s.seaY != null) introState.seaY = s.seaY;
       if (s.floorY != null) introState.floorY = s.floorY;
+      if (s.sweep) introState.sweep = s.sweep;
     }
 
     // Each water tile's bed, from SM.buildIntroFloor (RG8, W x H).
@@ -3105,6 +3110,7 @@
       }
       gl.uniform4f(U.intro, introState.paint, introState.sea, introState.lake, introState.on);
       gl.uniform4f(U.introRange, introState.low, introState.high, introState.seaY, introState.floorY);
+      if (U.introSweep) gl.uniform3f(U.introSweep, introState.sweep[0], introState.sweep[1], introState.sweep[2]);
       gl.uniform3fv(U.introNeutral, introNeutral);
       if (U.introFloor) {
         gl.activeTexture(gl.TEXTURE5);

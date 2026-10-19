@@ -4,6 +4,26 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 4b (aynı gün): bitişteki "tık" ve soldan sağa boya.** (7) Uğur:
+*"map oluşması bittiğinde tık diye yere oturuyormuş gibi oluyor en sonunda"*.
+Sebep: `fitCamera` kamera hedefini (`ty`) ve yakınlaştırmayı o anki dikey ölçeğe göre
+hesaplıyor; intro mesh'i geldiğinde (yükselişin ortasında, ölçek ~0,05-1) kamerayı
+o ölçekle oturtup hedef kamera yapıyordu, bitişteki normal render ise nihai
+ölçekle oturtuyor. Sonuç: intro son karede `ty` 22,6-27,7'de bitiyor (nihai 28,06),
+el değiştirince kamera tek karede sıçrıyordu. Çözüm: mesh geldiğinde nihai ölçekle
+oturt. Doğrulama: son intro karesi ile ilk normal kare arasındaki piksel farkı
+(rAF'e takılıp WebGL tuvalinden 195×422 küçük kopya, ardışık kare ortalama mutlak
+fark): önce 4,01, sonra ~0,02-0,03 (taban: dalga/rüzgâr hareketi 0,019). (8) Uğur:
+*"boyamayı da şöyle yapalım. tekte boyama olmasın. sol taraftan sağa doğru boyansın.
+yavaş geçişli bir boyama olsun. renksizden renkliye... soldan başlamışız... flow
+şeklinde"*. Boya artık renge/yüksekliğe göre değil, ekranda soldan sağa tek geniş
+yumuşak bir cephe (ayrıntı README). Izgara aynı cepheyle silinir; lav cephe
+ulaşınca renklenir, sonra parlar (artık "en son" değil, cepheye bağlı). Su:
+seviye yüksekliğe göre yükselmeye devam eder (boyanın yarısında başlar), yüzeyi
+nötr çıkar ve rengi süpürmeyle gelir; bu sırayı seçtim çünkü iki akış birbirini
+bölmüyor, sol taraf mavileşirken seviye her yerde yükseliyor. Çizelge: boya
+1050-2800, su 1600-3050.
+
 **Revizyon 4 (aynı gün, Uğur v3'ü localhost'ta izledikten sonra), altı istek.**
 Uğur: *"random'a basınca da aynı şekilde mapler create edilsin. sular doluyormuş gibi
 animasyon olsun katman katman. renge göre değil. daha yumuşak geçişlerle yapalım. ilk

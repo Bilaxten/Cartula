@@ -4127,10 +4127,19 @@ function runIntroChecks() {
       /regenerate\(true\);\s*spin\('randomMap'\)/.test(main) && /function applySeedText[\s\S]*?regenerate\(true\)/.test(main) &&
       /function applyWorldType[\s\S]*?regenerate\(true\)/.test(main) && !/\.forEach\(function \(id\) \{\s*\$\(id\)\.addEventListener\('change', function \(\) \{[\s\S]{0,120}regenerate\(true\)/.test(main) &&
       /voxelRenderer\.clearMesh\(\)/.test(vox) && /setEffects\(false\)/.test(vox));
-    push('terrain shader intro: black grid lines fade with the paint (vIntroGrid.w = 1 - keep), lava stays neutral until the end of the paint and glows after, one water level by height',
+    push('terrain shader intro: the paint is one left-to-right wipe on screen (no order by colour or height), grid lines fade with it, lava glows only after its own paint, one water level by height whose colour follows the wipe',
+      /float u = clamp\(0\.5 \+ dot\(aPosition\.xz, uIntroSweep\.xy\) \* uIntroSweep\.z, 0\.0, 1\.0\)/.test(vs) &&
+      /float keep = clamp\(\(uIntro\.x \* \(1\.0 \+ band\) - u\) \/ band, 0\.0, 1\.0\)/.test(vs) && !/yN/.test(vs) &&
       /vIntroGrid\.w = 1\.0 - keep/.test(vs) && /baseColor \*= 1\.0 - 0\.88 \* vIntroGrid\.w/.test(fsrc) &&
-      /aEmissive > 0\.01[\s\S]*?smoothstep\(0\.80, 0\.97, uIntro\.x\)[\s\S]*?vEmissive = aEmissive \* smoothstep\(0\.93, 1\.0, uIntro\.x\)/.test(vs) &&
-      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && !/bed\.g > 0\.5/.test(vs));
+      /aEmissive > 0\.01\) vEmissive = aEmissive \* smoothstep\(0\.75, 1\.0, paintKeep\)/.test(vs) &&
+      /float yw = mix\(uIntroRange\.w, uIntroRange\.z, uIntro\.y\)/.test(vs) && /\* paintKeep;/.test(vs) && !/bed\.g > 0\.5/.test(vs));
+    push('intro sweep: direction is the camera right on the ground (sin yaw, -cos yaw), extent covers the footprint, 0..1 left to right',
+      (() => {
+        const f = new Function(vox.slice(vox.indexOf('function introSweep'), vox.indexOf('function easeInOutCubic')) + '; return introSweep;');
+        const sw = f(), r = sw({ width: 320, height: 200 }, 35);
+        const dots = [[-160, -100], [160, -100], [-160, 100], [160, 100]].map(c => 0.5 + (c[0] * r[0] + c[1] * r[1]) * r[2]);
+        return Math.abs(Math.min(...dots)) < 1e-9 && Math.abs(Math.max(...dots) - 1) < 1e-9 && Math.abs(r[0] - Math.sin(35 * Math.PI / 180)) < 1e-12;
+      })());
     push('sky: clouds grow in from the map centre outward (per-cloud grow uniform scales the mesh about its centre; shadows follow the fade)',
       /uniform float uCloudGrow\[6\]/.test(v3d) && /aPosition \* uCloudGrow\[int\(aCloudIndex\)\]/.test(v3d) && /cloudNow\[f\]\.fade \*= cloudNow\[f\]\.grow/.test(v3d));
     push('terrain vertex shader: with the intro off, height is the mesh height (introY = aPosition.y) and colour is untouched',
