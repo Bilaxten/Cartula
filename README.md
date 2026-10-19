@@ -112,14 +112,18 @@ RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gö
 görüntüler birbirine 600 ms'de eriyerek geçer. Mesh gelince plaka kalkar, mesh aynı
 görüntüden başlar (`uIntroImage`) ve 700 ms'de kendi renklerine erir; ışık da aynı
 (düz tepede AO/gölge/dalga gölgesi yok, `uIntroLight`), yani el değiştirmede renk ya da
-parlaklık sıçraması olmaz. (2) **Izgara söner** (boya bittikten sonra, yükselmeden
-önce). (3) **Yükselti yükselir**: her kolon kendi saatinde, merkez önce, kenarlar
-%40 sonra, smootherstep (`introRiseScale`, geometri yeniden kurulmaz). Sular
+parlaklık sıçraması olmaz. (2) **Izgara söner** boya biterken (boya ile yükselişin başına bindirilmiş). (3) **Yükselti
+boya biter bitmez yükselir** (boşluk yok), **boyanın tersi sırayla**: en son boyanan
+yer (ortada kapanan leke) ilk yükselir, boyanın başladığı köşeler ve kenarlar en son.
+Sıra aynı çarpık/gürültülü cephe alanından türetilir (`order = (1,5 - introFront) / 1,48`,
+köşe başına değil köşe noktasında, komşu kolonlar köşelerini paylaştığı için aralarında
+çatlak açılmaz); her kolonun kendi yükselişi yine smootherstep (`introRiseScale`,
+geometri yeniden kurulmaz). Sular
 kendi seviyesinde kalır: kara denizin etrafında yükselir (deniz yüzeyi 0'da durur),
 göl ve nehirler kendi zeminleriyle yükselir; ayrı bir su animasyonu yoktur. AO, gölge ve
 dalga gölgesi yükselişle birlikte devreye girer; lav yükselirken parlar. (4)
 **Bulutlar** merkezden kenara büyür (`uCloudGrow`). Çizelge (ilk boyadan, ms): boya
-0-3800, ızgara 3500-4300, yükseliş 4300-6600, bulut 6000-7200. Yükseliş mesh ister:
+0-3800, ızgara 3400-4400, yükseliş 3800-6600, bulut 5300-6700. Yükseliş mesh ister:
 zaman saati kapıda (`GATE` = yükselişin başı) düz ve renkli haritada nefes alarak
 bekler. Yavaş cihazda saat kapıya kadar yavaşlar (en çok x0,4; her pass'in geldiği
 an mesh varışını tahmin ettirir), yani bekleyiş renkli düz haritada geçer, renksiz

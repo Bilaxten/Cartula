@@ -1016,9 +1016,11 @@
   //          SM.Intro.pixels), shown flat on the slab where it is painted and
   //          eased into one another; the mesh then starts from them and eases
   //          into its own colours
-  //   grid   the grid lines fade out
-  //   rise   the relief rises, every column on its own clock (the centre
-  //          first, a swell rolling outward, smootherstep each). Water keeps
+  //   grid   the grid lines fade out as the paint closes, overlapping the start of the rise
+  //   rise   the relief rises right as the paint ends, every column on its own
+  //          clock (smootherstep each), in the paint's order reversed: where the
+  //          paint closed last (the middle blob) rises first, the corners and
+  //          edges it began with rise last. Water keeps
   //          its own level, so the land rises around the sea; lakes and
   //          rivers rise with their ground. Occlusion, cast shadow and swell
   //          shading ease in with the rise. Lava glows as it rises
@@ -1029,8 +1031,8 @@
   // the mesh) says how long the rest will take; on a slow device the clock
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
-  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 4300, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
-    PAINT: [0, 3800], GRID: [3500, 4300], RISE: [4300, 6600], CLOUD: [6000, 7200], END: 7200 };
+  var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 3800, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
+    PAINT: [0, 3800], GRID: [3400, 4400], RISE: [3800, 6600], CLOUD: [5300, 6700], END: 6700 };
 
   // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
   // the map's seed (same map, same front) and 1 / the map's half diagonal, so

@@ -4,6 +4,18 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 9 (aynı gün): yükselti boya biter bitmez, boyanın tersi sırayla.** Uğur v8
+boyasını beğendi: *"ilk renklendirme animasyonu güzel ama yükselti çok geç giriyor.
+renkleme bitince girsin hemen, o da tam ortadan başlayarak yükseltileri getirmeye
+başlasın. rengin tersi şekilde yani."* Yükseliş 4300 → 3800'de (boyanın bitişinde)
+başlar, ızgara sönmesi 3400-4400 ile ikisine biner (seçimim: tek global sönme, hücre
+başına değil; boya kapanırken söner ve yükseliş başlarken biter). Sıra: boyadaki
+`introFront` alanı ters çevrilir (en son boyanan = ortadaki leke ilk yükselir, köşeler
+son), köşe noktasında değerlendirilir (hücre merkezinde değil; komşu kolonlar
+köşelerini paylaştığı için çatlak açılmaz); her kolon yine smootherstep (yayılma
+0,55, kolon süresi 0,45·yükseliş). Boyaya dokunulmadı. Çizelge: boya 0-3800, yükseliş
+3800-6600, bulut 5300-6700 (v8'e göre ~0,5 sn kısa).
+
 **Revizyon 8 (aynı gün): siyah plaka, sert ve kaba kenar, daha yavaş boya.** Uğur:
 *"siyah olsun boş map 131313 olabilir. ortadaki circle hala circle'a benziyor. onu
 öyle yapmayalım. kenarları baya rough olmalı. kenarları keskin ve rough olsun.

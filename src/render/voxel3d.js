@@ -1279,7 +1279,7 @@
       '  float yScale = uVScale;',
       '  vIntroGrid = vec4(aPosition, 0.0);',
       '  if (uIntro.w > 0.5) {',
-      '    yScale = introRiseScale(uIntroRise, aPosition.xz, uVScale);',
+      '    yScale = introRiseScale(uIntroRise, (1.5 - introFront(aPosition.xz, uIntroSweep)) / 1.48, uVScale);',
       '    // The paint, on the FLAT map: a hard, rough front (INTRO_FRONT_GLSL) that',
       '    // closes in from the corners, decided per CELL (the cell centre), so the',
       '    // edge follows the voxel grid. Every colour at once; water is just',
@@ -1643,17 +1643,17 @@
   ].join('\n');
 
   /* Loading animation: the rise. Every column lifts from the flat tone to its
-   * height on its own clock: the map centre first, the edges a little later
-   * (a swell rolling outward, not everything at once), each with a smootherstep
-   * (zero slope at both ends, so it starts slowly and lands softly). r =
-   * (progress 0..1, 1 / map radius, flat scale, fade). The fade scales the move
-   * for the slab and the mesh, so one stands down while the other takes over
-   * (the larger of the two surfaces is what shows). Same function in both
-   * shaders: no snap between them. */
+   * height on its own clock, each with a smootherstep (zero slope at both ends,
+   * so it starts slowly and lands softly). The ORDER is the paint front run
+   * backwards: `order` is 0 where the paint closed last (the middle blob) and 1
+   * where it started (corners and edges), so the relief swells up from the
+   * centre in the same irregular shape the paint left behind and reaches the
+   * edges last. The front is evaluated at the vertex, not the cell, so
+   * neighbouring columns share their corners and no crack opens between them.
+   * r = (progress 0..1, -, flat scale, fade); the fade scales the move. */
   var INTRO_RISE_GLSL = [
-    'float introRiseScale(vec4 r, vec2 xz, float vs) {',
-    '  float d = clamp(length(xz) * r.y, 0.0, 1.0);',
-    '  float l = clamp((r.x - d * 0.4) / 0.6, 0.0, 1.0);',
+    'float introRiseScale(vec4 r, float order, float vs) {',
+    '  float l = clamp((r.x - order * 0.55) / 0.45, 0.0, 1.0);',
     '  float k = l * l * l * (l * (l * 6.0 - 15.0) + 10.0);',
     '  return mix(r.z, vs, k * r.w);',
     '}'
@@ -1673,7 +1673,7 @@
       'void main() {',
       '  vNormal = aNormal;',
       '  vPos = aPosition;',
-      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * introRiseScale(uIntroRise, aPosition.xz, uVScale), aPosition.z, 1.0);',
+      '  gl_Position = uViewProjection * vec4(aPosition.x, aPosition.y * introRiseScale(uIntroRise, 0.0, uVScale), aPosition.z, 1.0);',
       '}'
     ].join('\n');
     var fs = [
