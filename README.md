@@ -89,7 +89,7 @@ değişikliği — eşzamanlı, animasyonsuz, intro iptal), `prefers-reduced-mot
 Worker yoksa ya da başlamazsa (`file://`, engelli betik) aynı `SM.generate` ana
 thread'de bir kare çizildikten sonra koşar (aynı grid, aynı animasyon).
 **İzometrik yükleme animasyonu** (`startVoxelIntro`, `voxel3d.js` `setIntro` /
-`setIntroSlab` / `setIntroImage`). Kamera tüm süre boyunca izometrik kalır. Sıra
+`setIntroSlab` / `setIntroImage`). Kamera düz yukarıdan başlar (2B haritanın görünümü) ve izometrik kameraya kayar (aşağıda). Sıra
 (Uğur 2026-10-19: *önce düz renkli harita, sonra yükselti*): (0) **Plaka**: haritanın ayak izinde **neredeyse siyah (#131313)** düz bir voksel
 plaka, üstünde **soluk açık gri hücre ızgarası** (koyu zeminde okunsun diye çizgiler
 artık siyah değil: albedo'yu %30 açık griye (0,62) doğru karıştırır), alçak bir
@@ -112,7 +112,14 @@ RGBA görüntüye çevrilir (hücre başına bir texel), plakanın üstünde gö
 görüntüler birbirine 600 ms'de eriyerek geçer. Mesh gelince plaka kalkar, mesh aynı
 görüntüden başlar (`uIntroImage`) ve 700 ms'de kendi renklerine erir; ışık da aynı
 (düz tepede AO/gölge/dalga gölgesi yok, `uIntroLight`), yani el değiştirmede renk ya da
-parlaklık sıçraması olmaz. (2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
+parlaklık sıçraması olmaz. **Kamera**: plaka ve boya sırasında kamera düz aşağı bakar (pitch 89, 2B harita gibi);
+boyanın bitişine ~500 ms kala başlayıp ~1,2 sn'de (`TILT` 1900-3100, smootherstep) normal
+izometrik kameraya eğilir, yani kabartma yükselirken kamera hâlâ eğiliyordur. Yaw hiç
+değişmez (dönme yok), pitch tam normal kameranın pitch'inde biter. Atla ya da iptal
+anında kamera hemen normal izometriğe döner. Random/seed/dünya tipi aynı kamera
+hareketini oynatır; kullanıcı kamerayı döndürmüşse eski `regenerate` gibi onun yaw/pitch'i
+korunur (yakınlaşma ve hedef sıfırlanır), yani eğilme onun açısına biter.
+(2) **Izgara söner** boya kapanırken (boya ve yükselişin başıyla bindirilmiş). (3) **Yükselti
 boya bitmeden ~300 ms önce başlar** (kapanan lekenin üstünde, ölü boşluk yok),
 **boyanın tersi sırayla**: en son boyanan yer (ortada kapanan leke) ilk yükselir,
 boyanın başladığı köşeler ve kenarlar en son. Sıra aynı çarpık/gürültülü cephe

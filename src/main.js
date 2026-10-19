@@ -1016,6 +1016,9 @@
   //          SM.Intro.pixels), shown flat on the slab where it is painted and
   //          eased into one another; the mesh then starts from them and eases
   //          into its own colours
+  //   camera looks straight down (pitch 89, the 2D map's view) through the slab
+  //          and the paint, then tilts into the normal isometric camera across
+  //          the end of the paint and the start of the rise (same yaw: no spin)
   //   grid   the grid lines fade out as the paint closes, overlapping the start of the rise
   //   rise   the relief starts to rise ~300 ms before the paint ends (over the
   //          closing blob), every column on its own
@@ -1033,7 +1036,7 @@
   // before the gate runs slower so the paint fills the wait. A tap, a key, or a
   // new map skips to the end.
   var VI = { V0: 0.05, BLANK_MIN: 450, GATE: 2100, MIN_RATE: 0.4, MORPH: 700, IMG_FADE: 600,
-    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], END: 4500 };
+    PAINT: [0, 2400], GRID: [2000, 2900], RISE: [2100, 3800], CLOUD: [3300, 4500], TILT: [1900, 3100], TOP_PITCH: 89, END: 4500 };
 
   // The paint front's parameters (INTRO_FRONT_GLSL): a noise offset taken from
   // the map's seed (same map, same front) and 1 / the map's half diagonal, so
@@ -1108,6 +1111,7 @@
     // The scale stays final all through: the rise is per column, in the shaders.
     var sweep = introFront(cfg);
     voxelRenderer.setSun(sunDir);
+    voxelRenderer.setCamera({ yaw: camA.yaw, pitch: VI.TOP_PITCH, zoom: camA.zoom, tx: camA.tx, ty: camA.ty, tz: camA.tz });
     voxelRenderer.setIntroSlab({ w: W, h: H, top: 1, bottom: -4 });
     voxelRenderer.setIntro({ paint: 0, grid: 1, light: 0, imageOn: 0, blend: 1, sweep: sweep, map: [W, H],
       rise: 0, invR: 2 / Math.sqrt(W * W + H * H), v0: VI.V0, meshBlend: 1 });
@@ -1153,6 +1157,11 @@
       var cblend = vi.started ? smootherstep(span(now - vi.tMesh, [0, VI.MORPH])) : 1;
       voxelRenderer.setIntro({ paint: paint, grid: gridAmt, light: rise, rise: riseP, imageOn: vi.img ? 1 : 0, blend: cblend });
       var cam = lerpCam(camA, vi.camB, rise);
+      // The camera looks straight down (like the 2D map) through the slab and
+      // the paint, then tilts into the normal isometric one across the end of
+      // the paint and the start of the rise. The yaw never changes, so the
+      // tilt does not spin; the pitch ends exactly on the normal camera's.
+      cam.pitch = VI.TOP_PITCH + (camA.pitch - VI.TOP_PITCH) * smootherstep(span(t, VI.TILT));
       // Waiting: a slow, low breath of the whole map (camera lift and a hair
       // of zoom, a sine, never a wave across it).
       var s = Math.sin((now - vi.t0) / 1000 * (Math.PI * 2 / 4.4)) * vi.amp;
@@ -1233,6 +1242,8 @@
     if (voxelRenderer) {
       voxelRenderer.setIntro(null);
       voxelRenderer.setIntroSlab(null);
+      // Whatever the tilt reached, the normal camera is the isometric one.
+      voxelRenderer.setCamera({ yaw: vi.camA.yaw, pitch: vi.camA.pitch, zoom: vi.camA.zoom, tx: vi.camA.tx, ty: vi.camA.ty, tz: vi.camA.tz });
       if (voxelRenderer.setSkyGrow) voxelRenderer.setSkyGrow(null);
       if (voxelRenderer.setEffects) voxelRenderer.setEffects(true);
       voxelRenderer.setVerticalScale(isoExag());

@@ -4,6 +4,19 @@
 
 ## Bu oturum — ilk yükleme: worker + katman katman açılış (2026-10-19)
 
+**Revizyon 11 (2026-10-19, `intro-topdown` dalı, v10 canlıya çıktıktan sonra): üstten 2B
+görünümden izometriğe kayma.** Uğur: *"bir de mapi düz 2d görünümünden, izometriğe
+kaydırarak getirelim kalan kısımlar aynı."* Kamera düz aşağı (pitch 89) başlar, plaka ve
+boya sırasında 2B harita gibi görünür, sonra `TILT` 1900-3100 ms'de (boya bitişinden
+~500 ms önce başlar, ~1,2 sn, smootherstep) normal izometrik pitch'e eğilir; yükselti
+(2100) kamera hâlâ eğilirken başlar. Yaw sabit (dönme yok): üstten bakışta harita 35°
+döndürülmüş bir kare görünür, 2B görünümdeki gibi eksenlere hizalı değil; hizalı olması
+istenirse yaw 90'dan 35'e dönerdi ama kamera dönüp savrulur, onu seçmedim. Zoom ve hedef
+aynı kalır (fit zaten her pitch'i kapsıyor). Toplam süre değişmedi (eğilme yükselişin
+içinde bitiyor). Atla/iptal: kamera hemen normal izometriğe (yaw/pitch), böylece sonraki
+`fitCamera` yanlış pitch'i miras almaz. Random/seed: aynı hareket; kullanıcı kamerayı
+döndürmüşse eski `regenerate`'ın yaptığı gibi yaw/pitch'i korunur, eğilme o açıya biter.
+
 **Revizyon 10 (aynı gün): hızlandırma.** Uğur: *"renklendirme ve yükseltme arasındaki
 geçiş çok yavaş. renklendirme ve yükseltmenin kendi animasyonları da aşırı yavaş çok
 bekliyoruz. hızlandıralım"*. Şekil, sıra, renkler v9 ile aynı; yalnız süre: boya
