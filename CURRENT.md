@@ -7,7 +7,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 ---
 
 **Güncellendi:** 2026-10-19
-**Dal:** `layered-intro` (PR açık, Uğur'un telefonda izlemesi bekleniyor; `master` canlıda 9674458)
+**Dal:** `master` (PR #2 `layered-intro` 2026-10-19'da birleşti, `49daa4d`; canlı = `d2a4bd0` uygulama dosyaları)
 **Çalışma alanı:** temiz
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/.
@@ -15,7 +15,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 ## Şu an
 
 - **Durum:** M1-M4 bitti (README'deki beş milestone'un hepsi `[x]`). Canlı demo
-  bilaxten.art/cartula (Vercel, `scripts/publish-site.sh`); canlı = `2991290` (kış karı).
+  bilaxten.art/cartula (Vercel, `scripts/publish-site.sh`); canlı = `d2a4bd0` (2026-10-19, voxel yükleme animasyonu v10).
   Vaka çalışması `bilaxten.art`'ta **canlı (2026-10-09)**; yalnız SES-TASLAK onayı Uğur'da.
 - **Son commit'ler:** `ab1fa66` (izometrik dokunmatik ipucu: iki parmak yalnız zoom; A32
   bulgusu 1 kapandı) · `37c3cea` (skill'ler bu repoya göre kırpıldı) · `8fd55f7` (A32 cihaz
@@ -55,7 +55,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
    plaka + siyah ızgara (~0,45 sn) → düz haritada köşelerden ortaya sert/kaba kenarlı boya (siyah #131313 plaka) (bekleyiş worker pass'lerinin
    renkli görüntüsüyle) → boya bitmeden hemen önce yükselti (boyanın tersi sırayla, ortadan) → ızgara onunla söner → bulutlar; Random/seed/dünya
    tipi de aynı animasyonla; ayrıntı `README.md` → *İzometrik yükleme animasyonu*. Videolar Drive
-   `aktarim/cartula/2026-10-19-intro/v10-*`, Uğur izleyip onaylayacak.
+   `aktarim/cartula/2026-10-19-intro/v10-*`. Uğur 2026-10-19 onayladı ("kalsın böyle"), canlıda. A32'de bakılmadı.
 3. Küçük, bağımsız: fırça sonrası komşu hücreler (`TODO.md` NEXT).
 
 ## Bu oturum — Galaxy A32 gerçek cihaz kontrolü (2026-10-18)
@@ -85,7 +85,7 @@ Kod değişmedi (bu bloğun yazıldığı oturumda). Telefon (Galaxy A32, Androi
   kilit/ölü bölge yok; parmak kalkınca kalanlar yine `dead`). `hint.*.touch` metinleri buna göre.
 - Kar/yağmur parçacık asgari boyutu cihaz pikseli yerine CSS pikseli (DPR 2.6'da taneler
   0,6 CSS px'ti, görünmüyordu). Yosunlu göl karışımı `[0, .55, .9]` (eskiden `.35/.65`, mavi okunuyordu).
-- Yayın (`publish-site.sh`) yapılmadı, Uğur'dan onay bekliyor. Yükleme ~4,9 sn: açılışta
+- Yayınlandı (2026-10-19, `publish-site.sh`, canlı = `d2a4bd0`). Yükleme ~4,9 sn: açılışta
   senkron 320² üretim (masaüstü node'da ~0,9 sn; A32 ~5x yavaş); düzeltilmedi.
 
 ## Görünüm mimarisi — TEK CÜMLE
