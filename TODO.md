@@ -160,10 +160,6 @@ Tasarım/mimari gerekçe buraya değil `README.md`'ye yazılır.
       kenara değen sığ deniz hâlâ kapanıp göl/kara oluyor; bu ölçütün
       dışında, iç deniz boyut eşiği kararı Uğur'da (kod değişmedi).
 
-- [ ] **Ölçüm paketi, görsel yarısı (Uğur):** sayısal manifest 2026-10-14'te
-      yeniden üretildi (`manifest-2026-10-14.json`, `1ee9917`). Kalan: 3 seed ×
-      üstten/voxel PNG + orbit klip, `docs/measurements/README.md`.
-
 ## NEXT
 
 - [ ] **Fırça sonrası komşu hücreler** (özellik 2026-10-13'ten beri gizli) 450 ms'lik tam render'a kadar eski

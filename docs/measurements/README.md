@@ -1,8 +1,8 @@
 # Ölçüm paketi — Cartula (Gerçeklik Borcu P3.5)
 
 bilaxten.art vaka çalışması için **dürüst görsel + ölçüm paketi**. Sayısal yarısı
-otomatik, görsel yarısı tarayıcıda üretilir (PNG capture + orbit klip headless
-yapılamaz — WebGL/canvas yok).
+otomatik, görsel yarısı tarayıcıda üretilir. (Düz Node headless'ında WebGL/canvas
+yok; ama GPU'lu gerçek Chromium ile görsel yarı da otomatik alınabiliyor, aşağıya bak.)
 
 ## Sabit seed'ler
 
@@ -46,21 +46,41 @@ bulgu 3) ve eşiği ölçülerek %2'den %10'a çıkarıldı (waterfall-dışı c
 oranı 5 seed'de %0-7.8 arası ölçüldü; `markWaterfalls`'un tagladığı gerçek
 şelaleler zaten testten hariç tutuluyor).
 
-## Görsel paket (tarayıcıda — Uğur)
+## Görsel paket (tarayıcıda, otomatik Playwright yakalaması)
 
-Her seed için `python scripts/serve.py` ile açıp:
+**Üretildi: 2026-10-20**, `ad471d2` üzerinde (uygulama kodu değişmeden). Önceki
+"headless yapılamaz" notu yanlıştı: GPU'lu tarayıcıyla hepsi betikle alınıyor.
 
-1. **Üstten görünüm PNG** — `?view=top&seed=<S>&size=192`, "Export PNG".
+Yöntem: `scripts/serve.py` ile servis + `playwright-core` (depoya değil geçici
+dizine kuruldu) ile Microsoft Edge (Chromium 155), headless, argümanlar
+`--use-angle=d3d11 --enable-gpu --ignore-gpu-blocklist`; WebGL
+`ANGLE (NVIDIA GeForce RTX 3060, Direct3D11)` (akuma). Pencere 1280x900.
+
+1. **Üstten PNG** — `?view=top&seed=<S>&size=192`, uygulamanın kendi "Export PNG"
+   düğmesi (indirme olayı yakalanır). 192² harita 9x büyütülmüş çıkar (1728x1728).
    → `docs/measurements/<S>-topdown-192.png`
-2. **Voxel görünüm PNG** — `?seed=<S>&size=192` (varsayılan iso = voxel; eski linklerdeki `renderer=voxel` zararsız, okunmuyor),
-   sabit kamera açısı (yaw 0.6, pitch 0.9 civarı), "Export PNG".
+2. **Voxel PNG** — `?seed=<S>&size=192&yaw=34.4&pitch=51.6&zoom=<uyum>`: yaw 0.6 /
+   pitch 0.9 **radyan** olarak okundu (34.4° / 51.6°; uygulama dereceyle çalışır).
+   `zoom`, önce varsayılan açılışta (animasyon bitince, 12 sn bekleyip) "Copy link"
+   ile okunan uyum değeri. Kamera URL'den geldiği için açılış animasyonu zaten
+   atlanır; 8 sn sonra uygulamanın "Export PNG" düğmesi (968x900, WebGL karesi).
    → `docs/measurements/<S>-voxel-192.png`
-3. **Orbit klip** — voxel modda "Auto-rotate" aç, ekran kaydı ~8 sn (bir tam tur).
-   → `docs/measurements/<S>-orbit.mp4` (ya da gif)
-4. **448² üstten** — `?view=top&seed=<S>&size=448` → ölçek karşılaştırması için.
+3. **Orbit klip** — 8 sn, 30 fps, 240 kare, bir tam tur (1,5°/kare), H.264 yuv420p,
+   968x900. **Sapma:** "Auto-rotate" kendi hızıyla 5°/sn (tam tur 72 sn) döner,
+   8 sn'de tam tur vermez; bu yüzden yaw, kamera dönüş kaydırıcısı (`rotSlider`)
+   üzerinden kare kare belirlendi (deterministik), kareler `#gl` canvas'ından
+   alındı, kaydırıcı/ipucu gizlendi. Kareler ffmpeg ile kodlandı.
+   → `docs/measurements/<S>-orbit.mp4` (2,6-2,8 MB)
+4. **448² üstten** — `?view=top&seed=<S>&size=448` (2688x2688).
+   → `docs/measurements/<S>-topdown-448.png`
 
-Property harness'ların yeşil olduğu commit'i not düş (vaka çalışmasında
-"her seed şu testlerden geçiyor" satırı için):
+Seed'ler eski sayısal biçimde (`seed=1337`) verildi; hâlâ çalışıyor ve aynı
+haritayı üretiyor. Bulutlar/kuş gibi animasyonlu katmanlar zamana bağlı olduğundan
+PNG/klip yeniden alınırsa bu öğeler küçük farkla durur; arazi aynıdır.
+
+Property harness'ların yeşil olduğu commit: `ad471d2` — `scripts/checks.sh`
+(`--sweep` + `--geo` dahil) 2026-10-20'de "temiz (0 uyarı)". Vaka çalışmasındaki
+"her seed şu testlerden geçiyor" satırı bu commit'e dayanır.
 
 ```
 scripts/checks.sh          # --sweep + --geo dahil

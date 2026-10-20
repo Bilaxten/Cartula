@@ -6,7 +6,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-19
+**Güncellendi:** 2026-10-20
 **Dal:** `master` (`intro-topdown` PR #3 birleştirildi: v11-v13, birleşme `b3c13f7`, canlı = `f2cf34a` uygulama dosyaları)
 **Çalışma alanı:** temiz
 
@@ -29,7 +29,7 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
   `git revert` ile geri alınır) · 2026-10-13 kararlarından sonraki işler (sert gölge, iç
   denizler, şimşek bulutun arkasında, TR terimleri) · A32'de kar tanelerinin görünürlüğü,
   gölge/şimşek zevki, yosunlu göl, gerçek iki parmak. Ayrıntı: `TODO.md` NOW.
-- **Ölçüm paketi görsel yarısı:** 3 seed × üstten/voxel PNG + orbit klip, `docs/measurements/README.md`.
+- **Ölçüm paketi görsel yarısı:** 2026-10-20'de otomatik alındı (3 seed × üstten 192/448, voxel PNG, orbit mp4; `docs/measurements/`). Uğur'un gözle bakması kaldı.
 - **İç deniz boyut eşiği** (256'da kenara değen sığ deniz kapanıp göl/kara oluyor): karar Uğur'da.
 - **Kıyı köpüğü sonrası shader cilası** (outline, mesafe sisi): estetik karar, Uğur'la.
 - **Seed = harita ve Kaydır düğmesi (2026-10-19, canlı):** seed artık tek kod
