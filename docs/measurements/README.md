@@ -70,11 +70,19 @@ dizine kuruldu) ile Microsoft Edge (Chromium 155), headless, argümanlar
 3. **Orbit klip** — 8 sn, 30 fps, 240 kare, bir tam tur (1,5°/kare), H.264 yuv420p,
    968x900. **Sapma:** "Auto-rotate" kendi hızıyla 5°/sn (tam tur 72 sn) döner,
    8 sn'de tam tur vermez; bu yüzden yaw, kamera dönüş kaydırıcısı (`rotSlider`)
-   üzerinden kare kare belirlendi (deterministik); zoom **142,8** (sabit, uygulamanın
-   kendi zoom'u, kırpma yok) — tahta tüm turda kadrajda, en dar boşluk yan 49 px
-   (~%5), alt 60 px; üstte bulutlar için daha fazla pay kalır. Kareler `#gl` canvas'ından
-   alındı, kaydırıcı/ipucu gizlendi. Kareler ffmpeg ile kodlandı.
-   → `docs/measurements/<S>-orbit.mp4` (2,6-2,8 MB)
+   üzerinden kare kare belirlendi. **Yön:** kuşlar gökyüzü shader'ında dünya
+   x→z yönünde (üstten bakınca saat yönünde) uçar (`angle = uTime * speed`);
+   yaw artınca sahne ekranda saat yönünün tersine döner (kamera saat yönünde
+   dolanır, kuşlarla aynı yön), bu yüzden yaw **azaltılır** (34,4° başlar,
+   kare başına −1,5°) ve kamera kuşların uçuşuna ters döner.
+   **Deterministik zaman:** uygulamanın animasyon saati (kuşlar, bulutlar, duman,
+   su) `requestAnimationFrame` zaman damgasından gelir; yakalama sırasında rAF ve
+   `performance.now` sanal saate alınır ve kare başına tam 1/30 sn ilerletilir,
+   yani animasyon klipte gerçek hızında, takılmadan akar. Zoom **142,8** (sabit,
+   uygulamanın kendi zoom'u, kırpma yok): tahta tüm turda kadrajda, en dar boşluk
+   yan 19 px (~%2), alt 32 px, üst >= 100 px. Kareler `#gl` canvas'ından alındı,
+   kaydırıcı/ipucu gizlendi, ffmpeg ile kodlandı.
+   → `docs/measurements/<S>-orbit.mp4` (3,1-3,3 MB)
 4. **448² üstten** — `?view=top&seed=<S>&size=448` (2688x2688).
    → `docs/measurements/<S>-topdown-448.png`
 
