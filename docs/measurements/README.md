@@ -61,14 +61,18 @@ dizine kuruldu) ile Microsoft Edge (Chromium 155), headless, argümanlar
    → `docs/measurements/<S>-topdown-192.png`
 2. **Voxel PNG** — `?seed=<S>&size=192&yaw=34.4&pitch=51.6&zoom=<uyum>`: yaw 0.6 /
    pitch 0.9 **radyan** olarak okundu (34.4° / 51.6°; uygulama dereceyle çalışır).
-   `zoom`, önce varsayılan açılışta (animasyon bitince, 12 sn bekleyip) "Copy link"
-   ile okunan uyum değeri. Kamera URL'den geldiği için açılış animasyonu zaten
+   `zoom`: varsayılan açılıştaki uyum değeri 164,24 (animasyon bitince "Copy link"
+   ile okundu); kareyi doldurmak için **152,8** kullanıldı (zoom ters çalışır:
+   küçük değer = yakın). Tahta genişliği karenin ~%88'i (kenar boşlukları
+   yan 57 px, alt 66 px). Kamera URL'den geldiği için açılış animasyonu zaten
    atlanır; 8 sn sonra uygulamanın "Export PNG" düğmesi (968x900, WebGL karesi).
    → `docs/measurements/<S>-voxel-192.png`
 3. **Orbit klip** — 8 sn, 30 fps, 240 kare, bir tam tur (1,5°/kare), H.264 yuv420p,
    968x900. **Sapma:** "Auto-rotate" kendi hızıyla 5°/sn (tam tur 72 sn) döner,
    8 sn'de tam tur vermez; bu yüzden yaw, kamera dönüş kaydırıcısı (`rotSlider`)
-   üzerinden kare kare belirlendi (deterministik), kareler `#gl` canvas'ından
+   üzerinden kare kare belirlendi (deterministik); zoom **142,8** (sabit, uygulamanın
+   kendi zoom'u, kırpma yok) — tahta tüm turda kadrajda, en dar boşluk yan 49 px
+   (~%5), alt 60 px; üstte bulutlar için daha fazla pay kalır. Kareler `#gl` canvas'ından
    alındı, kaydırıcı/ipucu gizlendi. Kareler ffmpeg ile kodlandı.
    → `docs/measurements/<S>-orbit.mp4` (2,6-2,8 MB)
 4. **448² üstten** — `?view=top&seed=<S>&size=448` (2688x2688).
