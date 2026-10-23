@@ -6,9 +6,11 @@ Sonraki ajanın okuduğu **ilk** dosya. Diff'ten okunamayan şeyi tutar: niyet.
 
 ---
 
-**Güncellendi:** 2026-10-20
+**Güncellendi:** 2026-10-23
 **Dal:** `master` (`intro-topdown` PR #3 birleştirildi: v11-v13, birleşme `b3c13f7`, canlı = `f2cf34a` uygulama dosyaları)
 **Çalışma alanı:** temiz
+
+> 2026-10-23: Link önizleme kartı (WhatsApp, iMessage, Telegram, X, Slack): `index.html` `<head>`'inde Open Graph + Twitter etiketleri, görsel `assets/og.png` (kare 600x600, logo + ad, koyu zemin; yayında `https://bilaxten.art/cartula/assets/og.png`). WhatsApp önizlemeyi URL başına önbelleğe alır; eski kart görünürse adrese `?v=2` ekle.
 
 > 2026-10-05: Proje StilizedMaps iken **Cartula** olarak yeniden adlandırıldı; canlı demo https://bilaxten.art/cartula/.
 
