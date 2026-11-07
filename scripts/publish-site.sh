@@ -22,6 +22,16 @@ say() { printf '\033[1m%s\033[0m\n' "$*"; }
 die() { printf 'HATA  %s\n' "$*" >&2; exit 1; }
 sha() { if command -v sha256sum >/dev/null; then sha256sum | cut -d' ' -f1; else shasum -a 256 | cut -d' ' -f1; fi; }
 
+# Vercel Web Analytics: bilaxten.art counts a page only if it carries this tag. It is added to the published copy
+# only (never to the source), before </head>, and skipped when the tag is already there. Reads stdin, writes stdout.
+analytics() {
+  awk -v tag='<script defer src="/_vercel/insights/script.js"></script>' '
+    { buf[NR] = $0; if (index($0, "/_vercel/insights/script.js")) has = 1 }
+    END { for (i = 1; i <= NR; i++) { l = buf[i]
+            if (!has && !done) { p = index(l, "</head>"); if (p) { l = substr(l, 1, p - 1) tag substr(l, p); done = 1 } }
+            print l } }'
+}
+
 # Every published app file must match live, not only index.html: a release that changes only JS kept
 # index.html identical and the old check said ok while fog.js was still stale live (2026-10-06).
 # Line endings ignored: a Windows checkout holds CRLF, git (and so the live copy) LF.
@@ -29,7 +39,7 @@ live_matches() {
   local f want got stamp bad=0
   stamp="$(date +%s)"
   while IFS= read -r -d '' f; do
-    want="$(tr -d '\r' < "$repo/$f" | sha)"
+    if [ "$f" = index.html ]; then want="$(analytics < "$repo/$f" | tr -d '\r' | sha)"; else want="$(tr -d '\r' < "$repo/$f" | sha)"; fi
     got="$(curl -fsS -H 'Cache-Control: no-cache' "$url$f?v=$stamp" 2>/dev/null | tr -d '\r' | sha || true)"
     if [ "$want" != "$got" ]; then
       [ "${1:-}" = "-v" ] && echo "FARK  $f"
@@ -84,9 +94,10 @@ mkdir -p "$wt/cartula"
 for p in "${APP[@]}"; do
   git -C "$repo" ls-files -z -- "$p" | while IFS= read -r -d '' f; do
     mkdir -p "$wt/cartula/$(dirname "$f")"
-    cp "$repo/$f" "$wt/cartula/$f"
+    if [ "$f" = index.html ]; then analytics < "$repo/$f" > "$wt/cartula/$f"; else cp "$repo/$f" "$wt/cartula/$f"; fi
   done
 done
+grep -q "/_vercel/insights/script.js" "$wt/cartula/index.html" || die "analytics etiketi eklenemedi (</head> yok?)"
 git -C "$wt" add -A cartula
 if git -C "$wt" diff --cached --quiet; then
   echo "ok    master'daki Cartula zaten güncel ($rev)"
