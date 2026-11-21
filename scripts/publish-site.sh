@@ -58,7 +58,7 @@ case "${1:-}" in "") ;; --dry-run) dry="--dry-run" ;; *) die "bilinmeyen argüma
 
 site="${BILAXTEN_ART_DIR:-}"
 if [ -z "$site" ]; then
-  for d in "$HOME/bilaxten.art" "$HOME/Desktop/bilaxten.art" ${USERPROFILE:+"$(cygpath -u "$USERPROFILE" 2>/dev/null || echo "$USERPROFILE")/Desktop/bilaxten.art"}; do
+  for d in "$HOME/bilaxten.art" "$HOME/Documents/Projects/bilaxten.art" ${USERPROFILE:+"$(cygpath -u "$USERPROFILE" 2>/dev/null || echo "$USERPROFILE")/Documents/Projects/bilaxten.art"}; do
     [ -d "$d/.git" ] && { site="$d"; break; }
   done
 fi
